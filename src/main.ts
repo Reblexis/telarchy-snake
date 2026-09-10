@@ -16,7 +16,7 @@ const AUTH_URL = env('TELARCHY_AUTH_URL', 'https://telarchy.com/api');
 if (!KEY && !SESSION_EMAIL) throw new Error('set TELARCHY_API_KEY or TELARCHY_SESSION_EMAIL/PASSWORD');
 const WS = env('TELARCHY_WORKSPACE_ID');
 const METRIC = env('TELARCHY_METRIC_ID');
-const PORT = Number(env('PORT', '8795'));
+const PORT = Number(env('PORT', '8797'));
 const STATE = env('STATE_FILE', 'state/snake.json');
 const PUBLIC_WS_URL = env('WORKSPACE_URL', 'https://telarchy.com/snake');
 

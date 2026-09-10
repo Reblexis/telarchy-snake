@@ -1,4 +1,4 @@
 # Append to /etc/caddy/Caddyfile on the box (DNS: snake.telarchy.com -> the box).
 snake.telarchy.com {
-	reverse_proxy 127.0.0.1:8796
+	reverse_proxy 127.0.0.1:8797
 }
