@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Futarchy snake</title>
+<style>
+  :root { --bg:#0b0d10; --fg:#e8e6e1; --mute:#8b8f98; --line:#22262c; --snake:#4ade80; --head:#bbf7d0; --food:#f87171; --lead:#facc15; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; padding-block:16px; padding-inline:16px; }
+  .wrap { max-width:1248px; margin:0 auto; display:grid; grid-template-columns: minmax(0, 720px) minmax(0, 1fr); gap:24px; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+  h1 { font-size:20px; margin:0 0 4px; font-weight:600; }
+  .sub { color:var(--mute); margin:0 0 12px; }
+  canvas { width:100%; max-width:720px; aspect-ratio:1; background:#101318; border:1px solid var(--line); border-radius:8px; display:block; }
+  .stats { display:flex; gap:20px; flex-wrap:wrap; margin:12px 0; }
+  .stat b { display:block; font-size:28px; font-weight:600; line-height:1.1; }
+  .stat span { color:var(--mute); font-size:13px; }
+  .cards { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:10px 12px; text-decoration:none; color:inherit; display:block; }
+  .card.lead { border-color:var(--lead); }
+  .card .dir { font-weight:600; }
+  .card .px { font-size:24px; font-weight:600; }
+  .card .vs { color:var(--mute); font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:12px; }
+  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mute); font-weight:500; }
+  .tscroll { overflow-x:auto; }
+  .foot { color:var(--mute); font-size:13px; margin-top:12px; }
+  a { color:#93c5fd; }
+  .count { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>Futarchy snake</h1>
+    <p class="sub">Every minute the market picks the snake's next move: four proposals, one per direction, priced on the snake's length. The highest is approved.</p>
+    <canvas id="c" width="720" height="720"></canvas>
+    <div class="stats">
+      <div class="stat"><b id="len">–</b><span>length</span></div>
+      <div class="stat"><b id="deaths">–</b><span>deaths today</span></div>
+      <div class="stat"><b id="step">–</b><span>step</span></div>
+      <div class="stat"><b id="clock" class="count">–</b><span>seconds to decision</span></div>
+    </div>
+  </div>
+  <div>
+    <h1 style="font-size:16px">Step <span id="openstep">–</span>: which way?</h1>
+    <p class="sub">Approved-branch price is the market's expected length if the snake goes this way. Click a card to trade it on Telarchy.</p>
+    <div class="cards" id="cards"></div>
+    <div class="tscroll">
+    <table>
+      <thead><tr><th>step</th><th>moved</th><th>up</th><th>right</th><th>down</th><th>left</th><th>length</th></tr></thead>
+      <tbody id="log"></tbody>
+    </table>
+    </div>
+    <p class="foot">This is a Telarchy workspace steered by its own market. Trade at <a id="wslink" href="#">telarchy.com</a>. Data: <a href="/state">/state</a>.</p>
+  </div>
+</div>
+<script>
+const GRID = 20;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const dirs = ['up','right','down','left'];
+const arrows = { up:'↑', right:'→', down:'↓', left:'←' };
+let last = null;
+function fmt(v){ return v == null ? '–' : (Math.round(v*10)/10).toString(); }
+function draw(g){
+  const cell = cv.width / GRID;
+  ctx.fillStyle = '#101318'; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.strokeStyle = '#181c22'; ctx.lineWidth = 1;
+  for (let i=0;i<=GRID;i++){ ctx.beginPath(); ctx.moveTo(i*cell,0); ctx.lineTo(i*cell,cv.height); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i*cell); ctx.lineTo(cv.width,i*cell); ctx.stroke(); }
+  ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc((g.food.x+0.5)*cell,(g.food.y+0.5)*cell,cell*0.32,0,Math.PI*2); ctx.fill();
+  g.snake.forEach((s,i)=>{ ctx.fillStyle = i===0 ? '#bbf7d0' : '#4ade80'; ctx.fillRect(s.x*cell+2, s.y*cell+2, cell-4, cell-4); });
+}
+function render(s){
+  last = s;
+  draw(s.game);
+  document.getElementById('len').textContent = s.game.length;
+  document.getElementById('deaths').textContent = s.deathsToday;
+  document.getElementById('step').textContent = s.game.step;
+  document.getElementById('openstep').textContent = s.open ? s.open.step : '–';
+  const cards = document.getElementById('cards');
+  if (s.open) {
+    let best = null, bp = -Infinity;
+    for (const d of dirs) { const p = s.open.quotes[d].approved; if (p != null && p > bp) { bp = p; best = d; } }
+    cards.innerHTML = dirs.map(d => {
+      const q = s.open.quotes[d]; const p = s.open.proposals[d];
+      return `<a class="card ${d===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${arrows[d]} Move ${d}</div><div class="px">${fmt(q.approved)}</div><div class="vs">if declined ${fmt(q.declined)}</div></a>`;
+    }).join('');
+    document.getElementById('wslink').href = s.open.proposals.up.url.replace(/\/p\/.*$/, '');
+  } else cards.innerHTML = '';
+  document.getElementById('log').innerHTML = s.recentDecisions.map(d =>
+    `<tr><td>${d.step}</td><td>${arrows[d.direction]} ${d.direction}${d.undecided?' (undecided)':''}</td>` +
+    dirs.map(x => `<td>${fmt(d.quotes[x].approved)}</td>`).join('') +
+    `<td>${d.lengthBefore} → ${d.lengthAfter ?? '…'}</td></tr>`).join('');
+}
+async function poll(){ try { const r = await fetch('/state', {cache:'no-store'}); render(await r.json()); } catch(e){} }
+setInterval(poll, 2000); poll();
+setInterval(()=>{ if(!last||!last.open) return; const s = Math.max(0, Math.round((Date.parse(last.open.decideAt)-Date.now())/1000)); document.getElementById('clock').textContent = s; }, 250);
+</script>
+</body>
+</html>
