@@ -4,7 +4,7 @@ import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import { renderFrame, WIDTH, HEIGHT } from './frame.js';
 
-const STATE_URL = process.env.SNAKE_STATE_URL ?? 'http://127.0.0.1:8797/state';
+const STATE_URL = process.env.SNAKE_STATE_URL ?? 'http://127.0.0.1:8802/state';
 const RTMP = process.env.TWITCH_RTMP_URL ?? 'rtmp://live.twitch.tv/app';
 const KEY = process.env.TWITCH_STREAM_KEY;
 const FPS = Number(process.env.STREAM_FPS ?? '5');
