@@ -24,6 +24,9 @@ function fakeClient(quotesFor: (step: number) => Quotes) {
     async postReading(value, at, final) {
       calls.push({ name: 'postReading', args: [value, at.toISOString(), final] });
     },
+    async refreshBooks() {
+      calls.push({ name: 'refreshBooks', args: [] });
+    },
   };
   return { client, calls };
 }
@@ -135,7 +138,31 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await op.closeStep(new Date('2026-09-11T10:00:55Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     const names = new Set(calls.map(c => c.name));
-    expect([...names].sort()).toEqual(['decideProposal', 'postProposal', 'postReading', 'readQuotes']);
+    expect([...names].sort()).toEqual(['decideProposal', 'postProposal', 'postReading', 'readQuotes', 'refreshBooks']);
+  });
+
+  it('forces the rolling-market refresh before the first four proposals of each UTC day, and not otherwise', async () => {
+    const { client, calls } = fakeClient(upWins);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(new Date('2026-09-11T23:58:00Z'));
+    expect(calls[0].name).toBe('refreshBooks'); // first step of the process: the day is new to it
+    await op.closeStep(new Date('2026-09-11T23:58:55Z'));
+    await op.tick(new Date('2026-09-11T23:59:00Z'));
+    expect(calls.filter(c => c.name === 'refreshBooks').length).toBe(1);
+    await op.closeStep(new Date('2026-09-11T23:59:55Z'));
+    await op.tick(new Date('2026-09-12T00:00:00Z'));
+    const idx = calls.findIndex((c, i) => c.name === 'refreshBooks' && i > 0);
+    expect(idx).toBeGreaterThan(0);
+    expect(calls[idx + 1].name).toBe('postProposal'); // refresh, then the four posts
+    expect(calls.filter(c => c.name === 'refreshBooks').length).toBe(2);
+  });
+
+  it('a failing refresh does not stop the four proposals', async () => {
+    const { client, calls } = fakeClient(upWins);
+    const flaky: TelarchyClient = { ...client, async refreshBooks() { throw new Error('503'); } };
+    const op = new Operator(flaky, newGame(rng), rng);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    expect(calls.filter(c => c.name === 'postProposal').length).toBe(4);
   });
 
   it('records the last ten decisions with the four prices and the length change', async () => {

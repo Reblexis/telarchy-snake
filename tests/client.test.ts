@@ -50,11 +50,20 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(q.left.approved).toBe(2);
   });
 
-  it('falls back to the week horizon when the proposal has no today pair (last minute of the day)', async () => {
+  it('reads today only: a proposal with no today pair (last minute of the day) has no price', async () => {
     const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ targetDate: '2026-W37', approved: { consensus: 7 }, declined: { consensus: 6 } }] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T23:59:55Z'));
     const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }]);
-    expect(q.up).toEqual({ approved: 7, declined: 6 });
+    expect(q.up).toEqual({ approved: null, declined: null });
+  });
+
+  it('forces the refresh of the rolling markets with manage rights (the midnight book)', async () => {
+    const { reqs, fetchImpl } = fakeFetch(() => ({ json: { ok: true } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    await c.refreshBooks();
+    expect(reqs[0].url).toBe('https://telarchy.com/api/predictions/markets/refresh');
+    expect(reqs[0].method).toBe('POST');
+    expect(reqs[0].body).toEqual({ force: true });
   });
 
   it('a pair with no consensus, or a proposal that cannot be read, is a null price, not a throw', async () => {

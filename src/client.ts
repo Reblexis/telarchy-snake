@@ -108,7 +108,7 @@ export class HttpTelarchyClient implements TelarchyClient {
       try {
         const r = await this.call('GET', `/proposals/${encodeURIComponent(ref.id)}`);
         const markets: any[] = Array.isArray(r?.markets) ? r.markets : [];
-        const m = markets.find(x => x.targetDate === keys.today) ?? markets.find(x => x.targetDate === keys.week);
+        const m = markets.find(x => x.targetDate === keys.today);
         if (m) q = { approved: num(m.approved?.consensus), declined: num(m.declined?.consensus) };
       } catch {
         // unreadable: a null price, the decision rule handles it
@@ -121,6 +121,10 @@ export class HttpTelarchyClient implements TelarchyClient {
   async decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void> {
     if (verdict === 'approve') await this.call('POST', `/proposals/${encodeURIComponent(ref.id)}/approve`, {});
     else await this.call('POST', `/proposals/${encodeURIComponent(ref.id)}/decline`, { refund: true });
+  }
+
+  async refreshBooks(): Promise<void> {
+    await this.call('POST', '/predictions/markets/refresh', { force: true });
   }
 
   async postReading(value: number, at: Date, _final: boolean): Promise<void> {

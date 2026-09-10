@@ -12,6 +12,10 @@ export interface TelarchyClient {
   decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void>;
   /** A reading of Snake length at `at`; `final` marks the last reading of a UTC day. */
   postReading(value: number, at: Date, final: boolean): Promise<void>;
+  /** Force the workspace's rolling markets to refresh, so the new day's today
+   *  book exists before the first proposals of the day (docs/snake.md, "The
+   *  workspace"). */
+  refreshBooks(): Promise<void>;
 }
 
 export interface OpenStep {
@@ -54,6 +58,7 @@ export class Operator {
   open: OpenStep | null = null;
   decisions: DecisionRecord[] = [];
   private pending: Direction | null = null; // decided, waiting for the top of minute
+  private lastOpenedDay: string | null = null;
 
   constructor(private client: TelarchyClient, game: GameState, private rng: Rng) {
     this.game = game;
@@ -66,6 +71,13 @@ export class Operator {
   /** Second 0: post the four proposals for the next step. */
   async openStep(now: Date): Promise<OpenStep> {
     if (this.open) throw new Error(`step ${this.open.step} is already open`);
+    const day = utcDay(now);
+    if (day !== this.lastOpenedDay) {
+      // First step of a UTC day (or of this process): make sure the today
+      // book is open. A failure here only costs a step's prices.
+      try { await this.client.refreshBooks(); } catch { /* undecided path covers it */ }
+      this.lastOpenedDay = day;
+    }
     const stepNo = this.game.step + 1;
     const g = this.game;
     const description =
@@ -174,7 +186,7 @@ export class Operator {
   }
 
   toJSON() {
-    return { game: this.game, open: this.open, decisions: this.decisions, pending: this.pending };
+    return { game: this.game, open: this.open, decisions: this.decisions, pending: this.pending, lastOpenedDay: this.lastOpenedDay };
   }
 
   static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random): Operator {
@@ -182,6 +194,7 @@ export class Operator {
     op.open = raw.open ?? null;
     op.decisions = raw.decisions ?? [];
     op.pending = raw.pending ?? null;
+    op.lastOpenedDay = raw.lastOpenedDay ?? null;
     return op;
   }
 }
