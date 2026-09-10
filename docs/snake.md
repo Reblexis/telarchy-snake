@@ -58,8 +58,10 @@ posting the four proposals; the three baseline books for the step's
 cells are then open and every proposal gets its three pairs.
 
 Liquidity: every pair book a proposal opens is funded by the workspace
-owner through the metric's per-horizon proposal credits (10 credits a
-book on the 1-move and 5-move horizons, 20 on the 60-move horizon),
+owner through the metric's per-horizon proposal credits (20 credits a
+book on the 1-move and 5-move horizons, 40 on the 60-move horizon, so a
+five-credit trade is an opinion and a twenty-credit one does not pin the
+book),
 never by the proposer; the operator posts
 with no subsidy of its own. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
@@ -72,14 +74,21 @@ otherwise.
 
 ## The step
 
-At second 0 of each minute the operator posts four proposals, titles
-exactly `Move up`, `Move right`, `Move down`, `Move left`, description
-naming the step number and the current state in one line. Each carries a
-one-minute decision window, so its pair books on Snake length open at
-once and close at the deadline.
+At second 0 of each minute the operator posts four proposals at once,
+titles exactly `Move up`, `Move right`, `Move down`, `Move left`. Each
+carries the same deadline, the top of the next minute, so the four books
+close together and the deadline a trader sees is the real one. The
+description names the step, the state, the three cells the proposal is
+priced on (as clock minutes, UTC), the rule, and the board's address, in
+one line.
 
-At second 55, before the deadline, the operator reads each proposal's
-three pairs and decides on the **60-move horizon alone**: a direction's
+During the minute the operator re-reads the four proposals' pairs every
+five seconds and publishes them on `/state`, so the board and any bot
+see the live prices and the current leader, not only the decision.
+
+At second 58, two seconds before the deadline, the operator reads each
+proposal's three pairs one last time and decides on the **60-move
+horizon alone**: a direction's
 score is its predicted impact there, the approved-branch price minus the
 declined-branch price. Then:
 
@@ -98,7 +107,7 @@ The 1-move and 5-move pairs never decide anything; they exist to be
 traded and to show how the market sees the near future.
 
 The approved direction is applied at the next top of minute. So the
-board shows: proposals for step N open during minute N, decision at N:55,
+board shows: proposals for step N open during minute N, decision at N:58,
 move at N+1:00, and the next four proposals posted the same second.
 
 Nothing about the game is decided by the operator except through this
@@ -121,9 +130,13 @@ The service serves one page, the board, at `/`. It carries:
   link.
 
 It polls the service's own `/state` JSON every two seconds. `/state` is
-public and is the whole of the board's data: game state, current
-proposals with prices, recent decisions, counters. A watcher who wants to
-build their own board or bot can read it.
+public and is the whole of the board's data and a bot's feed: the game
+state, the workspace and metric ids, the open step with its four
+proposals, and for each direction and cell the approved and declined
+market ids and their live prices, the cell keys, the decide instant and
+the next step instant, the decision rule in words, recent decisions and
+counters. A bot needs one read of `/state` per step to know what to
+trade.
 
 Body text on the board is left-aligned; only titles and single numbers
 may be centred.
