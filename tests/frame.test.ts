@@ -69,6 +69,12 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
     expect(Buffer.compare(f, g)).not.toBe(0);
   });
 
+  it('the plus sign has a glyph, so a positive impact never renders as a question mark', () => {
+    const a = Buffer.alloc(WIDTH * HEIGHT * 3); drawText(a, 0, 0, '+', 2, [255, 255, 255]);
+    const b = Buffer.alloc(WIDTH * HEIGHT * 3); drawText(b, 0, 0, '?', 2, [255, 255, 255]);
+    expect(Buffer.compare(a, b)).not.toBe(0);
+  });
+
   it('a complete game renders without an open step and without crashing', () => {
     const f = renderFrame({ ...state, open: null, secondsToDecision: null, complete: true, game: { ...state.game, complete: true, length: 400 } } as any);
     expect(f.length).toBe(WIDTH * HEIGHT * 3);
