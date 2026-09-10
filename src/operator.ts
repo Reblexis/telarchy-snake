@@ -1,20 +1,21 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
 import { newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
-import { decide, DIRECTIONS, type Decision, type Quotes } from './decide.js';
+import { decide, DIRECTIONS, emptyQuotes, type Decision, type Quotes } from './decide.js';
 
 export interface ProposalRef { id: string; title: string; url: string }
 export type Verdict = 'approve' | 'decline';
 
 export interface TelarchyClient {
   postProposal(title: string, description: string, decisionMinutes: number): Promise<ProposalRef>;
-  readQuotes(refs: ProposalRef[]): Promise<Quotes>;
+  /** The three pairs of each proposal, for the step that opened at `openedAt`. */
+  readQuotes(refs: ProposalRef[], openedAt: Date): Promise<Quotes>;
   decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void>;
   /** A reading of Snake length at `at`; `final` marks the last reading of a UTC day. */
   postReading(value: number, at: Date, final: boolean): Promise<void>;
-  /** Force the workspace's rolling markets to refresh, so the new day's today
-   *  book exists before the first proposals of the day (docs/snake.md, "The
-   *  workspace"). */
+  /** Force the workspace's rolling markets to refresh, so the step's three
+   *  minute cells have their baseline books before the proposals are posted
+   *  (docs/snake.md, "The workspace"). */
   refreshBooks(): Promise<void>;
 }
 
@@ -43,13 +44,6 @@ export interface DecisionRecord {
 const DECIDE_SECOND = 55;
 const WINDOW_MINUTES = 1;
 
-const emptyQuotes = (): Quotes => ({
-  up: { approved: null, declined: null },
-  right: { approved: null, declined: null },
-  down: { approved: null, declined: null },
-  left: { approved: null, declined: null },
-});
-
 function utcDay(d: Date): string { return d.toISOString().slice(0, 10); }
 function isoMinute(d: Date): Date { const c = new Date(d); c.setUTCSeconds(0, 0); return c; }
 
@@ -58,7 +52,6 @@ export class Operator {
   open: OpenStep | null = null;
   decisions: DecisionRecord[] = [];
   private pending: Direction | null = null; // decided, waiting for the top of minute
-  private lastOpenedDay: string | null = null;
 
   constructor(private client: TelarchyClient, game: GameState, private rng: Rng) {
     this.game = game;
@@ -71,13 +64,10 @@ export class Operator {
   /** Second 0: post the four proposals for the next step. */
   async openStep(now: Date): Promise<OpenStep> {
     if (this.open) throw new Error(`step ${this.open.step} is already open`);
-    const day = utcDay(now);
-    if (day !== this.lastOpenedDay) {
-      // First step of a UTC day (or of this process): make sure the today
-      // book is open. A failure here only costs a step's prices.
-      try { await this.client.refreshBooks(); } catch { /* undecided path covers it */ }
-      this.lastOpenedDay = day;
-    }
+    if (this.game.complete) throw new Error('the game is complete');
+    // Every step: make sure the three minute cells have their baseline books.
+    // A failure here only costs this step's prices (the undecided path).
+    try { await this.client.refreshBooks(); } catch { /* undecided path covers it */ }
     const stepNo = this.game.step + 1;
     const g = this.game;
     const description =
@@ -100,7 +90,7 @@ export class Operator {
     if (open.decision) return open.decision;
     let quotes: Quotes;
     try {
-      quotes = await this.client.readQuotes(DIRECTIONS.map(d => open.proposals[d]));
+      quotes = await this.client.readQuotes(DIRECTIONS.map(d => open.proposals[d]), new Date(open.openedAt));
     } catch {
       quotes = emptyQuotes();
     }
@@ -150,8 +140,9 @@ export class Operator {
     // The reading is stamped at the minute it was taken; the last one before
     // midnight is marked final so the day's books settle on it.
     const next = new Date(now.getTime() + 60_000);
-    const final = utcDay(next) !== utcDay(now);
+    const final = utcDay(next) !== utcDay(now) || this.game.complete;
     await this.client.postReading(this.game.length, now, final);
+    if (this.game.complete) return; // the final reading; no more proposals
     await this.openStep(now);
   }
 
@@ -181,12 +172,13 @@ export class Operator {
       recentDecisions: this.recentDecisions(),
       deathsToday: this.deathsToday(now),
       stepsTotal: this.game.step,
+      complete: this.game.complete,
       now: now.toISOString(),
     };
   }
 
   toJSON() {
-    return { game: this.game, open: this.open, decisions: this.decisions, pending: this.pending, lastOpenedDay: this.lastOpenedDay };
+    return { game: this.game, open: this.open, decisions: this.decisions, pending: this.pending };
   }
 
   static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random): Operator {
@@ -194,7 +186,7 @@ export class Operator {
     op.open = raw.open ?? null;
     op.decisions = raw.decisions ?? [];
     op.pending = raw.pending ?? null;
-    op.lastOpenedDay = raw.lastOpenedDay ?? null;
+    if (op.game.complete === undefined) op.game = { ...op.game, complete: false };
     return op;
   }
 }

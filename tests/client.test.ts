@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HttpTelarchyClient, periodKeys } from '../src/client.js';
+import { HttpTelarchyClient, minuteCells } from '../src/client.js';
 
 type Req = { url: string; method: string; headers: Record<string, string>; body: any };
 
@@ -32,67 +32,63 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(ref).toEqual({ id: 'p-1', title: 'Move up', url: 'https://telarchy.com/snake/p/41' });
   });
 
-  it('reads the approved and declined consensus on the today horizon, per direction by title', async () => {
+  it('reads the three horizons by their minute cells: +1, +5 and +60 minutes after the opening minute, per direction by title', async () => {
     const { fetchImpl } = fakeFetch(r => {
-      const id = r.url.split('/').pop();
+      const id = r.url.split('/').pop()!;
       const px: Record<string, number> = { 'p-up': 4, 'p-right': 5, 'p-down': 3, 'p-left': 2 };
       return { json: { id, markets: [
-        { targetDate: '2026-W37', approved: { consensus: 99 }, declined: { consensus: 98 } },
-        { targetDate: '2026-09-11', approved: { consensus: px[id!] }, declined: { consensus: 3.5 } },
+        { targetDate: '2026-09-11T10:01', approved: { consensus: 1.5 }, declined: { consensus: 1 } },
+        { targetDate: '2026-09-11T10:05', approved: { consensus: 2.5 }, declined: { consensus: 2 } },
+        { targetDate: '2026-09-11T11:00', approved: { consensus: px[id] }, declined: { consensus: 3.5 } },
+        { targetDate: '2026-09-11', approved: { consensus: 99 }, declined: { consensus: 99 } },
       ] } };
     });
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
     const q = await c.readQuotes([
       { id: 'p-up', title: 'Move up', url: '' }, { id: 'p-right', title: 'Move right', url: '' },
       { id: 'p-down', title: 'Move down', url: '' }, { id: 'p-left', title: 'Move left', url: '' },
-    ]);
-    expect(q.right).toEqual({ approved: 5, declined: 3.5 });
-    expect(q.left.approved).toBe(2);
+    ], new Date('2026-09-11T10:00:00.400Z'));
+    expect(q.right.m60).toEqual({ approved: 5, declined: 3.5 });
+    expect(q.right.m1).toEqual({ approved: 1.5, declined: 1 });
+    expect(q.right.m5).toEqual({ approved: 2.5, declined: 2 });
+    expect(q.left.m60.approved).toBe(2);
   });
 
-  it('matches the today pair by its settlement instant when the summary carries no target date (production shape)', async () => {
+  it('matches a minute cell by its settlement instant when the summary carries no target date (production shape)', async () => {
     const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
-      { resolvesOn: '2026-09-11T00:00:00Z', approved: { consensus: 4.5 }, declined: { consensus: 3 } },
+      { resolvesOn: '2026-09-11T11:01:00Z', approved: { consensus: 4.5 }, declined: { consensus: 3 } },
+      { resolvesOn: '2026-09-11T10:06:00.000Z', approved: { consensus: 2 }, declined: { consensus: 2 } },
+      { resolvesOn: '2026-09-11T10:02:00Z', approved: { consensus: 1 }, declined: { consensus: 1 } },
     ] } }));
-    const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-10T20:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }]);
-    expect(q.up).toEqual({ approved: 4.5, declined: 3 });
+    const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    expect(q.up.m60).toEqual({ approved: 4.5, declined: 3 });
+    expect(q.up.m5).toEqual({ approved: 2, declined: 2 });
+    expect(q.up.m1).toEqual({ approved: 1, declined: 1 });
   });
 
-  it('with several pairs and no target dates, the one settling at the end of today wins over a later one', async () => {
+  it('the cells roll over the hour and the day correctly', async () => {
+    const seen: string[] = [];
     const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
-      { resolvesOn: '2026-09-14T00:00:00Z', approved: { consensus: 9 }, declined: { consensus: 9 } },
-      { resolvesOn: '2026-09-11T00:00:00.000Z', approved: { consensus: 4 }, declined: { consensus: 3 } },
+      { targetDate: '2026-09-12T00:00', approved: { consensus: 1 }, declined: { consensus: 1 } },
+      { targetDate: '2026-09-12T00:04', approved: { consensus: 5 }, declined: { consensus: 5 } },
+      { targetDate: '2026-09-12T00:59', approved: { consensus: 60 }, declined: { consensus: 60 } },
     ] } }));
-    const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-10T20:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }]);
-    expect(q.up).toEqual({ approved: 4, declined: 3 });
-  });
-
-  it('reads today only: a proposal with no today pair (last minute of the day) has no price', async () => {
-    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ targetDate: '2026-W37', resolvesOn: '2026-09-14T00:00:00Z', approved: { consensus: 7 }, declined: { consensus: 6 } }] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T23:59:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }]);
-    expect(q.up).toEqual({ approved: null, declined: null });
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }], new Date('2026-09-11T23:59:00Z'));
+    expect(q.up.m1.approved).toBe(1); expect(q.up.m5.approved).toBe(5); expect(q.up.m60.approved).toBe(60);
+    void seen;
   });
 
-  it('forces the refresh of the rolling markets with manage rights (the midnight book)', async () => {
-    const { reqs, fetchImpl } = fakeFetch(() => ({ json: { ok: true } }));
-    const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    await c.refreshBooks();
-    expect(reqs[0].url).toBe('https://telarchy.com/api/predictions/markets/refresh');
-    expect(reqs[0].method).toBe('POST');
-    expect(reqs[0].body).toEqual({ force: true });
-  });
-
-  it('a pair with no consensus, or a proposal that cannot be read, is a null price, not a throw', async () => {
+  it('a missing pair, or a proposal that cannot be read, is a null price on that horizon, not a throw', async () => {
     const { fetchImpl } = fakeFetch(r => r.url.endsWith('p-up')
-      ? { json: { markets: [{ targetDate: '2026-09-11', approved: { consensus: null }, declined: { consensus: null } }] } }
+      ? { json: { markets: [{ targetDate: '2026-09-11T11:00', approved: { consensus: null }, declined: { consensus: null } }] } }
       : { status: 500, json: { error: 'boom' } });
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }, { id: 'p-right', title: 'Move right', url: '' }]);
-    expect(q.up).toEqual({ approved: null, declined: null });
-    expect(q.right).toEqual({ approved: null, declined: null });
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }, { id: 'p-right', title: 'Move right', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    expect(q.up.m60).toEqual({ approved: null, declined: null });
+    expect(q.up.m1).toEqual({ approved: null, declined: null });
+    expect(q.right.m60).toEqual({ approved: null, declined: null });
   });
 
   it('approve posts to /approve; decline posts to /decline with refund: true so both branches void', async () => {
@@ -127,10 +123,9 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(c)).some(n => /trade|order/i.test(n))).toBe(false);
   });
 
-  it('period keys: today is the UTC date, week is the ISO week', () => {
-    expect(periodKeys(new Date('2026-09-11T23:59:55Z'))).toEqual({ today: '2026-09-11', week: '2026-W37' });
-    expect(periodKeys(new Date('2026-01-01T00:00:00Z'))).toEqual({ today: '2026-01-01', week: '2026-W01' });
-    expect(periodKeys(new Date('2027-01-01T00:00:00Z'))).toEqual({ today: '2027-01-01', week: '2026-W53' });
+  it('minute cells: the cell N minutes after the opening minute, named YYYY-MM-DDTHH:MM', () => {
+    expect(minuteCells(new Date('2026-09-11T10:00:40Z'))).toEqual({ m1: '2026-09-11T10:01', m5: '2026-09-11T10:05', m60: '2026-09-11T11:00' });
+    expect(minuteCells(new Date('2026-12-31T23:59:00Z'))).toEqual({ m1: '2027-01-01T00:00', m5: '2027-01-01T00:04', m60: '2027-01-01T00:59' });
   });
 });
 

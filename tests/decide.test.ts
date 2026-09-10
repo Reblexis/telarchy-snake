@@ -1,29 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import { decide, DIRECTIONS, type Quote } from '../src/decide.js';
 
-const q = (approved: number | null, declined: number | null = 10): Quote => ({ approved, declined });
+// A direction's quotes on the three horizons; m60 decides, m1 and m5 are for show.
+const q = (approved60: number | null, declined60: number | null = 10, m1: Quote = { approved: 1, declined: 1 }, m5: Quote = { approved: 5, declined: 5 }) =>
+  ({ m1, m5, m60: { approved: approved60, declined: declined60 } });
 
 describe('the decision rule (docs/snake.md, "The step")', () => {
   it('lists the four directions in the tie order up, right, down, left', () => {
     expect(DIRECTIONS).toEqual(['up', 'right', 'down', 'left']);
   });
 
-  it('approves the direction whose approved-branch price is highest and declines the other three', () => {
+  it('approves the direction with the highest 60-move impact (approved minus declined) and declines the other three', () => {
     const d = decide({ up: q(10), right: q(12), down: q(9), left: q(3) }, 'up');
     expect(d.approved).toBe('right');
     expect(d.declined.sort()).toEqual(['down', 'left', 'up']);
     expect(d.undecided).toBe(false);
   });
 
-  it('a tie goes to the current heading', () => {
-    const d = decide({ up: q(12), right: q(12), down: q(12), left: q(12) }, 'down');
+  it('a tie (untraded books all at baseline: impact 0 everywhere) goes to the current heading', () => {
+    const d = decide({ up: q(12, 12), right: q(12, 12), down: q(12, 12), left: q(12, 12) }, 'down');
     expect(d.approved).toBe('down');
   });
 
   it('a tie not involving the heading goes to up, right, down, left in that order', () => {
-    const d = decide({ up: q(5), right: q(12), down: q(12), left: q(12) }, 'up');
+    const d = decide({ up: q(5, 10), right: q(12, 10), down: q(12, 10), left: q(12, 10) }, 'up');
     expect(d.approved).toBe('right');
-    const d2 = decide({ up: q(5), right: q(5), down: q(12), left: q(12) }, 'up');
+    const d2 = decide({ up: q(5, 10), right: q(5, 10), down: q(12, 10), left: q(12, 10) }, 'up');
     expect(d2.approved).toBe('down');
   });
 
@@ -41,12 +43,25 @@ describe('the decision rule (docs/snake.md, "The step")', () => {
   });
 
   it('the direction to apply is the approved one when there is one', () => {
-    const d = decide({ up: q(1), right: q(2), down: q(30), left: q(4) }, 'up');
+    const d = decide({ up: q(1, 10), right: q(2, 10), down: q(30, 10), left: q(4, 10) }, 'up');
     expect(d.direction).toBe('down');
   });
 
-  it('the declined-branch price never decides anything', () => {
-    const d = decide({ up: q(10, 99), right: q(11, 1), down: q(1, 99), left: q(1, 99) }, 'up');
+  it('it is the impact that decides, not the approved price: a high approved price against a higher declined price loses', () => {
+    const d = decide({ up: q(50, 60), right: q(11, 1), down: q(30, 30), left: q(1, 5) }, 'up');
+    expect(d.approved).toBe('right');
+  });
+
+  it('a direction whose 60-move pair has an approved price but no declined price is unreadable', () => {
+    const d = decide({ up: q(50, null), right: q(11, 1), down: q(null, 1), left: q(null, null) }, 'up');
+    expect(d.approved).toBe('right');
+  });
+
+  it('the 1-move and 5-move horizons never decide anything', () => {
+    const d = decide({
+      up: q(10, 10, { approved: 99, declined: 0 }, { approved: 99, declined: 0 }),
+      right: q(11, 10), down: q(10, 10), left: q(10, 10),
+    }, 'up');
     expect(d.approved).toBe('right');
   });
 });

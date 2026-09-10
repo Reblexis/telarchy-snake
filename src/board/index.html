@@ -29,13 +29,20 @@
   .foot { color:var(--mute); font-size:13px; margin-top:12px; }
   a { color:#93c5fd; }
   .count { font-variant-numeric: tabular-nums; }
+  /* Embedded on the Telarchy floor (?embed=1): a 16:9 frame, no heading or footer of its own. */
+  .embed body { padding-block:8px; padding-inline:8px; }
+  .embed .wrap { grid-template-columns: minmax(0, 46%) minmax(0, 1fr); gap:12px; max-width:none; }
+  .embed h1.title, .embed p.lead, .embed .foot, .embed .tscroll { display:none; }
+  .embed .stat b { font-size:20px; }
+  .embed .card .px { font-size:18px; }
+  .embed .card .vs { font-size:11px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div>
-    <h1>Futarchy snake</h1>
-    <p class="sub">Every minute the market picks the snake's next move: four proposals, one per direction, priced on the snake's length. The highest is approved.</p>
+    <h1 class="title">Futarchy snake</h1>
+    <p class="sub lead">Every minute the market picks the snake's next move: four proposals, one per direction, priced on the snake's length. The highest is approved.</p>
     <canvas id="c" width="720" height="720"></canvas>
     <div class="stats">
       <div class="stat"><b id="len">–</b><span>length</span></div>
@@ -46,11 +53,12 @@
   </div>
   <div>
     <h1 style="font-size:16px">Step <span id="openstep">–</span>: which way?</h1>
-    <p class="sub">Approved-branch price is the market's expected length if the snake goes this way. Click a card to trade it on Telarchy.</p>
+    <p class="sub">Each card is the market's predicted impact of that move on the length in 60 moves (approved minus declined). The highest is approved at :55. Click a card to trade it.</p>
     <div class="cards" id="cards"></div>
     <div class="tscroll">
     <table>
       <thead><tr><th>step</th><th>moved</th><th>up</th><th>right</th><th>down</th><th>left</th><th>length</th></tr></thead>
+      <caption style="caption-side:top;text-align:left;color:var(--mute);padding:4px 6px">Impact in 60 moves at decision time</caption>
       <tbody id="log"></tbody>
     </table>
     </div>
@@ -72,6 +80,9 @@ function draw(g){
   ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc((g.food.x+0.5)*cell,(g.food.y+0.5)*cell,cell*0.32,0,Math.PI*2); ctx.fill();
   g.snake.forEach((s,i)=>{ ctx.fillStyle = i===0 ? '#bbf7d0' : '#4ade80'; ctx.fillRect(s.x*cell+2, s.y*cell+2, cell-4, cell-4); });
 }
+const embed = new URLSearchParams(location.search).get('embed') === '1';
+if (embed) document.documentElement.classList.add('embed');
+function impact(q){ const m = q && q.m60; if (!m || m.approved == null || m.declined == null) return null; return m.approved - m.declined; }
 function render(s){
   last = s;
   draw(s.game);
@@ -82,16 +93,16 @@ function render(s){
   const cards = document.getElementById('cards');
   if (s.open) {
     let best = null, bp = -Infinity;
-    for (const d of dirs) { const p = s.open.quotes[d].approved; if (p != null && p > bp) { bp = p; best = d; } }
+    for (const d of dirs) { const p = impact(s.open.quotes[d]); if (p != null && p > bp) { bp = p; best = d; } }
     cards.innerHTML = dirs.map(d => {
-      const q = s.open.quotes[d]; const p = s.open.proposals[d];
-      return `<a class="card ${d===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${arrows[d]} Move ${d}</div><div class="px">${fmt(q.approved)}</div><div class="vs">if declined ${fmt(q.declined)}</div></a>`;
+      const q = s.open.quotes[d]; const p = s.open.proposals[d]; const imp = impact(q);
+      return `<a class="card ${d===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${arrows[d]} Move ${d}</div><div class="px">${imp == null ? '–' : (imp >= 0 ? '+' : '') + fmt(imp)}</div><div class="vs">impact on length in 60 moves. In 1: ${fmt(q.m1.approved)}, in 5: ${fmt(q.m5.approved)}, in 60: ${fmt(q.m60.approved)}</div></a>`;
     }).join('');
     document.getElementById('wslink').href = s.open.proposals.up.url.replace(/\/p\/.*$/, '');
-  } else cards.innerHTML = '';
+  } else cards.innerHTML = s.complete ? '<div class="card lead"><div class="dir">Complete</div><div class="vs">The snake filled the grid. The game is over and the length stays at 400.</div></div>' : '';
   document.getElementById('log').innerHTML = s.recentDecisions.map(d =>
     `<tr><td>${d.step}</td><td>${arrows[d.direction]} ${d.direction}${d.undecided?' (undecided)':''}</td>` +
-    dirs.map(x => `<td>${fmt(d.quotes[x].approved)}</td>`).join('') +
+    dirs.map(x => { const v = impact(d.quotes[x]); return `<td>${v == null ? '–' : fmt(v)}</td>`; }).join('') +
     `<td>${d.lengthBefore} → ${d.lengthAfter ?? '…'}</td></tr>`).join('');
 }
 async function poll(){ try { const r = await fetch('/state', {cache:'no-store'}); render(await r.json()); } catch(e){} }

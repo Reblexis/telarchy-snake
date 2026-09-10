@@ -1,6 +1,7 @@
 // The stream frame, docs/snake.md "The stream": the board drawn straight into
 // an RGB buffer, no browser. A 5x7 bitmap font carries the numbers and labels.
 import { GRID } from './engine.js';
+import { impact60 } from './decide.js';
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
@@ -108,8 +109,8 @@ export function renderFrame(s: any): Buffer {
     drawText(buf, X, y, `STEP ${s.open.step}: WHICH WAY? DECIDES IN ${secs}S`, 2, FG); y += 28;
     let best: string | null = null, bp = -Infinity;
     for (const d of ['up', 'right', 'down', 'left']) {
-      const p = s.open.quotes?.[d]?.approved;
-      if (p !== null && p !== undefined && p > bp) { bp = p; best = d; }
+      const p = impact60(s.open.quotes?.[d]);
+      if (p !== null && p > bp) { bp = p; best = d; }
     }
     const cw = 250, chh = 96;
     (['up', 'right', 'down', 'left'] as const).forEach((d, i) => {
@@ -117,18 +118,22 @@ export function renderFrame(s: any): Buffer {
       fill(buf, cx, cy, cw, chh, CARD);
       if (d === best) { fill(buf, cx, cy, cw, 4, LEAD); fill(buf, cx, cy, 4, chh, LEAD); }
       const q = s.open.quotes?.[d] ?? {};
+      const imp = impact60(q);
       drawText(buf, cx + 12, cy + 12, `${ARROW[d]} MOVE ${d.toUpperCase()}`, 2, d === best ? LEAD : FG);
-      drawText(buf, cx + 12, cy + 38, fmt(q.approved), 5, FG);
-      drawText(buf, cx + 12, cy + 78, `IF DECLINED ${fmt(q.declined)}`, 1, MUTE);
+      drawText(buf, cx + 12, cy + 38, imp === null ? '-' : `${imp >= 0 ? '+' : ''}${fmt(imp)}`, 5, FG);
+      drawText(buf, cx + 12, cy + 78, `IN 60  1:${fmt(q.m1?.approved)}  5:${fmt(q.m5?.approved)}  60:${fmt(q.m60?.approved)}`, 1, MUTE);
     });
     y += 2 * (chh + 12) + 8;
+  } else if (s.complete) {
+    drawText(buf, X, y, 'COMPLETE: THE SNAKE FILLED THE GRID', 2, LEAD); y += 40;
   } else {
     drawText(buf, X, y, 'WAITING FOR THE NEXT STEP', 2, MUTE); y += 40;
   }
 
-  drawText(buf, X, y, 'LAST MOVES   ^   >   v   <   LENGTH', 2, MUTE); y += 22;
+  drawText(buf, X, y, 'LAST MOVES   IMPACT IN 60: ^   >   v   <   LENGTH', 2, MUTE); y += 22;
+  const fi = (q: any) => { const v = impact60(q); return (v === null ? '-' : fmt(v)).padStart(4); };
   for (const d of (s.recentDecisions ?? []).slice(0, 8)) {
-    const row = `${String(d.step).padStart(5)} ${ARROW[d.direction]}${d.undecided ? '?' : ' '} ${fmt(d.quotes.up.approved).padStart(4)} ${fmt(d.quotes.right.approved).padStart(4)} ${fmt(d.quotes.down.approved).padStart(4)} ${fmt(d.quotes.left.approved).padStart(4)}  ${d.lengthBefore}>${d.lengthAfter ?? '..'}`;
+    const row = `${String(d.step).padStart(5)} ${ARROW[d.direction]}${d.undecided ? '?' : ' '} ${fi(d.quotes.up)} ${fi(d.quotes.right)} ${fi(d.quotes.down)} ${fi(d.quotes.left)}  ${d.lengthBefore}>${d.lengthAfter ?? '..'}`;
     drawText(buf, X, y, row, 2, FG); y += 20;
     if (y > HEIGHT - 40) break;
   }

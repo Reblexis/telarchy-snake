@@ -2,11 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { renderFrame, WIDTH, HEIGHT, cellRect, drawText, measureText } from '../src/frame.js';
 
 const state = {
-  game: { snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }], heading: 'right', food: { x: 3, y: 4 }, length: 3, step: 12, deaths: 1 },
+  game: { snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }], heading: 'right', food: { x: 3, y: 4 }, length: 3, step: 12, deaths: 1, complete: false },
+  complete: false,
   open: {
     step: 13, openedAt: '', decideAt: new Date(Date.now() + 30_000).toISOString(),
     proposals: { up: { id: '1', title: 'Move up', url: 'https://telarchy.com/snake/p/1' }, right: { id: '2', title: 'Move right', url: '' }, down: { id: '3', title: 'Move down', url: '' }, left: { id: '4', title: 'Move left', url: '' } },
-    quotes: { up: { approved: 3.2, declined: 3 }, right: { approved: 3.9, declined: 3 }, down: { approved: null, declined: null }, left: { approved: 2.1, declined: 3 } },
+    quotes: {
+      up: { m1: { approved: 3, declined: 3 }, m5: { approved: 3.1, declined: 3 }, m60: { approved: 3.2, declined: 3 } },
+      right: { m1: { approved: 3, declined: 3 }, m5: { approved: 3.4, declined: 3 }, m60: { approved: 3.9, declined: 3 } },
+      down: { m1: { approved: null, declined: null }, m5: { approved: null, declined: null }, m60: { approved: null, declined: null } },
+      left: { m1: { approved: 3, declined: 3 }, m5: { approved: 2.5, declined: 3 }, m60: { approved: 2.1, declined: 3 } },
+    },
   },
   secondsToDecision: 30,
   recentDecisions: [],
@@ -59,7 +65,12 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
 
   it('the leading direction is marked: its card differs from a non-leading one at the marker pixel', () => {
     const f = renderFrame(state as any);
-    const g = renderFrame({ ...state, open: { ...state.open, quotes: { ...state.open.quotes, right: { approved: 1, declined: 3 }, up: { approved: 9, declined: 3 } } } } as any);
+    const g = renderFrame({ ...state, open: { ...state.open, quotes: { ...state.open.quotes, right: { ...state.open.quotes.right, m60: { approved: 1, declined: 3 } }, up: { ...state.open.quotes.up, m60: { approved: 9, declined: 3 } } } } } as any);
     expect(Buffer.compare(f, g)).not.toBe(0);
+  });
+
+  it('a complete game renders without an open step and without crashing', () => {
+    const f = renderFrame({ ...state, open: null, secondsToDecision: null, complete: true, game: { ...state.game, complete: true, length: 400 } } as any);
+    expect(f.length).toBe(WIDTH * HEIGHT * 3);
   });
 });

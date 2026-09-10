@@ -1,7 +1,7 @@
 // The Telarchy client the operator uses. Deliberately has no trade method:
 // docs/snake.md, "The operator account never trades."
 import type { ProposalRef, TelarchyClient, Verdict } from './operator.js';
-import type { Quotes, Quote } from './decide.js';
+import { emptyDirectionQuotes, type Quotes, type Quote, type Horizon } from './decide.js';
 import type { Direction } from './engine.js';
 
 export interface SessionAuth {
@@ -24,15 +24,18 @@ export interface ClientOptions {
 
 type FetchLike = typeof fetch;
 
-export function periodKeys(now: Date): { today: string; week: string } {
-  const today = now.toISOString().slice(0, 10);
-  // ISO week: Thursday of this week decides the year.
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - day);
-  const yearStart = Date.UTC(d.getUTCFullYear(), 0, 1);
-  const week = Math.ceil(((d.getTime() - yearStart) / 86_400_000 + 1) / 7);
-  return { today, week: `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}` };
+const HORIZON_MINUTES: Record<Horizon, number> = { m1: 1, m5: 5, m60: 60 };
+
+/** The minute cell (YYYY-MM-DDTHH:MM, UTC) N minutes after the minute `openedAt` lies in. */
+function cellAt(openedAt: Date, minutes: number): string {
+  const m = new Date(openedAt);
+  m.setUTCSeconds(0, 0);
+  return new Date(m.getTime() + minutes * 60_000).toISOString().slice(0, 16);
+}
+
+/** The three cells a step's proposals are priced on (docs/snake.md, "The workspace"). */
+export function minuteCells(openedAt: Date): Record<Horizon, string> {
+  return { m1: cellAt(openedAt, 1), m5: cellAt(openedAt, 5), m60: cellAt(openedAt, 60) };
 }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -99,24 +102,27 @@ export class HttpTelarchyClient implements TelarchyClient {
     return { id: String(r.id), title, url: `${this.o.workspaceUrl}/p/${r.number}` };
   }
 
-  async readQuotes(refs: ProposalRef[]): Promise<Quotes> {
-    const keys = periodKeys(this.clock());
+  async readQuotes(refs: ProposalRef[], openedAt: Date): Promise<Quotes> {
+    const cells = minuteCells(openedAt);
     const out = {} as Quotes;
     for (const ref of refs) {
       const dir = ref.title.replace(/^Move /, '') as Direction;
-      let q: Quote = { approved: null, declined: null };
+      const q = emptyDirectionQuotes();
       try {
         const r = await this.call('GET', `/proposals/${encodeURIComponent(ref.id)}`);
         const markets: any[] = Array.isArray(r?.markets) ? r.markets : [];
-        // The today pair: by target date when the summary names one, else by
-        // its settlement instant, which is the start of tomorrow (UTC).
-        const endOfToday = Date.parse(`${keys.today}T00:00:00Z`) + 86_400_000;
-        const m =
-          markets.find(x => x.targetDate === keys.today) ??
-          markets.find(x => !x.targetDate && typeof x.resolvesOn === 'string' && Date.parse(x.resolvesOn) === endOfToday);
-        if (m) q = { approved: num(m.approved?.consensus), declined: num(m.declined?.consensus) };
+        for (const h of Object.keys(cells) as Horizon[]) {
+          const cell = cells[h];
+          // By target date when the summary names one, else by the settlement
+          // instant, which is the end of the cell (one minute after it).
+          const end = Date.parse(`${cell}:00Z`) + 60_000;
+          const m =
+            markets.find(x => x.targetDate === cell) ??
+            markets.find(x => !x.targetDate && typeof x.resolvesOn === 'string' && Date.parse(x.resolvesOn) === end);
+          if (m) q[h] = { approved: num(m.approved?.consensus), declined: num(m.declined?.consensus) };
+        }
       } catch {
-        // unreadable: a null price, the decision rule handles it
+        // unreadable: null prices, the decision rule handles it
       }
       out[dir] = q;
     }

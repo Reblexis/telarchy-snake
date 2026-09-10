@@ -10,6 +10,8 @@ export interface GameState {
   length: number;
   step: number;
   deaths: number;
+  /** The grid is full: the game is over and nothing changes any more. */
+  complete: boolean;
 }
 
 export type Rng = () => number; // returns a non-negative integer or a float in [0,1)
@@ -23,7 +25,7 @@ const DELTA: Record<Direction, Cell> = {
 
 function startSnake(): Cell[] {
   const c = GRID / 2;
-  return [{ x: c, y: c }, { x: c - 1, y: c }, { x: c - 2, y: c }];
+  return [{ x: c, y: c }];
 }
 
 function occupied(snake: Cell[], c: Cell): boolean {
@@ -49,10 +51,11 @@ export function spawnFood(snake: Cell[], rng: Rng): Cell {
 
 export function newGame(rng: Rng): GameState {
   const snake = startSnake();
-  return { snake, heading: 'right', food: spawnFood(snake, rng), length: 3, step: 0, deaths: 0 };
+  return { snake, heading: 'right', food: spawnFood(snake, rng), length: 1, step: 0, deaths: 0, complete: false };
 }
 
 export function step(g: GameState, dir: Direction, rng: Rng = Math.random): GameState {
+  if (g.complete) return g;
   const head = g.snake[0];
   const d = DELTA[dir];
   const next = { x: head.x + d.x, y: head.y + d.y };
@@ -63,9 +66,10 @@ export function step(g: GameState, dir: Direction, rng: Rng = Math.random): Game
   const hitsSelf = occupied(body, next);
   if (hitsWall || hitsSelf) {
     const snake = startSnake();
-    return { snake, heading: 'right', food: spawnFood(snake, rng), length: 3, step: g.step + 1, deaths: g.deaths + 1 };
+    return { snake, heading: 'right', food: spawnFood(snake, rng), length: 1, step: g.step + 1, deaths: g.deaths + 1, complete: false };
   }
   const snake = [next, ...body];
-  const food = eats ? spawnFood(snake, rng) : g.food;
-  return { snake, heading: dir, food, length: snake.length, step: g.step + 1, deaths: g.deaths };
+  const complete = snake.length >= GRID * GRID;
+  const food = complete ? g.food : eats ? spawnFood(snake, rng) : g.food;
+  return { snake, heading: dir, food, length: snake.length, step: g.step + 1, deaths: g.deaths, complete };
 }

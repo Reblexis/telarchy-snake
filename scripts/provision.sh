@@ -33,10 +33,10 @@ echo "# creating metric Snake length" >&2
 METRIC=$(curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-Type: application/json' -X POST "$BASE/metrics" -d '{
   "name": "Snake length",
   "description": "How many segments the snake has right now. A step every minute; the market picks the direction. Death respawns it at 3.",
-  "value": 3,
+  "value": 1,
   "marketRangeMax": 60,
-  "timePreference": { "enabled": false, "customHorizons": ["+0d"],
-    "horizonCredits": { "+0d": { "book": 25, "proposal": 20 } } }
+  "timePreference": { "enabled": false, "customHorizons": ["+1min", "+5min", "+60min"],
+    "horizonCredits": { "+1min": { "book": 10, "proposal": 10 }, "+5min": { "book": 10, "proposal": 10 }, "+60min": { "book": 25, "proposal": 20 } } }
 }')
 MID=$(echo "$METRIC" | j "d['id']")
 

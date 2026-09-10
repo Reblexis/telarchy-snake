@@ -13,8 +13,8 @@ function fakeClient(quotesFor: (step: number) => Quotes) {
       calls.push({ name: 'postProposal', args: [title, description, decisionMinutes] });
       return { id: `p${++n}`, title, url: `https://telarchy.com/snake/p/${n}` };
     },
-    async readQuotes(refs: ProposalRef[]) {
-      calls.push({ name: 'readQuotes', args: [refs.map(r => r.id)] });
+    async readQuotes(refs: ProposalRef[], openedAt: Date) {
+      calls.push({ name: 'readQuotes', args: [refs.map(r => r.id), openedAt.toISOString()] });
       const step = Number(calls.filter(c => c.name === 'readQuotes').length);
       return quotesFor(step);
     },
@@ -31,9 +31,10 @@ function fakeClient(quotesFor: (step: number) => Quotes) {
   return { client, calls };
 }
 
-const allTen = (): Quotes => ({ up: { approved: 10, declined: 10 }, right: { approved: 10, declined: 10 }, down: { approved: 10, declined: 10 }, left: { approved: 10, declined: 10 } });
-const upWins = (): Quotes => ({ ...allTen(), up: { approved: 12, declined: 10 } });
-const none = (): Quotes => ({ up: { approved: null, declined: null }, right: { approved: null, declined: null }, down: { approved: null, declined: null }, left: { approved: null, declined: null } });
+const h = (a: number | null, d: number | null) => ({ m1: { approved: a, declined: d }, m5: { approved: a, declined: d }, m60: { approved: a, declined: d } });
+const allTen = (): Quotes => ({ up: h(10, 10), right: h(10, 10), down: h(10, 10), left: h(10, 10) });
+const upWins = (): Quotes => ({ ...allTen(), up: h(12, 10) });
+const none = (): Quotes => ({ up: h(null, null), right: h(null, null), down: h(null, null), left: h(null, null) });
 
 const rng = () => 0;
 
@@ -55,7 +56,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const desc = String(calls.find(c => c.name === 'postProposal')!.args[1]);
     expect(desc).toMatch(/step 1\b/i);
-    expect(desc).toMatch(/length 3\b/);
+    expect(desc).toMatch(/length 1\b/);
     expect(desc.includes('\n')).toBe(false);
   });
 
@@ -141,20 +142,37 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect([...names].sort()).toEqual(['decideProposal', 'postProposal', 'postReading', 'readQuotes', 'refreshBooks']);
   });
 
-  it('forces the rolling-market refresh before the first four proposals of each UTC day, and not otherwise', async () => {
+  it('forces the rolling-market refresh before the four proposals of every step', async () => {
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
-    await op.openStep(new Date('2026-09-11T23:58:00Z'));
-    expect(calls[0].name).toBe('refreshBooks'); // first step of the process: the day is new to it
-    await op.closeStep(new Date('2026-09-11T23:58:55Z'));
-    await op.tick(new Date('2026-09-11T23:59:00Z'));
-    expect(calls.filter(c => c.name === 'refreshBooks').length).toBe(1);
-    await op.closeStep(new Date('2026-09-11T23:59:55Z'));
-    await op.tick(new Date('2026-09-12T00:00:00Z'));
-    const idx = calls.findIndex((c, i) => c.name === 'refreshBooks' && i > 0);
-    expect(idx).toBeGreaterThan(0);
-    expect(calls[idx + 1].name).toBe('postProposal'); // refresh, then the four posts
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    expect(calls[0].name).toBe('refreshBooks');
+    expect(calls[1].name).toBe('postProposal');
+    await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
     expect(calls.filter(c => c.name === 'refreshBooks').length).toBe(2);
+    const second = calls.map(c => c.name).lastIndexOf('refreshBooks');
+    expect(calls[second + 1].name).toBe('postProposal');
+  });
+
+  it('the quotes are read for the minute the step opened in, so the client can name its cells', async () => {
+    const { client, calls } = fakeClient(upWins);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(new Date('2026-09-11T10:00:00.700Z'));
+    await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    expect(calls.find(c => c.name === 'readQuotes')!.args[1]).toBe('2026-09-11T10:00:00.700Z');
+  });
+
+  it('a complete game posts its final reading and no more proposals', async () => {
+    const { client, calls } = fakeClient(upWins);
+    const g = { ...newGame(rng), complete: true, length: 400 };
+    const op = new Operator(client, g as any, rng);
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
+    expect(calls.filter(c => c.name === 'postReading').length).toBe(1);
+    expect(op.open).toBe(null);
+    expect(op.publicState(new Date('2026-09-11T10:01:05Z')).complete).toBe(true);
+    await expect(op.openStep(new Date('2026-09-11T10:02:00Z'))).rejects.toThrow(/complete/);
   });
 
   it('a failing refresh does not stop the four proposals', async () => {
@@ -178,7 +196,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(op.decisions.length).toBe(12);
     expect(op.recentDecisions().length).toBe(10);
     const d = op.decisions[0];
-    expect(d.quotes.up.approved).toBe(12);
+    expect(d.quotes.up.m60.approved).toBe(12);
     expect(typeof d.lengthBefore).toBe('number');
     expect(typeof d.lengthAfter).toBe('number');
     expect(d.proposals.up.url).toMatch(/^https:/);
@@ -202,9 +220,10 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const s = op.publicState(new Date('2026-09-11T10:00:20Z'));
-    expect(s.game.length).toBe(3);
+    expect(s.game.length).toBe(1);
     expect(s.open?.proposals.up.url).toMatch(/^https:/);
     expect(s.open?.decideAt).toBe('2026-09-11T10:00:55.000Z');
+    expect(s.complete).toBe(false);
     expect(s.secondsToDecision).toBe(35);
     expect(s.recentDecisions).toEqual([]);
     expect(s.deathsToday).toBe(0);
