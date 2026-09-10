@@ -1,13 +1,15 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
 import { newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
-import { decide, DIRECTIONS, emptyQuotes, type Decision, type Quotes } from './decide.js';
+import { decide, DIRECTIONS, emptyQuotes, type Decision, type Quotes, type Horizon } from './decide.js';
+import { minuteCells } from './client.js';
 
 export interface ProposalRef { id: string; title: string; url: string }
 export type Verdict = 'approve' | 'decline';
 
 export interface TelarchyClient {
-  postProposal(title: string, description: string, decisionMinutes: number): Promise<ProposalRef>;
+  /** Post one proposal with an explicit deadline (docs/snake.md, "The step"). */
+  postProposal(title: string, description: string, decideBy: Date): Promise<ProposalRef>;
   /** The three pairs of each proposal, for the step that opened at `openedAt`. */
   readQuotes(refs: ProposalRef[], openedAt: Date): Promise<Quotes>;
   decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void>;
@@ -22,11 +24,24 @@ export interface TelarchyClient {
 export interface OpenStep {
   step: number; // the step these proposals decide (game.step + 1)
   openedAt: string;
+  /** When the operator decides: two seconds before the deadline. */
   decideAt: string;
+  /** The proposals' deadline, the top of the next minute; trading closes there. */
+  deadline: string;
+  /** The three minute cells the proposals are priced on. */
+  cells: Record<Horizon, string>;
   proposals: Record<Direction, ProposalRef>;
   quotes: Quotes | null;
   decision: Decision | null;
 }
+
+export interface OperatorOptions {
+  boardUrl?: string;
+  workspaceId?: string;
+  metricId?: string;
+}
+
+export const RULE = 'Every minute four proposals, one per direction, each priced on the snake length in 1, 5 and 60 moves. At :58 the proposal with the highest 60-move impact (approved minus declined) is approved and the other three are declined with refund; ties keep the heading. The snake moves at :00.';
 
 export interface DecisionRecord {
   step: number;
@@ -41,8 +56,7 @@ export interface DecisionRecord {
   deathsBefore: number;
 }
 
-const DECIDE_SECOND = 55;
-const WINDOW_MINUTES = 1;
+const DECIDE_SECOND = 58;
 
 function utcDay(d: Date): string { return d.toISOString().slice(0, 10); }
 function isoMinute(d: Date): Date { const c = new Date(d); c.setUTCSeconds(0, 0); return c; }
@@ -53,12 +67,12 @@ export class Operator {
   decisions: DecisionRecord[] = [];
   private pending: Direction | null = null; // decided, waiting for the top of minute
 
-  constructor(private client: TelarchyClient, game: GameState, private rng: Rng) {
+  constructor(private client: TelarchyClient, game: GameState, private rng: Rng, private opts: OperatorOptions = {}) {
     this.game = game;
   }
 
-  static fresh(client: TelarchyClient, rng: Rng = Math.random): Operator {
-    return new Operator(client, newGame(rng), rng);
+  static fresh(client: TelarchyClient, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
+    return new Operator(client, newGame(rng), rng, opts);
   }
 
   /** Second 0: post the four proposals for the next step. */
@@ -70,20 +84,46 @@ export class Operator {
     try { await this.client.refreshBooks(); } catch { /* undecided path covers it */ }
     const stepNo = this.game.step + 1;
     const g = this.game;
+    const openedAt = isoMinute(now);
+    const deadline = new Date(openedAt.getTime() + 60_000);
+    const decideAt = new Date(openedAt.getTime() + DECIDE_SECOND * 1000);
+    const cells = minuteCells(now);
+    const hhmm = (c: string) => c.slice(11);
+    const board = this.opts.boardUrl ? ` Board: ${this.opts.boardUrl}.` : '';
     const description =
       `Step ${stepNo}: snake length ${g.length}, heading ${g.heading}, head at (${g.snake[0].x},${g.snake[0].y}), ` +
-      `food at (${g.food.x},${g.food.y}), ${g.deaths} deaths so far. Approve moves the snake this way at the top of the next minute.`;
+      `food at (${g.food.x},${g.food.y}), ${g.deaths} deaths so far. Priced on the length in 1, 5 and 60 moves ` +
+      `(${hhmm(cells.m1)}, ${hhmm(cells.m5)}, ${hhmm(cells.m60)} UTC). The highest 60-move impact is approved at :58, ` +
+      `the others are declined with refund; the snake moves at :00.${board}`;
+    // All four at once, so they land in the same second and share the deadline.
+    const refs = await Promise.all(DIRECTIONS.map(d => this.client.postProposal(`Move ${d}`, description, deadline)));
     const proposals = {} as Record<Direction, ProposalRef>;
-    for (const d of DIRECTIONS) {
-      proposals[d] = await this.client.postProposal(`Move ${d}`, description, WINDOW_MINUTES);
-    }
-    const openedAt = isoMinute(now);
-    const decideAt = new Date(openedAt.getTime() + DECIDE_SECOND * 1000);
-    this.open = { step: stepNo, openedAt: now.toISOString(), decideAt: decideAt.toISOString(), proposals, quotes: null, decision: null };
+    DIRECTIONS.forEach((d, i) => { proposals[d] = refs[i]; });
+    this.open = {
+      step: stepNo,
+      openedAt: now.toISOString(),
+      decideAt: decideAt.toISOString(),
+      deadline: deadline.toISOString(),
+      cells,
+      proposals,
+      quotes: null,
+      decision: null,
+    };
     return this.open;
   }
 
-  /** Second 55: read the pair prices and decide, approving one, declining three. */
+  /** During the minute: refresh the live quotes on the open step, deciding nothing. */
+  async pollQuotes(_now: Date): Promise<void> {
+    const open = this.open;
+    if (!open || open.decision) return;
+    try {
+      open.quotes = await this.client.readQuotes(DIRECTIONS.map(d => open.proposals[d]), new Date(open.openedAt));
+    } catch {
+      // keep the last quotes
+    }
+  }
+
+  /** Second 58: read the pair prices and decide, approving one, declining three. */
   async closeStep(now: Date): Promise<Decision> {
     const open = this.open;
     if (!open) throw new Error('no step is open');
@@ -157,13 +197,20 @@ export class Operator {
 
   publicState(now: Date) {
     const open = this.open;
+    const nextStepAt = open ? open.deadline : new Date(isoMinute(now).getTime() + 60_000).toISOString();
     return {
       game: this.game,
+      workspaceId: this.opts.workspaceId ?? null,
+      metricId: this.opts.metricId ?? null,
+      rule: RULE,
+      nextStepAt,
       open: open
         ? {
             step: open.step,
             openedAt: open.openedAt,
             decideAt: open.decideAt,
+            deadline: open.deadline,
+            cells: open.cells,
             proposals: open.proposals,
             quotes: open.quotes ?? emptyQuotes(),
           }
@@ -181,8 +228,8 @@ export class Operator {
     return { game: this.game, open: this.open, decisions: this.decisions, pending: this.pending };
   }
 
-  static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random): Operator {
-    const op = new Operator(client, raw.game, rng);
+  static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
+    const op = new Operator(client, raw.game, rng, opts);
     op.open = raw.open ?? null;
     op.decisions = raw.decisions ?? [];
     op.pending = raw.pending ?? null;

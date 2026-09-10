@@ -19,6 +19,8 @@ const METRIC = env('TELARCHY_METRIC_ID');
 const PORT = Number(env('PORT', '8802'));
 const STATE = env('STATE_FILE', 'state/snake.json');
 const PUBLIC_WS_URL = env('WORKSPACE_URL', 'https://telarchy.com/snake');
+const BOARD_URL = env('BOARD_URL', 'https://snake.telarchy.com');
+const OPTS = { boardUrl: BOARD_URL, workspaceId: WS, metricId: METRIC };
 
 const client = new HttpTelarchyClient({
   baseUrl: BASE, apiKey: KEY, workspaceId: WS, metricId: METRIC, workspaceUrl: PUBLIC_WS_URL,
@@ -29,10 +31,10 @@ function load(): Operator {
   try {
     const raw = JSON.parse(fs.readFileSync(STATE, 'utf8'));
     console.log(`resuming at step ${raw.game.step}`);
-    return Operator.fromJSON(client, raw);
+    return Operator.fromJSON(client, raw, Math.random, OPTS);
   } catch {
     console.log('fresh game');
-    return Operator.fresh(client);
+    return Operator.fresh(client, Math.random, OPTS);
   }
 }
 function save(op: Operator) {
@@ -63,6 +65,7 @@ http.createServer((req, res) => {
 let busy = false;
 let lastTickMinute = -1;
 let lastCloseMinute = -1;
+let lastPoll = 0;
 async function loop() {
   const now = new Date();
   const minute = Math.floor(now.getTime() / 60_000);
@@ -74,11 +77,14 @@ async function loop() {
       lastTickMinute = minute;
       await op.openStep(now);
       save(op);
-    } else if (sec >= 55 && op.open && !op.open.decision && lastCloseMinute !== minute) {
+    } else if (sec >= 58 && op.open && !op.open.decision && lastCloseMinute !== minute) {
       lastCloseMinute = minute;
       await op.closeStep(now);
       save(op);
-    } else if (sec < 55 && op.open && op.open.decision && lastTickMinute !== minute) {
+    } else if (op.open && !op.open.decision && sec < 58 && now.getTime() - lastPoll >= 5_000) {
+      lastPoll = now.getTime();
+      await op.pollQuotes(now);
+    } else if (sec < 58 && op.open && op.open.decision && lastTickMinute !== minute) {
       lastTickMinute = minute;
       await op.tick(now);
       save(op);

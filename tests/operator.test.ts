@@ -9,8 +9,8 @@ function fakeClient(quotesFor: (step: number) => Quotes) {
   const calls: Call[] = [];
   let n = 0;
   const client: TelarchyClient = {
-    async postProposal(title, description, decisionMinutes) {
-      calls.push({ name: 'postProposal', args: [title, description, decisionMinutes] });
+    async postProposal(title, description, decideBy) {
+      calls.push({ name: 'postProposal', args: [title, description, decideBy.toISOString()] });
       return { id: `p${++n}`, title, url: `https://telarchy.com/snake/p/${n}` };
     },
     async readQuotes(refs: ProposalRef[], openedAt: Date) {
@@ -39,42 +39,81 @@ const none = (): Quotes => ({ up: h(null, null), right: h(null, null), down: h(n
 const rng = () => 0;
 
 describe('the operator loop (docs/snake.md, "The step" and "What must hold")', () => {
-  it('posts exactly four proposals per minute, titled Move up/right/down/left, one-minute window', async () => {
+  it('posts exactly four proposals per minute, titled Move up/right/down/left, all with the same deadline: the next top of minute', async () => {
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, newGame(rng), rng);
-    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    await op.openStep(new Date('2026-09-11T10:00:00.700Z'));
     const posts = calls.filter(c => c.name === 'postProposal');
-    expect(posts.map(c => c.args[0])).toEqual(['Move up', 'Move right', 'Move down', 'Move left']);
-    expect(posts.every(c => c.args[2] === 1)).toBe(true);
+    expect(posts.map(c => c.args[0]).sort()).toEqual(['Move down', 'Move left', 'Move right', 'Move up']);
+    expect(posts.every(c => c.args[2] === '2026-09-11T10:01:00.000Z')).toBe(true);
+    expect(op.open?.decideAt).toBe('2026-09-11T10:00:58.000Z');
+    expect(op.open?.deadline).toBe('2026-09-11T10:01:00.000Z');
     await expect(op.openStep(new Date('2026-09-11T10:00:30Z'))).rejects.toThrow(/already open/);
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(4);
   });
 
-  it('the description names the step and the state in one line', async () => {
+  it('the description names the step, the state, the three cells, the rule and the board, in one line', async () => {
     const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng), rng, { boardUrl: 'https://snake.telarchy.com' });
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const desc = String(calls.find(c => c.name === 'postProposal')!.args[1]);
     expect(desc).toMatch(/step 1\b/i);
     expect(desc).toMatch(/length 1\b/);
+    expect(desc).toContain('10:01');
+    expect(desc).toContain('10:05');
+    expect(desc).toContain('11:00');
+    expect(desc).toMatch(/60.move/i);
+    expect(desc).toContain('https://snake.telarchy.com');
     expect(desc.includes('\n')).toBe(false);
+    expect(desc.length).toBeLessThan(600);
+  });
+
+  it('the four proposals are posted concurrently, not one after another', async () => {
+    const { client, calls } = fakeClient(allTen);
+    let inFlight = 0, maxInFlight = 0;
+    const slow: TelarchyClient = {
+      ...client,
+      async postProposal(t, d, by) {
+        inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise(r => setTimeout(r, 5));
+        inFlight--;
+        return client.postProposal(t, d, by);
+      },
+    };
+    const op = new Operator(slow, newGame(rng), rng);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    expect(maxInFlight).toBe(4);
+    expect(calls.filter(c => c.name === 'postProposal').length).toBe(4);
+  });
+
+  it('polling during the minute publishes live quotes on the open step without deciding', async () => {
+    const { client, calls } = fakeClient(upWins);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:05Z')).open?.quotes.up.m60.approved).toBe(null);
+    await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:06Z')).open?.quotes.up.m60.approved).toBe(12);
+    expect(op.open?.decision).toBe(null);
+    expect(calls.filter(c => c.name === 'decideProposal').length).toBe(0);
   });
 
   it('decides before the deadline: approves the highest approved price, declines the other three', async () => {
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    const d = await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.approved).toBe('up');
     const verdicts = calls.filter(c => c.name === 'decideProposal').map(c => c.args);
-    expect(verdicts).toEqual([['p1', 'approve'], ['p2', 'decline'], ['p3', 'decline'], ['p4', 'decline']]);
+    const up = op.decisions[0].proposals.up.id;
+    expect(verdicts[0]).toEqual([up, 'approve']);
+    expect(verdicts.slice(1).map(v => v[1])).toEqual(['decline', 'decline', 'decline']);
   });
 
   it('the move is applied at the next top of minute, then the next four are posted', async () => {
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(op.game.step).toBe(0);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     expect(op.game.step).toBe(1);
@@ -86,7 +125,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const { client, calls } = fakeClient(none);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    const d = await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
     expect(calls.filter(c => c.name === 'decideProposal' && c.args[1] === 'decline').length).toBe(4);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
@@ -106,12 +145,12 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     };
     const op = new Operator(flaky, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    const d = await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
     expect(d.direction).toBe('right');
     // The failed approve is retried as a decline: nothing stays pending.
     const verdicts = calls.filter(c => c.name === 'decideProposal').map(c => c.args);
-    expect(verdicts).toEqual([['p1', 'decline'], ['p2', 'decline'], ['p3', 'decline'], ['p4', 'decline']]);
+    expect(verdicts.map(v => v[1])).toEqual(['decline', 'decline', 'decline', 'decline']);
     expect(op.decisions[0].undecided).toBe(true);
   });
 
@@ -119,12 +158,12 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T23:58:00Z'));
-    await op.closeStep(new Date('2026-09-11T23:58:55Z'));
+    await op.closeStep(new Date('2026-09-11T23:58:58Z'));
     await op.tick(new Date('2026-09-11T23:59:00Z'));
     let readings = calls.filter(c => c.name === 'postReading');
     expect(readings.length).toBe(1);
     expect(readings[0].args[2]).toBe(true); // the last step of the day
-    await op.closeStep(new Date('2026-09-11T23:59:55Z'));
+    await op.closeStep(new Date('2026-09-11T23:59:58Z'));
     await op.tick(new Date('2026-09-12T00:00:00Z'));
     readings = calls.filter(c => c.name === 'postReading');
     expect(readings.length).toBe(2);
@@ -136,7 +175,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     const names = new Set(calls.map(c => c.name));
     expect([...names].sort()).toEqual(['decideProposal', 'postProposal', 'postReading', 'readQuotes', 'refreshBooks']);
@@ -148,7 +187,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     expect(calls[0].name).toBe('refreshBooks');
     expect(calls[1].name).toBe('postProposal');
-    await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     expect(calls.filter(c => c.name === 'refreshBooks').length).toBe(2);
     const second = calls.map(c => c.name).lastIndexOf('refreshBooks');
@@ -159,7 +198,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00.700Z'));
-    await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(calls.find(c => c.name === 'readQuotes')!.args[1]).toBe('2026-09-11T10:00:00.700Z');
   });
 
@@ -189,7 +228,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     let t = Date.parse('2026-09-11T10:00:00Z');
     await op.openStep(new Date(t));
     for (let i = 0; i < 12; i++) {
-      await op.closeStep(new Date(t + 55_000));
+      await op.closeStep(new Date(t + 58_000));
       await op.tick(new Date(t + 60_000));
       t += 60_000;
     }
@@ -206,7 +245,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const { client } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    await op.closeStep(new Date('2026-09-11T10:00:55Z'));
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     const json = JSON.stringify(op.toJSON());
     const op2 = Operator.fromJSON(client, JSON.parse(json), rng);
@@ -217,15 +256,22 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('/state carries the game, the open proposals with prices, recent decisions and counters', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng), rng, { workspaceId: 'ws-1', metricId: 'm-1' });
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const s = op.publicState(new Date('2026-09-11T10:00:20Z'));
     expect(s.game.length).toBe(1);
     expect(s.open?.proposals.up.url).toMatch(/^https:/);
-    expect(s.open?.decideAt).toBe('2026-09-11T10:00:55.000Z');
+    expect(s.open?.decideAt).toBe('2026-09-11T10:00:58.000Z');
+    expect(s.open?.deadline).toBe('2026-09-11T10:01:00.000Z');
+    expect(s.open?.cells).toEqual({ m1: '2026-09-11T10:01', m5: '2026-09-11T10:05', m60: '2026-09-11T11:00' });
+    expect(s.nextStepAt).toBe('2026-09-11T10:01:00.000Z');
     expect(s.complete).toBe(false);
-    expect(s.secondsToDecision).toBe(35);
+    expect(s.secondsToDecision).toBe(38);
+    expect(typeof s.rule).toBe('string');
+    expect(s.rule).toMatch(/60/);
     expect(s.recentDecisions).toEqual([]);
     expect(s.deathsToday).toBe(0);
+    expect(s.workspaceId).toBe('ws-1');
+    expect(s.metricId).toBe('m-1');
   });
 });

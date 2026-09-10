@@ -1,7 +1,7 @@
 // The Telarchy client the operator uses. Deliberately has no trade method:
 // docs/snake.md, "The operator account never trades."
 import type { ProposalRef, TelarchyClient, Verdict } from './operator.js';
-import { emptyDirectionQuotes, type Quotes, type Quote, type Horizon } from './decide.js';
+import { emptyDirectionQuotes, type Quotes, type Horizon } from './decide.js';
 import type { Direction } from './engine.js';
 
 export interface SessionAuth {
@@ -96,9 +96,8 @@ export class HttpTelarchyClient implements TelarchyClient {
     return json;
   }
 
-  async postProposal(title: string, description: string, decisionMinutes: number): Promise<ProposalRef> {
-    const decideBy = new Date(this.clock().getTime() + decisionMinutes * 60_000).toISOString();
-    const r = await this.call('POST', '/proposals', { title, description, decideBy });
+  async postProposal(title: string, description: string, decideBy: Date): Promise<ProposalRef> {
+    const r = await this.call('POST', '/proposals', { title, description, decideBy: decideBy.toISOString() });
     return { id: String(r.id), title, url: `${this.o.workspaceUrl}/p/${r.number}` };
   }
 
@@ -119,7 +118,13 @@ export class HttpTelarchyClient implements TelarchyClient {
           const m =
             markets.find(x => x.targetDate === cell) ??
             markets.find(x => !x.targetDate && typeof x.resolvesOn === 'string' && Date.parse(x.resolvesOn) === end);
-          if (m) q[h] = { approved: num(m.approved?.consensus), declined: num(m.declined?.consensus) };
+          if (m) {
+            q[h] = { approved: num(m.approved?.consensus), declined: num(m.declined?.consensus) };
+            const aId = m.approved?.marketId ?? m.approvedMarketId;
+            const dId = m.declined?.marketId ?? m.declinedMarketId;
+            if (typeof aId === 'string') q[h].approvedMarketId = aId;
+            if (typeof dId === 'string') q[h].declinedMarketId = dId;
+          }
         }
       } catch {
         // unreadable: null prices, the decision rule handles it

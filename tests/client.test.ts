@@ -17,10 +17,10 @@ function fakeFetch(handler: (r: Req) => { status?: number; json: any }) {
 const opts = { baseUrl: 'https://telarchy.com/api', apiKey: 'k', workspaceId: 'ws1', metricId: 'm1', workspaceUrl: 'https://telarchy.com/snake' };
 
 describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', () => {
-  it('posts a proposal with the agent key and workspace header, no subsidy, a one-minute deadline, and returns its public url', async () => {
+  it('posts a proposal with the agent key and workspace header, no subsidy, the given deadline, and returns its public url', async () => {
     const { reqs, fetchImpl } = fakeFetch(() => ({ status: 201, json: { id: 'p-1', number: 41, conditionalMarketIds: [] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:00.400Z'));
-    const ref = await c.postProposal('Move up', 'Step 1: ...', 1);
+    const ref = await c.postProposal('Move up', 'Step 1: ...', new Date('2026-09-11T10:01:00Z'));
     expect(reqs[0].url).toBe('https://telarchy.com/api/proposals');
     expect(reqs[0].method).toBe('POST');
     expect(reqs[0].headers['X-Agent-Key']).toBe('k');
@@ -28,7 +28,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(reqs[0].body.title).toBe('Move up');
     expect(reqs[0].body.description).toBe('Step 1: ...');
     expect('liquiditySubsidy' in reqs[0].body).toBe(false);
-    expect(reqs[0].body.decideBy).toBe('2026-09-11T10:01:00.400Z');
+    expect(reqs[0].body.decideBy).toBe('2026-09-11T10:01:00.000Z'); // the deadline is given, not derived from posting time
     expect(ref).toEqual({ id: 'p-1', title: 'Move up', url: 'https://telarchy.com/snake/p/41' });
   });
 
@@ -39,7 +39,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       return { json: { id, markets: [
         { targetDate: '2026-09-11T10:01', approved: { consensus: 1.5 }, declined: { consensus: 1 } },
         { targetDate: '2026-09-11T10:05', approved: { consensus: 2.5 }, declined: { consensus: 2 } },
-        { targetDate: '2026-09-11T11:00', approved: { consensus: px[id] }, declined: { consensus: 3.5 } },
+        { targetDate: '2026-09-11T11:00', approved: { consensus: px[id], marketId: `a-${id}` }, declined: { consensus: 3.5, marketId: `d-${id}` } },
         { targetDate: '2026-09-11', approved: { consensus: 99 }, declined: { consensus: 99 } },
       ] } };
     });
@@ -48,7 +48,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       { id: 'p-up', title: 'Move up', url: '' }, { id: 'p-right', title: 'Move right', url: '' },
       { id: 'p-down', title: 'Move down', url: '' }, { id: 'p-left', title: 'Move left', url: '' },
     ], new Date('2026-09-11T10:00:00.400Z'));
-    expect(q.right.m60).toEqual({ approved: 5, declined: 3.5 });
+    expect(q.right.m60).toEqual({ approved: 5, declined: 3.5, approvedMarketId: 'a-p-right', declinedMarketId: 'd-p-right' });
     expect(q.right.m1).toEqual({ approved: 1.5, declined: 1 });
     expect(q.right.m5).toEqual({ approved: 2.5, declined: 2 });
     expect(q.left.m60.approved).toBe(2);

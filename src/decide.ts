@@ -3,7 +3,13 @@ import type { Direction } from './engine.js';
 
 export const DIRECTIONS: Direction[] = ['up', 'right', 'down', 'left'];
 
-export interface Quote { approved: number | null; declined: number | null }
+export interface Quote {
+  approved: number | null;
+  declined: number | null;
+  /** The pair's market ids, when known, so a bot can trade from /state. */
+  approvedMarketId?: string;
+  declinedMarketId?: string;
+}
 /** The three horizons: length in 1, 5 and 60 moves. */
 export type Horizon = 'm1' | 'm5' | 'm60';
 export const HORIZONS: Horizon[] = ['m1', 'm5', 'm60'];
