@@ -8,14 +8,21 @@ import { HttpTelarchyClient } from './client.js';
 
 const env = (k: string, d?: string) => process.env[k] ?? d ?? (() => { throw new Error(`missing env ${k}`); })();
 const BASE = env('TELARCHY_BASE_URL', 'https://telarchy.com/api');
-const KEY = env('TELARCHY_API_KEY');
+const KEY = env('TELARCHY_API_KEY', '');
+const SESSION_EMAIL = process.env.TELARCHY_SESSION_EMAIL;
+const SESSION_PASSWORD = process.env.TELARCHY_SESSION_PASSWORD;
+const AUTH_URL = env('TELARCHY_AUTH_URL', 'https://telarchy.com/api');
+if (!KEY && !SESSION_EMAIL) throw new Error('set TELARCHY_API_KEY or TELARCHY_SESSION_EMAIL/PASSWORD');
 const WS = env('TELARCHY_WORKSPACE_ID');
 const METRIC = env('TELARCHY_METRIC_ID');
 const PORT = Number(env('PORT', '8795'));
 const STATE = env('STATE_FILE', 'state/snake.json');
 const PUBLIC_WS_URL = env('WORKSPACE_URL', 'https://telarchy.com/snake');
 
-const client = new HttpTelarchyClient({ baseUrl: BASE, apiKey: KEY, workspaceId: WS, metricId: METRIC, workspaceUrl: PUBLIC_WS_URL });
+const client = new HttpTelarchyClient({
+  baseUrl: BASE, apiKey: KEY, workspaceId: WS, metricId: METRIC, workspaceUrl: PUBLIC_WS_URL,
+  session: SESSION_EMAIL ? { email: SESSION_EMAIL, password: SESSION_PASSWORD ?? '', authUrl: AUTH_URL } : undefined,
+});
 
 function load(): Operator {
   try {

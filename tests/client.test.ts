@@ -105,3 +105,43 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(periodKeys(new Date('2027-01-01T00:00:00Z'))).toEqual({ today: '2027-01-01', week: '2026-W53' });
   });
 });
+
+describe('session auth for the beta store (docs/snake.md, "Operation")', () => {
+  it('signs in with email and password and sends the session cookie instead of an agent key', async () => {
+    const { reqs, fetchImpl } = fakeFetch(r => {
+      if (r.url.endsWith('/auth/sign-in/email')) return { json: { token: 't' } };
+      return { json: { ok: true } };
+    });
+    // The sign-in response carries the cookie in Set-Cookie; the fake returns it via headers below.
+    const fetchWithCookie = async (url: string, init: any) => {
+      const res = await fetchImpl(url, init);
+      if (url.endsWith('/auth/sign-in/email')) res.headers.set('set-cookie', '__Secure-better-auth.session_token=abc; Path=/; HttpOnly');
+      return res;
+    };
+    const c = new HttpTelarchyClient({ ...opts, apiKey: '', session: { email: 'a@b', password: 'pw', authUrl: 'https://telarchy.com/api' } }, fetchWithCookie as any);
+    await c.postReading(3, new Date('2026-09-11T10:00:00Z'), false);
+    expect(reqs[0].url).toBe('https://telarchy.com/api/auth/sign-in/email');
+    expect(reqs[0].body).toEqual({ email: 'a@b', password: 'pw' });
+    expect(reqs[1].headers['Cookie']).toBe('__Secure-better-auth.session_token=abc');
+    expect(reqs[1].headers['X-Agent-Key']).toBeUndefined();
+  });
+
+  it('signs in again once when the session is refused, then retries the call', async () => {
+    let calls = 0;
+    const { reqs, fetchImpl } = fakeFetch(r => {
+      if (r.url.endsWith('/auth/sign-in/email')) return { json: { token: 't' } };
+      calls++;
+      return calls === 1 ? { status: 404, json: { error: 'Not found' } } : { json: { ok: true } };
+    });
+    const fetchWithCookie = async (url: string, init: any) => {
+      const res = await fetchImpl(url, init);
+      if (url.endsWith('/auth/sign-in/email')) res.headers.set('set-cookie', `s=v${reqs.length}; Path=/`);
+      return res;
+    };
+    const c = new HttpTelarchyClient({ ...opts, apiKey: '', session: { email: 'a@b', password: 'pw', authUrl: 'https://telarchy.com/api' } }, fetchWithCookie as any);
+    await c.postReading(3, new Date('2026-09-11T10:00:00Z'), false);
+    const signIns = reqs.filter(r => r.url.endsWith('/auth/sign-in/email'));
+    expect(signIns.length).toBe(2);
+    expect(reqs[reqs.length - 1].headers['Cookie']).toBe('s=v3');
+  });
+});

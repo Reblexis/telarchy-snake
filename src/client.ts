@@ -4,12 +4,22 @@ import type { ProposalRef, TelarchyClient, Verdict } from './operator.js';
 import type { Quotes, Quote } from './decide.js';
 import type { Direction } from './engine.js';
 
+export interface SessionAuth {
+  /** A browser account (the platform admin on the beta, which is admin-gated
+   *  and refuses agent keys). Sign-in lives on the production auth, so its
+   *  URL is separate from the store's base URL. */
+  email: string;
+  password: string;
+  authUrl: string;
+}
+
 export interface ClientOptions {
   baseUrl: string;
   apiKey: string;
   workspaceId: string;
   metricId: string;
   workspaceUrl: string;
+  session?: SessionAuth;
 }
 
 type FetchLike = typeof fetch;
@@ -34,16 +44,46 @@ export class HttpTelarchyClient implements TelarchyClient {
     private clock: () => Date = () => new Date(),
   ) {}
 
-  private async call(method: string, path: string, body?: unknown): Promise<any> {
+  private cookie: string | null = null;
+
+  private async signIn(): Promise<void> {
+    const s = this.o.session!;
+    const res = await this.fetchImpl(`${s.authUrl}/auth/sign-in/email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: s.email, password: s.password }),
+    });
+    if (!res.ok) throw new Error(`sign-in -> ${res.status}`);
+    const raw: string[] = typeof (res.headers as any).getSetCookie === 'function'
+      ? (res.headers as any).getSetCookie()
+      : [res.headers.get('set-cookie') ?? ''];
+    const pairs = raw.filter(Boolean).map(c => c.split(';')[0].trim());
+    if (pairs.length === 0) throw new Error('sign-in returned no session cookie');
+    this.cookie = pairs.join('; ');
+  }
+
+  private async headers(): Promise<Record<string, string>> {
+    const h: Record<string, string> = { 'X-Workspace-Id': this.o.workspaceId, 'Content-Type': 'application/json' };
+    if (this.o.session) {
+      if (!this.cookie) await this.signIn();
+      h['Cookie'] = this.cookie!;
+    } else {
+      h['X-Agent-Key'] = this.o.apiKey;
+    }
+    return h;
+  }
+
+  private async call(method: string, path: string, body?: unknown, retried = false): Promise<any> {
     const res = await this.fetchImpl(`${this.o.baseUrl}${path}`, {
       method,
-      headers: {
-        'X-Agent-Key': this.o.apiKey,
-        'X-Workspace-Id': this.o.workspaceId,
-        'Content-Type': 'application/json',
-      },
+      headers: await this.headers(),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    // The beta gate answers a stale session with a bare 404, a route with 401.
+    if (this.o.session && !retried && (res.status === 401 || res.status === 404)) {
+      this.cookie = null;
+      return this.call(method, path, body, true);
+    }
     const text = await res.text();
     let json: any = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
