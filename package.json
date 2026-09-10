@@ -16,5 +16,7 @@
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
-  "dependencies": {}
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  }
 }

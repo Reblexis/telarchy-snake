@@ -56,6 +56,12 @@ book on today, 5 on the week), never by the proposer; the operator posts
 with no subsidy of its own. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
+The workspace is **muted**: `notificationsMuted` is on, so nothing it does
+reaches anyone by email, push or the bell, owner included. Four proposals
+and four decisions a minute would otherwise mail the owner and the
+proposer thousands of times a day. It stays muted until Viktor says
+otherwise.
+
 ## The step
 
 At second 0 of each minute the operator posts four proposals, titles

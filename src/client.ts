@@ -50,7 +50,9 @@ export class HttpTelarchyClient implements TelarchyClient {
     const s = this.o.session!;
     const res = await this.fetchImpl(`${s.authUrl}/auth/sign-in/email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // better-auth refuses a POST whose Origin is null, which is what Node's
+      // fetch sends by default; name the site as the origin.
+      headers: { 'Content-Type': 'application/json', Origin: new URL(s.authUrl).origin },
       body: JSON.stringify({ email: s.email, password: s.password }),
     });
     if (!res.ok) throw new Error(`sign-in -> ${res.status}`);
