@@ -132,6 +132,6 @@ export function renderFrame(s: any): Buffer {
     drawText(buf, X, y, row, 2, FG); y += 20;
     if (y > HEIGHT - 40) break;
   }
-  drawText(buf, X, HEIGHT - MARGIN - 14, 'TRADE THE MOVE YOU BELIEVE IN AT TELARCHY.COM/SNAKE', 2, MUTE);
+  drawText(buf, X, HEIGHT - MARGIN - 14, 'TRADE YOUR MOVE AT TELARCHY.COM/SNAKE', 2, MUTE);
   return buf;
 }
