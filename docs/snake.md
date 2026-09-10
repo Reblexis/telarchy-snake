@@ -35,22 +35,26 @@ are free within it.
 
 ## The workspace
 
-One public Telarchy workspace, slug `snake`, owned by the snake operator
-account. One metric, **Snake length**, the number of segments the snake has
-right now, an integer starting at 3. The operator posts a reading after
-every step, so the metric's chart is the length minute by minute.
+One public Telarchy workspace named `Snake` (Telarchy derives the slug,
+`snake`, from the name), owned by the snake operator account. One metric,
+**Snake length**, the number of segments the snake has right now, an
+integer starting at 3. The operator posts a reading after every step, so
+the metric's chart is the length minute by minute.
 
-The metric is priced on the **today** horizon: a book on Snake length
-for date D settles on the length at the last step of D (UTC), which is the
-last reading the operator posts before midnight. That reading is the one
-marked final. If the horizon grid cannot be limited to today alone, the
-week horizon may also be priced, settling on the last reading of the
-week; no other horizon is priced.
+The metric is priced on two horizons and no other: **today** and **this
+week** (UTC day and ISO week). A book for a period settles on the last
+reading whose timestamp falls inside the period; Telarchy has no "final"
+flag, so the reading posted after the last step before midnight is the
+day's fixing by being last. Both horizons are needed because a proposal
+only gets a pair on a period that ends after its deadline: in the last
+minute of a day the today book is closed to it, and the week pair carries
+the decision.
 
-Liquidity: every pair book the workspace opens is funded by the workspace
-owner, at a fixed small amount named on the metric's date rows (default
-20 credits a book), never by the proposer. The decision window of the
-workspace is one minute, the minimum.
+Liquidity: every pair book a proposal opens is funded by the workspace
+owner through the metric's per-horizon proposal credits (20 credits a
+book on today, 5 on the week), never by the proposer; the operator posts
+with no subsidy of its own. The workspace's decision window is one minute,
+the minimum. The workspace has no charter, so a decline needs no reason.
 
 ## The step
 
@@ -60,16 +64,21 @@ naming the step number and the current state in one line. Each carries a
 one-minute decision window, so its pair books on Snake length open at
 once and close at the deadline.
 
-Just before the deadline (at second 55, before the window can lapse) the
-operator reads each proposal's pair on the today horizon and decides:
+At second 55, before the deadline, the operator reads each proposal's
+pair on the today horizon (or the week horizon when today has none) and
+decides:
 
-- the proposal whose approved-branch price is highest is **approved**,
-  the other three are **declined**;
+- the proposal whose approved-branch price is highest is **approved**;
+  its declined branch voids and its approved branch stays open to settle
+  on the length;
+- the other three are **declined with refund**: both their branches void
+  and every stake in them returns, so nothing but the chosen move's book
+  stays open;
 - ties go to the current heading, then to up, right, down, left in that
   order;
 - if no price can be read, or the API fails, the snake continues in its
-  current heading and the four proposals are declined; the step is logged
-  as undecided.
+  current heading and the four proposals are declined with refund; the
+  step is logged as undecided.
 
 The approved direction is applied at the next top of minute. So the
 board shows: proposals for step N open during minute N, decision at N:55,
@@ -127,7 +136,7 @@ fleet box.
 - Exactly four proposals per minute while running, never more.
 - A decision is made every minute before the deadline; the undecided
   path leaves nothing pending.
-- The reading posted after the last step of a day is the number the day's
-  books settle on.
+- A reading is posted after every step, timestamped at the step, so the
+  last one before midnight is the number the day's books settle on.
 - The operator never trades.
 - The board never shows a price the workspace did not report.
