@@ -108,7 +108,12 @@ export class HttpTelarchyClient implements TelarchyClient {
       try {
         const r = await this.call('GET', `/proposals/${encodeURIComponent(ref.id)}`);
         const markets: any[] = Array.isArray(r?.markets) ? r.markets : [];
-        const m = markets.find(x => x.targetDate === keys.today);
+        // The today pair: by target date when the summary names one, else by
+        // its settlement instant, which is the start of tomorrow (UTC).
+        const endOfToday = Date.parse(`${keys.today}T00:00:00Z`) + 86_400_000;
+        const m =
+          markets.find(x => x.targetDate === keys.today) ??
+          markets.find(x => !x.targetDate && typeof x.resolvesOn === 'string' && Date.parse(x.resolvesOn) === endOfToday);
         if (m) q = { approved: num(m.approved?.consensus), declined: num(m.declined?.consensus) };
       } catch {
         // unreadable: a null price, the decision rule handles it

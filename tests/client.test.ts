@@ -50,8 +50,27 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(q.left.approved).toBe(2);
   });
 
+  it('matches the today pair by its settlement instant when the summary carries no target date (production shape)', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
+      { resolvesOn: '2026-09-11T00:00:00Z', approved: { consensus: 4.5 }, declined: { consensus: 3 } },
+    ] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-10T20:00:55Z'));
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }]);
+    expect(q.up).toEqual({ approved: 4.5, declined: 3 });
+  });
+
+  it('with several pairs and no target dates, the one settling at the end of today wins over a later one', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
+      { resolvesOn: '2026-09-14T00:00:00Z', approved: { consensus: 9 }, declined: { consensus: 9 } },
+      { resolvesOn: '2026-09-11T00:00:00.000Z', approved: { consensus: 4 }, declined: { consensus: 3 } },
+    ] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-10T20:00:55Z'));
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }]);
+    expect(q.up).toEqual({ approved: 4, declined: 3 });
+  });
+
   it('reads today only: a proposal with no today pair (last minute of the day) has no price', async () => {
-    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ targetDate: '2026-W37', approved: { consensus: 7 }, declined: { consensus: 6 } }] } }));
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ targetDate: '2026-W37', resolvesOn: '2026-09-14T00:00:00Z', approved: { consensus: 7 }, declined: { consensus: 6 } }] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T23:59:55Z'));
     const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }]);
     expect(q.up).toEqual({ approved: null, declined: null });
