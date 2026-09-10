@@ -41,18 +41,26 @@ One public Telarchy workspace named `Snake` (Telarchy derives the slug,
 integer starting at 3. The operator posts a reading after every step, so
 the metric's chart is the length minute by minute.
 
-The metric is priced on two horizons and no other: **today** and **this
-week** (UTC day and ISO week). A book for a period settles on the last
-reading whose timestamp falls inside the period; Telarchy has no "final"
-flag, so the reading posted after the last step before midnight is the
-day's fixing by being last. Both horizons are needed because a proposal
-only gets a pair on a period that ends after its deadline: in the last
-minute of a day the today book is closed to it, and the week pair carries
-the decision.
+The metric is priced on the **today** horizon and no other (the UTC day).
+A book for a day settles on the last reading whose timestamp falls inside
+the day; Telarchy has no "final" flag, so the reading posted after the last
+step before midnight is the day's fixing by being last. The week horizon
+is deliberately not priced: every approved branch stays open until its
+period ends, and a week of them (ten thousand open books) is what every
+read of the workspace's open set pays for (record: the umbrella
+`notes/snake-load-audit-2026-09-10.md`).
+
+Two gaps follow and are accepted as undecided steps: a proposal only gets
+a pair on a period that ends after its deadline, so the last minute of a
+day has no pair; and the new day's book exists only once the workspace's
+rolling markets are refreshed. The operator closes the second gap itself:
+at the first step of each UTC day it forces the refresh of the
+workspace's rolling markets before posting the four proposals, so the
+today book is open from the first minute.
 
 Liquidity: every pair book a proposal opens is funded by the workspace
 owner through the metric's per-horizon proposal credits (20 credits a
-book on today, 5 on the week), never by the proposer; the operator posts
+book), never by the proposer; the operator posts
 with no subsidy of its own. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
@@ -71,8 +79,7 @@ one-minute decision window, so its pair books on Snake length open at
 once and close at the deadline.
 
 At second 55, before the deadline, the operator reads each proposal's
-pair on the today horizon (or the week horizon when today has none) and
-decides:
+pair on the today horizon and decides:
 
 - the proposal whose approved-branch price is highest is **approved**;
   its declined branch voids and its approved branch stays open to settle
