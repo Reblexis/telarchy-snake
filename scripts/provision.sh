@@ -42,7 +42,7 @@ MID=$(echo "$METRIC" | j "d['id']")
 
 echo "# settings: one-minute decision window, public" >&2
 curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-Type: application/json' -X PUT "$BASE/workspaces/$WSID/settings" -d '{
-  "decisionMinutes": 1, "visibility": "public",
+  "decisionMinutes": 1, "visibility": "public", "notificationsMuted": true,
   "description": "A snake game steered by this market: four proposals a minute, one per direction, the highest approved.",
   "subjectAbout": "Every minute four proposals appear, Move up / right / down / left. Each is priced on the snake length at the end of today (and this week). At second 55 the operator approves the move the market prices highest and declines the rest with a refund. The snake moves at the top of the next minute. Watch it live on the board (link in the workspace description) and trade the move you believe in."
 }' >/dev/null
