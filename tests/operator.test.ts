@@ -53,7 +53,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    const desc = String(calls[0].args[1]);
+    const desc = String(calls.find(c => c.name === 'postProposal')!.args[1]);
     expect(desc).toMatch(/step 1\b/i);
     expect(desc).toMatch(/length 3\b/);
     expect(desc.includes('\n')).toBe(false);
