@@ -1,0 +1,20 @@
+# systemd --user unit for the Twitch stream (docs/snake.md, "The stream").
+# Needs TWITCH_STREAM_KEY in .env; without it the unit exits at once.
+[Unit]
+Description=telarchy-snake: Twitch stream of the board
+After=telarchy-snake.service
+Requires=telarchy-snake.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/src/telarchy-snake
+EnvironmentFile=%h/src/telarchy-snake/.env
+ExecStart=/usr/bin/node dist/stream.js
+Restart=always
+RestartSec=15
+Nice=10
+StandardOutput=append:%h/logs/telarchy-snake-stream.log
+StandardError=append:%h/logs/telarchy-snake-stream.log
+
+[Install]
+WantedBy=default.target
