@@ -21,17 +21,20 @@ are free within it.
 
 ## The game
 
-- Grid 20 by 20. The snake starts at the centre with length 3, heading
+- Grid 20 by 20. The snake starts at the centre with length 1, heading
   right, one food on a free cell. Classic rules: the snake moves one cell
   per step in its heading, eating food grows it by one and spawns new food
   on a random free cell, hitting a wall or its own body kills it.
 - One step per minute, at the top of each UTC minute. The step's
   direction is the approved proposal's direction (below). Reversing into
   the second segment is a death like any other collision.
-- On death the snake respawns at once in the starting state. Deaths are
-  counted and shown, nothing else happens: the length itself is the
-  penalty, because the length is what the market prices.
-- The game never ends. A "game" for scoring purposes is a UTC day.
+- On death the snake respawns at once at length 1 in the starting state.
+  Deaths are counted and shown, nothing else happens: the length itself is
+  the penalty, because the length is what the market prices.
+- The game ends when the snake fills the grid: at length 400 it is
+  **complete**, the operator posts the final reading, posts no more
+  proposals, and the board shows the full snake and says so. Until then it
+  runs without end.
 
 ## The workspace
 
@@ -41,26 +44,23 @@ One public Telarchy workspace named `Snake` (Telarchy derives the slug,
 integer starting at 3. The operator posts a reading after every step, so
 the metric's chart is the length minute by minute.
 
-The metric is priced on the **today** horizon and no other (the UTC day).
-A book for a day settles on the last reading whose timestamp falls inside
-the day; Telarchy has no "final" flag, so the reading posted after the last
-step before midnight is the day's fixing by being last. The week horizon
-is deliberately not priced: every approved branch stays open until its
-period ends, and a week of them (ten thousand open books) is what every
-read of the workspace's open set pays for (record: the umbrella
-`notes/snake-load-audit-2026-09-10.md`).
+The metric is priced on three rolling horizons, each a one-minute
+period on Telarchy's clock (`+1min`, `+5min`, `+60min`): the length in
+**1 move**, in **5 moves** and in **60 moves**. A book for a minute
+settles on the last reading whose timestamp falls inside that minute; the
+operator's reading at the top of each minute, posted right after the
+move, is that minute's fixing, so the book for minute M+5 settles on the
+length after five more moves. No calendar horizon is priced.
 
-Two gaps follow and are accepted as undecided steps: a proposal only gets
-a pair on a period that ends after its deadline, so the last minute of a
-day has no pair; and the new day's book exists only once the workspace's
-rolling markets are refreshed. The operator closes the second gap itself:
-at the first step of each UTC day it forces the refresh of the
-workspace's rolling markets before posting the four proposals, so the
-today book is open from the first minute.
+A rolling minute cell exists only once the workspace's rolling markets
+are refreshed, so the operator forces that refresh at every step, before
+posting the four proposals; the three baseline books for the step's
+cells are then open and every proposal gets its three pairs.
 
 Liquidity: every pair book a proposal opens is funded by the workspace
-owner through the metric's per-horizon proposal credits (20 credits a
-book), never by the proposer; the operator posts
+owner through the metric's per-horizon proposal credits (10 credits a
+book on the 1-move and 5-move horizons, 20 on the 60-move horizon),
+never by the proposer; the operator posts
 with no subsidy of its own. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
@@ -79,19 +79,23 @@ one-minute decision window, so its pair books on Snake length open at
 once and close at the deadline.
 
 At second 55, before the deadline, the operator reads each proposal's
-pair on the today horizon and decides:
+three pairs and decides on the **60-move horizon alone**: a direction's
+score is its predicted impact there, the approved-branch price minus the
+declined-branch price. Then:
 
-- the proposal whose approved-branch price is highest is **approved**;
-  its declined branch voids and its approved branch stays open to settle
-  on the length;
-- the other three are **declined with refund**: both their branches void
-  and every stake in them returns, so nothing but the chosen move's book
-  stays open;
+- the proposal with the highest score is **approved**; its declined
+  branches void and its approved branches stay open to settle on the
+  length at their minutes;
+- the other three are **declined with refund**: all their branches void
+  and every stake in them returns;
 - ties go to the current heading, then to up, right, down, left in that
   order;
-- if no price can be read, or the API fails, the snake continues in its
-  current heading and the four proposals are declined with refund; the
-  step is logged as undecided.
+- if no 60-move price can be read, or the API fails, the snake continues
+  in its current heading and the four proposals are declined with refund;
+  the step is logged as undecided.
+
+The 1-move and 5-move pairs never decide anything; they exist to be
+traded and to show how the market sees the near future.
 
 The approved direction is applied at the next top of minute. So the
 board shows: proposals for step N open during minute N, decision at N:55,
@@ -108,9 +112,9 @@ The service serves one page, the board, at `/`. It carries:
   stream at 1280 by 720,
 - the current length, deaths today, the step number, seconds to the
   decision,
-- four cards, one per direction, with the live approved-branch and
-  declined-branch prices, the leader marked, each card linking to that
-  proposal on telarchy.com,
+- four cards, one per direction, with the live 60-move impact large and
+  the 1-move and 5-move prices small, the leader marked, each card linking
+  to that proposal on telarchy.com,
 - the last ten decisions (direction, the four prices at decision, what it
   did to the length),
 - one line saying what this is and where to trade, with the workspace
@@ -123,6 +127,12 @@ build their own board or bot can read it.
 
 Body text on the board is left-aligned; only titles and single numbers
 may be centred.
+
+The board also renders inside Telarchy: the workspace's live-view setting
+points at the board's embed form (`/?embed=1`, the same page without its
+own heading and footer, sized for a 16:9 frame), and the public floor
+shows it above the owner's text. A visitor of telarchy.com/snake sees the
+game without leaving the floor.
 
 ## The stream
 
