@@ -2,9 +2,12 @@
 Description=telarchy-snake: check the game every minute
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=1min
-AccuracySec=10s
+# Minutely on the clock: a oneshot with OnUnitActiveSec can end up with no
+# next trigger after a manual run, and a watchdog that stops scheduling is
+# worse than none.
+OnCalendar=minutely
+AccuracySec=5s
+Persistent=false
 
 [Install]
 WantedBy=timers.target
