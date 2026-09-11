@@ -93,7 +93,7 @@ const signed = (v: number | null) => (v === null ? '-' : `${v >= 0 ? '+' : ''}${
 const ARROW: Record<string, string> = { up: '↑', right: '→', down: '↓', left: '←' };
 /** The next-move line's action words. */
 export const NEXT_LABEL: Record<string, string> = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
-const TILE_LABEL: Record<string, string> = { forward: 'Continue', left: 'Left', right: 'Right' };
+const TILE_LABEL: Record<string, string> = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
 const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 
 function drawBoard(ctx: SKRSContext2D, g: any, N: number) {
