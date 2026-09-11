@@ -22,8 +22,15 @@ are free within it.
 
 ## The game
 
-- The first game is on a grid 12 by 12; each later game is one cell
-  wider and taller than the last (13 by 13, then 14 by 14, and so on).
+- The first game is on a grid 4 by 4; each later game is two cells wider
+  and taller than the last (6 by 6, then 8 by 8, and so on). Two, not one,
+  so every grid keeps an even number of cells: a grid graph has a
+  Hamiltonian cycle exactly when its cells are even in number, and a
+  player following one eats every food and fills the board, so finishing
+  is always possible in principle. An odd-sided grid has no such cycle and
+  no strategy could guarantee filling it. `tests/fillable.test.ts` is the
+  proof: it builds the cycle and fills each of the first four grids with
+  the real engine.
   The snake starts at the centre with length 2, heading right, one food
   on a free cell. Classic rules: the snake moves one cell
   per step in its heading, eating food grows it by one and spawns new food
@@ -37,7 +44,7 @@ are free within it.
   A death ends an **attempt**: the attempt's reached length is now known,
   so every open book on the metric settles at it, right then (below).
   Deaths are counted and shown.
-- A game ends when the snake fills the grid (length 144 on the first
+- A game ends when the snake fills the grid (length 16 on the first
   grid): it is **complete**, the attempt's reached length is the full grid
   and every open book settles at it, the operator posts no more proposals,
   keeps posting the full grid as the reading every minute, and the board
@@ -52,8 +59,7 @@ One public Telarchy workspace named `Snake` (Telarchy derives the slug,
 **Reached length**, the length the current attempt has reached: an
 integer that starts at 2 with every attempt and, since a snake never
 shrinks while it lives, is the snake's length until the attempt ends.
-Its market range is 0 to the full grid (144 on the first
-grid), so a book can price any length the snake can reach; when a new
+Its market range is 0 to the full grid (16 on the first grid), so a book can price any length the snake can reach; when a new
 game starts on a larger grid the operator raises the range to the new
 full grid first. Telarchy refuses that while an open book on the metric
 has trades, so the operator retries every minute until it goes through,

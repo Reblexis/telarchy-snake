@@ -75,7 +75,7 @@ const rng = () => 0;
 describe('the operator loop (docs/snake.md, "The step" and "What must hold")', () => {
   it('posts exactly three proposals per minute, titled Game G, attempt A, move N: Turn left / Turn right / Continue forward, all with the same deadline: the next top of minute', async () => {
     const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00.700Z'));
     const posts = calls.filter(c => c.name === 'postProposal');
     expect(posts.map(c => c.args[0]).sort()).toEqual(['Game 1, attempt 1, move 1: Continue forward', 'Game 1, attempt 1, move 1: Turn left', 'Game 1, attempt 1, move 1: Turn right']);
@@ -88,7 +88,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('the description is the proposal in the snake\'s first person, one line per action, with the state, the cell and the rule', async () => {
     const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, newGame(rng), rng, { boardUrl: 'https://snake.telarchy.com' });
+    const op = new Operator(client, newGame(rng, 12, 1), rng, { boardUrl: 'https://snake.telarchy.com' });
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const posts = calls.filter(c => c.name === 'postProposal');
     const byTitle = Object.fromEntries(posts.map(c => [String(c.args[0]).split(': ')[1], String(c.args[1])]));
@@ -123,7 +123,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
         return client.postProposal(t, d, by);
       },
     };
-    const op = new Operator(slow, newGame(rng), rng);
+    const op = new Operator(slow, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     expect(maxInFlight).toBe(3);
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(3);
@@ -131,7 +131,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('polling during the minute publishes live quotes on the open step without deciding', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     expect(op.publicState(new Date('2026-09-11T10:00:05Z')).open?.quotes.left.m60.approved).toBe(null);
     await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
@@ -142,7 +142,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('decides before the deadline: approves the highest 60-move impact, declines the other two', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.approved).toBe('left');
@@ -155,7 +155,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('the move is applied at the next top of minute, then the next four are posted', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(op.game.step).toBe(0);
@@ -167,7 +167,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('with no price readable the snake continues forward, all three are declined, nothing stays pending', async () => {
     const { client, calls } = fakeClient(none);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
@@ -187,7 +187,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
         return client.decideProposal(ref, verdict);
       },
     };
-    const op = new Operator(flaky, newGame(rng), rng);
+    const op = new Operator(flaky, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
@@ -200,7 +200,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('posts a reading after every step, and marks the last reading before midnight UTC final', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T23:58:00Z'));
     await op.closeStep(new Date('2026-09-11T23:58:58Z'));
     await op.tick(new Date('2026-09-11T23:59:00Z'));
@@ -217,7 +217,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('the operator never trades: only proposal, quote, decision and reading calls are made', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
@@ -228,7 +228,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('forces the rolling-market refresh before the three proposals of every step', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     expect(calls.map(c => c.name).slice(0, 2)).toEqual(['setHorizon', 'refreshBooks']);
     expect(calls[2].name).toBe('postProposal');
@@ -241,7 +241,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('one cell per attempt: the first step sets the horizon to the minute sixty ahead, before the proposals, and later steps of the attempt keep it', async () => {
     const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, { ...newGame(rng), food: { x: 0, y: 0 } }, rng);
+    const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
     await op.openStep(T0);
     const names = calls.map(c => c.name);
     expect(calls.find(c => c.name === 'setHorizon')!.args).toEqual(['2026-09-11T11:00']);
@@ -262,7 +262,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('a death ends the cell: the next step sets a new one sixty minutes ahead of it', async () => {
     const { client, calls } = fakeClient(allTen);
-    const g = { ...newGame(rng), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }], length: 2, food: { x: 0, y: 0 } };
+    const g = { ...newGame(rng, 12, 1), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }], length: 2, food: { x: 0, y: 0 } };
     const op = new Operator(client, g, rng);
     await op.openStep(T0);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
@@ -276,7 +276,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('when the cell\'s minute has passed with the attempt alive, the next step sets the next cell', async () => {
     const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, { ...newGame(rng), food: { x: 0, y: 0 } }, rng);
+    const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
     await op.openStep(T0);
     op.cell = '2026-09-11T10:00'; // as if the attempt had been running an hour
     op.open!.cells = { m60: '2026-09-11T10:00' };
@@ -288,7 +288,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('the cell survives a restart', async () => {
     const { client } = fakeClient(allTen);
-    const op = new Operator(client, { ...newGame(rng), food: { x: 0, y: 0 } }, rng);
+    const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
     await op.openStep(T0);
     const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
     expect(back.cell).toBe('2026-09-11T11:00');
@@ -296,7 +296,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('if setting the cell fails the step still runs and the next step tries again', async () => {
     const { client, calls } = fakeClient(allTen, {}, [], false, true);
-    const op = new Operator(client, { ...newGame(rng), food: { x: 0, y: 0 } }, rng);
+    const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
     await op.openStep(T0);
     expect(calls.filter(c => c.name === 'postProposal')).toHaveLength(3);
     expect(op.cell).toBeNull();
@@ -307,7 +307,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('the quotes are read for the attempt\'s cell, so the client can name it', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00.700Z'));
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(calls.find(c => c.name === 'readQuotes')!.args[1]).toBe('2026-09-11T11:00');
@@ -315,7 +315,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('a step never opens with under ten seconds to its deadline (a restart late in the minute waits for the next one)', async () => {
     const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     expect(op.canOpen(new Date('2026-09-11T10:00:51Z'))).toBe(false);
     expect(op.canOpen(new Date('2026-09-11T10:00:49Z'))).toBe(true);
     await expect(op.openStep(new Date('2026-09-11T10:00:55Z'))).rejects.toThrow(/deadline/);
@@ -324,7 +324,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('a complete game posts the full length as its reading every minute and no proposals, for one hour', async () => {
     const { client, calls } = fakeClient(upWins);
-    const g = { ...newGame(rng), complete: true, length: 144 };
+    const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     expect(op.completedAt).toBe('2026-09-11T10:01:00.000Z');
@@ -339,14 +339,14 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await expect(op.openStep(new Date('2026-09-11T10:32:00Z'))).rejects.toThrow(/complete/);
   });
 
-  it('after the hour, the range is raised to the new full grid and a new game starts one cell larger, numbered up', async () => {
+  it('after the hour, the range is raised to the new full grid and a new game starts two cells larger, numbered up', async () => {
     const { client, calls } = fakeClient(upWins);
-    const g = { ...newGame(rng), complete: true, length: 144 };
+    const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     await op.tick(new Date('2026-09-11T11:01:00Z'));
-    expect(calls.filter(c => c.name === 'setRange').map(c => c.args[0])).toEqual([169]);
-    expect(op.game.size).toBe(13);
+    expect(calls.filter(c => c.name === 'setRange').map(c => c.args[0])).toEqual([196]);
+    expect(op.game.size).toBe(14);
     expect(op.game.gameNumber).toBe(2);
     expect(op.game.length).toBe(2);
     expect(op.game.complete).toBe(false);
@@ -355,14 +355,14 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const names = calls.map(c => c.name);
     expect(names.indexOf('setRange')).toBeLessThan(names.lastIndexOf('postProposal'));
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(3);
-    expect(op.publicState(new Date('2026-09-11T11:01:10Z')).grid).toBe(13);
+    expect(op.publicState(new Date('2026-09-11T11:01:10Z')).grid).toBe(14);
   });
 
   it('if the range cannot be raised yet (a traded open book), the cooldown continues and it is retried next minute', async () => {
     const { client, calls } = fakeClient(upWins);
     let fails = 1;
     const blocked: TelarchyClient = { ...client, async setRange(max) { if (fails-- > 0) throw new Error('409'); return client.setRange(max); } };
-    const g = { ...newGame(rng), complete: true, length: 144 };
+    const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(blocked, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     await op.tick(new Date('2026-09-11T11:01:00Z'));
@@ -370,13 +370,13 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(op.game.complete).toBe(true);
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
     await op.tick(new Date('2026-09-11T11:02:00Z'));
-    expect(op.game.size).toBe(13);
+    expect(op.game.size).toBe(14);
     expect(calls.filter(c => c.name === 'setRange').length).toBe(1);
   });
 
   it('the completion instant and game number survive a restart', async () => {
     const { client } = fakeClient(upWins);
-    const g = { ...newGame(rng), complete: true, length: 144 };
+    const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     const op2 = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
@@ -387,14 +387,14 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
   it('a failing refresh does not stop the three proposals', async () => {
     const { client, calls } = fakeClient(upWins);
     const flaky: TelarchyClient = { ...client, async refreshBooks() { throw new Error('503'); } };
-    const op = new Operator(flaky, newGame(rng), rng);
+    const op = new Operator(flaky, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(3);
   });
 
   it('records the last ten decisions with the four prices and the length change', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     let t = Date.parse('2026-09-11T10:00:00Z');
     await op.openStep(new Date(t));
     for (let i = 0; i < 12; i++) {
@@ -414,7 +414,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('state round-trips through JSON so a restart continues the game', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
@@ -427,14 +427,14 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('/state names the grid size so a board can draw it', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     expect(op.publicState(new Date()).grid).toBe(12);
     expect(op.publicState(new Date()).gameNumber).toBe(1);
   });
 
   it('/state carries the game, the open proposals with prices, recent decisions and counters', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng, { workspaceId: 'ws-1', metricId: 'm-1' });
+    const op = new Operator(client, newGame(rng, 12, 1), rng, { workspaceId: 'ws-1', metricId: 'm-1' });
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const s = op.publicState(new Date('2026-09-11T10:00:20Z'));
     expect(s.game.length).toBe(2);
@@ -461,7 +461,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
 
   async function opened(activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = []) {
     const { client, calls } = fakeClient(withIds, activity, leaders);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
     return { op, calls, client };
@@ -475,7 +475,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
 
   it('next: with no price readable it is forward, the default of the rule', async () => {
     const { client } = fakeClient(none);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
     expect(op.publicState(new Date('2026-09-11T10:00:10Z')).next).toEqual({ action: 'forward', direction: 'right', decided: false, seconds: 48 });
@@ -491,7 +491,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
 
   it('next is null while no step is open', () => {
     const { client } = fakeClient(withIds);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     expect(op.publicState(T0).next).toBe(null);
   });
 
@@ -505,7 +505,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
 
   it('pollActivity reads nothing before the quotes have named the books, and nothing while no step is open', async () => {
     const { client, calls } = fakeClient(withIds);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.pollActivity(T0);
     await op.openStep(T0);
     await op.pollActivity(new Date('2026-09-11T10:00:02Z'));
@@ -602,7 +602,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
 
   it('a state file from before the activity fields loads with empty activity', () => {
     const { client } = fakeClient(withIds);
-    const op = Operator.fromJSON(client, { game: newGame(rng), open: null, decisions: [], pending: null, completedAt: null }, rng);
+    const op = Operator.fromJSON(client, { game: newGame(rng, 12, 1), open: null, decisions: [], pending: null, completedAt: null }, rng);
     const s = op.publicState(T0);
     expect(s.recentTrades).toEqual([]); expect(s.traders).toEqual([]); expect(s.tradersToday).toBe(0); expect(s.leaderboard).toEqual([]);
     expect(s.bestLength).toBe(2);
@@ -639,7 +639,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
   });
 
   /** Head one cell from the right wall, heading right, length 4: the forward move dies. */
-  const dying = () => ({ ...newGame(rng), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 }, { x: 8, y: 6 }], length: 4, food: { x: 0, y: 0 }, deaths: 2 });
+  const dying = () => ({ ...newGame(rng, 12, 1), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 }, { x: 8, y: 6 }], length: 4, food: { x: 0, y: 0 }, deaths: 2 });
 
   it('the reading is the snake\'s length: 2 again after a death, 2 again on a new game', async () => {
     const { client, calls } = fakeClient(allTen);
@@ -678,7 +678,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
 
   it('a move that does not end the attempt never settles anything', async () => {
     const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, { ...newGame(rng), food: { x: 7, y: 6 } }, rng);
+    const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 7, y: 6 } }, rng);
     await op.openStep(T0);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z')); // eats
@@ -722,7 +722,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
 
   it('bestLength is the longest the snake has been this game, persists, and resets with a new game', async () => {
     const { client } = fakeClient(allTen);
-    const op = new Operator(client, { ...newGame(rng), food: { x: 7, y: 6 } }, rng);
+    const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 7, y: 6 } }, rng);
     expect(op.publicState(T0).bestLength).toBe(2);
     await op.openStep(T0);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
@@ -755,7 +755,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
     const { client, calls } = fakeClient(upWins);
     let reads = 0;
     const stuck: TelarchyClient = { ...client, async readQuotes(refs, at) { reads++; if (reads === 1) return hang(); return client.readQuotes(refs, at); } };
-    const op = new Operator(stuck, newGame(rng), rng, { pollTimeoutMs: 20, decideReadTimeoutMs: 20 });
+    const op = new Operator(stuck, newGame(rng, 12, 1), rng, { pollTimeoutMs: 20, decideReadTimeoutMs: 20 });
     await op.openStep(T0);
     const t = Date.now();
     await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
@@ -768,7 +768,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
 
   it('no poll starts in the last ten seconds before the decision, so a slow poll can delay nothing past :58', async () => {
     const { client, calls } = fakeClient(withIds);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     await op.pollQuotes(new Date('2026-09-11T10:00:47Z'));
     expect(calls.filter(c => c.name === 'readQuotes').length).toBe(1);
@@ -786,7 +786,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
     const { client, calls } = fakeClient(upWins);
     let reads = 0;
     const stuck: TelarchyClient = { ...client, async readQuotes(refs, at) { reads++; if (reads === 2) return hang(); return client.readQuotes(refs, at); } };
-    const op = new Operator(stuck, newGame(rng), rng, { decideReadTimeoutMs: 20 });
+    const op = new Operator(stuck, newGame(rng, 12, 1), rng, { decideReadTimeoutMs: 20 });
     await op.openStep(T0);
     await op.pollQuotes(new Date('2026-09-11T10:00:30Z'));
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
@@ -799,7 +799,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
   it('with nothing polled and the decision read hung, the step is undecided and says no answer', async () => {
     const { client } = fakeClient(upWins);
     const stuck: TelarchyClient = { ...client, async readQuotes() { return hang(); } };
-    const op = new Operator(stuck, newGame(rng), rng, { decideReadTimeoutMs: 20 });
+    const op = new Operator(stuck, newGame(rng, 12, 1), rng, { decideReadTimeoutMs: 20 });
     await op.openStep(T0);
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
@@ -813,7 +813,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
       right: { m60: { approved: null, declined: null, reason: 'GET /proposals/p3 -> 500' } },
     });
     const { client } = fakeClient(reasons);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
@@ -826,7 +826,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
 
   it('a null price with no reason given still names the action', async () => {
     const { client } = fakeClient(none);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(op.decisions[0].undecidedReason).toMatch(/forward/);
@@ -843,7 +843,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
         return client.decideProposal(ref, verdict);
       },
     };
-    const op = new Operator(refusing, newGame(rng), rng);
+    const op = new Operator(refusing, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
@@ -852,7 +852,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
 
   it('a decided step carries no reason, and the reason survives a restart', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(op.decisions[0].undecidedReason).toBe(null);
@@ -877,7 +877,7 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
         return client.decideProposal(ref, verdict);
       },
     };
-    const op = new Operator(slow, newGame(rng), rng);
+    const op = new Operator(slow, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(maxInFlight).toBe(2);
@@ -892,7 +892,7 @@ describe('the feed never blanks between steps (docs/snake.md, "The feed")', () =
   it('THE FEED NEVER BLANKS THE OPEN STEP BETWEEN STEPS', async () => {
     const { client } = fakeClient(upWins);
     const seen: Array<{ step: number | null; phase: string }> = [];
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     // Sample the feed from inside the slow call that posts the next step's
     // proposals: that is the window in which the step used to read null.
     const slow: TelarchyClient = {
@@ -903,7 +903,7 @@ describe('the feed never blanks between steps (docs/snake.md, "The feed")', () =
         return client.postProposal(t, d, by);
       },
     };
-    const op2 = new Operator(slow, newGame(rng), rng);
+    const op2 = new Operator(slow, newGame(rng, 12, 1), rng);
     // openStep on op2 uses the slow client too, so seed the first step first.
     await op2.openStep(new Date('2026-09-11T10:00:00Z'));
     seen.length = 0;
@@ -930,7 +930,7 @@ describe('the feed never blanks between steps (docs/snake.md, "The feed")', () =
 
   it('A DECIDED STEP IS REPLACED, NOT CLEARED', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(op.publicState(new Date('2026-09-11T10:00:59Z')).phase).toBe('decided');
@@ -941,14 +941,14 @@ describe('the feed never blanks between steps (docs/snake.md, "The feed")', () =
 
   it('AN UNDECIDED OPEN STEP STILL REFUSES A SECOND OPEN', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     await expect(op.openStep(new Date('2026-09-11T10:00:10Z'))).rejects.toThrow(/already open/);
   });
 
   it('with no step at all the phase says so', () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     expect(op.publicState(new Date('2026-09-11T10:00:00Z')).phase).toBe('idle');
   });
 });

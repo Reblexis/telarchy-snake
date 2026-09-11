@@ -6,7 +6,7 @@ import http from 'node:http';
 import { Operator, type TelarchyClient, type ProposalRef } from '../src/operator.js';
 import { GameLog, type LogStep } from '../src/gamelog.js';
 import { createServer } from '../src/server.js';
-import { newGame } from '../src/engine.js';
+import { GRID, newGame } from '../src/engine.js';
 import type { Quotes } from '../src/decide.js';
 
 function fakeClient(quotesFor: () => Quotes) {
@@ -51,7 +51,7 @@ const line = (step: number, extra: Partial<LogStep> = {}): LogStep => ({
 describe('the game log (docs/snake.md, "The feed": /games and /history)', () => {
   it('the games list has the contract shape, oldest first, the running game last with endedAt null', async () => {
     const log = new GameLog(tmp());
-    const g = { ...newGame(rng), complete: true, length: 144 };
+    const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(fakeClient(upWins), g as any, rng, { log });
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     await op.tick(new Date('2026-09-11T11:01:00Z')); // cooldown over: game 2 on 13x13
@@ -59,7 +59,7 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
     const games = log.games();
     expect(games.map(x => x.number)).toEqual([1, 2]);
     expect(Object.keys(games[1]).sort()).toEqual(['bestLength', 'deaths', 'endedAt', 'number', 'size', 'startedAt', 'steps']);
-    expect(games[1]).toEqual({ number: 2, size: 13, startedAt: '2026-09-11T11:01:00.000Z', endedAt: null, steps: 2, bestLength: 2, deaths: 0 });
+    expect(games[1]).toEqual({ number: 2, size: 14, startedAt: '2026-09-11T11:01:00.000Z', endedAt: null, steps: 2, bestLength: 2, deaths: 0 });
     expect(games[0].endedAt).not.toBe(null);
   });
 
@@ -67,7 +67,8 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
     const log = new GameLog(tmp());
     const op = Operator.fresh(fakeClient(upWins), rng, { log });
     expect(log.games().length).toBe(1);
-    expect(log.games()[0]).toMatchObject({ number: 1, size: 12, steps: 0, bestLength: 2, deaths: 0, endedAt: null });
+    // A fresh process starts game 1 on the first grid (docs/snake.md, "The game").
+    expect(log.games()[0]).toMatchObject({ number: 1, size: GRID, steps: 0, bestLength: 2, deaths: 0, endedAt: null });
     expect(log.games()[0]).not.toHaveProperty('partial');
     return log.history('current').then(r => {
       expect(r!.total).toBe(1);
@@ -79,7 +80,7 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
 
   it('a step records the state after the move with action, direction, impact and undecided', async () => {
     const log = new GameLog(tmp());
-    const op = new Operator(fakeClient(upWins), newGame(rng), rng, { log });
+    const op = new Operator(fakeClient(upWins), newGame(rng, 12, 1), rng, { log });
     await playSteps(op, 1);
     const r = (await log.history(1))!;
     expect(r.total).toBe(2);
@@ -92,7 +93,7 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
 
   it('an undecided step records forward, undecided true and null impacts', async () => {
     const log = new GameLog(tmp());
-    const op = new Operator(fakeClient(none), newGame(rng), rng, { log });
+    const op = new Operator(fakeClient(none), newGame(rng, 12, 1), rng, { log });
     await playSteps(op, 1);
     const r = (await log.history(1))!;
     expect(r.steps[1]).toMatchObject({ step: 1, action: 'forward', direction: 'right', undecided: true, impact: { forward: null, left: null, right: null } });
@@ -100,7 +101,7 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
 
   it('a death step records length 2 and the new deaths count', async () => {
     const log = new GameLog(tmp());
-    const g = { ...newGame(rng), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 }], length: 3, food: { x: 0, y: 0 } };
+    const g = { ...newGame(rng, 12, 1), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 }], length: 3, food: { x: 0, y: 0 } };
     const op = new Operator(fakeClient(allTen), g, rng, { log });
     await playSteps(op, 1);
     const r = (await log.history(1))!;
@@ -112,7 +113,7 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
   it('a completed game gets endedAt and the next game gets its own file and number', async () => {
     const dir = tmp();
     const log = new GameLog(dir);
-    const g = { ...newGame(rng), complete: true, length: 144 };
+    const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(fakeClient(upWins), g as any, rng, { log });
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     await op.tick(new Date('2026-09-11T11:01:00Z'));
@@ -122,9 +123,9 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
     expect(fs.existsSync(path.join(dir, 'index.json'))).toBe(true);
     const [g1, g2] = log.games();
     expect(typeof g1.endedAt).toBe('string');
-    expect(g2).toMatchObject({ number: 2, size: 13, endedAt: null, steps: 1 });
+    expect(g2).toMatchObject({ number: 2, size: 14, endedAt: null, steps: 1 });
     expect((await log.history(2))!.steps.map(s => s.step)).toEqual([0, 1]);
-    expect((await log.history(2))!.game).toEqual({ number: 2, size: 13, startedAt: '2026-09-11T11:01:00.000Z', endedAt: null });
+    expect((await log.history(2))!.game).toEqual({ number: 2, size: 14, startedAt: '2026-09-11T11:01:00.000Z', endedAt: null });
   });
 
   it('a game that fills the grid is ended at the step that filled it', async () => {
@@ -139,7 +140,7 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
 
   it('partial flag when the log starts mid-game: the first entry is the state at game.step and earlier steps are unavailable', async () => {
     const log = new GameLog(tmp());
-    const op = new Operator(fakeClient(upWins), newGame(rng), rng);
+    const op = new Operator(fakeClient(upWins), newGame(rng, 12, 1), rng);
     await playSteps(op, 3);
     const back = Operator.fromJSON(fakeClient(upWins), JSON.parse(JSON.stringify(op.toJSON())), rng, { log });
     expect(log.games()[0]).toMatchObject({ number: 1, partial: true, steps: 3, bestLength: 2 });
@@ -156,7 +157,7 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
 
   it('a partial start carries the game record (bestLength), not the current length', async () => {
     const log = new GameLog(tmp());
-    const op = new Operator(fakeClient(upWins), { ...newGame(rng), food: { x: 6, y: 5 } }, rng);
+    const op = new Operator(fakeClient(upWins), { ...newGame(rng, 12, 1), food: { x: 6, y: 5 } }, rng);
     await playSteps(op, 1); // eats: length 3
     op.game = { ...op.game, snake: [{ x: 6, y: 6 }, { x: 5, y: 6 }], length: 2, deaths: 1, step: 5 }; // died since
     expect(op.bestLength).toBe(3);
@@ -167,7 +168,7 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
 
   it('a log that already exists for the running game is continued on restart, not started again', async () => {
     const dir = tmp();
-    const op = new Operator(fakeClient(upWins), newGame(rng), rng, { log: new GameLog(dir) });
+    const op = new Operator(fakeClient(upWins), newGame(rng, 12, 1), rng, { log: new GameLog(dir) });
     await playSteps(op, 2);
     const log2 = new GameLog(dir);
     const back = Operator.fromJSON(fakeClient(upWins), JSON.parse(JSON.stringify(op.toJSON())), rng, { log: log2 });
@@ -281,7 +282,7 @@ describe('the feed over HTTP (docs/snake.md, "The feed")', () => {
   }
 
   it('/games and /history carry CORS * and no-store, like /state', async () => {
-    const op = new Operator(fakeClient(upWins), newGame(rng), rng, { log: new GameLog(tmp()) });
+    const op = new Operator(fakeClient(upWins), newGame(rng, 12, 1), rng, { log: new GameLog(tmp()) });
     await playSteps(op, 2);
     const { get, close } = await serve(op);
     try {
@@ -305,7 +306,7 @@ describe('the feed over HTTP (docs/snake.md, "The feed")', () => {
   });
 
   it('404 on unknown game: { "error": "no such game" }, JSON, with CORS', async () => {
-    const op = new Operator(fakeClient(upWins), newGame(rng), rng, { log: new GameLog(tmp()) });
+    const op = new Operator(fakeClient(upWins), newGame(rng, 12, 1), rng, { log: new GameLog(tmp()) });
     const { get, close } = await serve(op);
     try {
       for (const p of ['/history?game=9', '/history?game=abc']) {
@@ -318,7 +319,7 @@ describe('the feed over HTTP (docs/snake.md, "The feed")', () => {
   });
 
   it('without a log the feed answers an empty games list and 404 on every history', async () => {
-    const op = new Operator(fakeClient(upWins), newGame(rng), rng);
+    const op = new Operator(fakeClient(upWins), newGame(rng, 12, 1), rng);
     const { get, close } = await serve(op);
     try {
       expect(JSON.parse((await get('/games')).body)).toEqual({ games: [] });

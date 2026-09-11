@@ -386,7 +386,7 @@ export class Operator {
       if (!this.completedAt) this.completedAt = now.toISOString();
       const due = Date.parse(this.completedAt) + COOLDOWN_MS;
       if (now.getTime() >= due) {
-        const size = (this.game.size ?? GRID) + 1;
+        const size = (this.game.size ?? GRID) + 2; // even grids stay fillable
         try {
           await this.client.setRange(size * size);
         } catch {

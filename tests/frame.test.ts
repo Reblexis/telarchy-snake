@@ -36,7 +36,7 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
 
   it('paints the snake green, its head lighter, the food red, and empty cells dark', () => {
     const f = renderFrame(state as any);
-    const head = cellRect(10, 10), body = cellRect(9, 10), food = cellRect(3, 4), empty = cellRect(0, 11);
+    const head = cellRect(10, 10, 12), body = cellRect(9, 10, 12), food = cellRect(3, 4, 12), empty = cellRect(0, 11, 12);
     const c = (r: { x: number; y: number; w: number; h: number }) => px(f, r.x + Math.floor(r.w / 2), r.y + Math.floor(r.h / 2));
     const [hr, hg, hb] = c(head); expect(hg).toBeGreaterThan(150); expect(hr).toBeGreaterThan(100);
     const [br, bg] = c(body); expect(bg).toBeGreaterThan(150); expect(br).toBeLessThan(120);
@@ -45,10 +45,10 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
   });
 
   it('the board is square and fits the frame height with a margin', () => {
-    const r = cellRect(11, 11);
+    const r = cellRect(11, 11, 12);
     expect(r.x + r.w).toBeLessThanOrEqual(HEIGHT);
     expect(r.y + r.h).toBeLessThanOrEqual(HEIGHT);
-    expect(cellRect(0, 0).x).toBeGreaterThan(0);
+    expect(cellRect(0, 0, 12).x).toBeGreaterThan(0);
   });
 
   it('text is set in the bundled Inter face, not a bitmap font: a wide string measures wider, an empty one zero', () => {
@@ -73,7 +73,7 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
   it('the heading is marked on the head: a snake heading right and one heading up render different head cells', () => {
     const a = renderFrame(state as any);
     const b = renderFrame({ ...state, game: { ...state.game, heading: 'up' } } as any);
-    const r = cellRect(10, 10);
+    const r = cellRect(10, 10, 12);
     const slice = (buf: Buffer) => buf.subarray((r.y * WIDTH + r.x) * 3, ((r.y + r.h) * WIDTH + r.x + r.w) * 3);
     expect(Buffer.compare(slice(a), slice(b))).not.toBe(0);
   });
@@ -146,7 +146,7 @@ describe('THE GRID SHOWS AN ARROW IN THE CELL THE SNAKE MOVES TO NEXT (docs/snak
     expect(hasAccent(up, 11, 10)).toBe(false);
     expect(hasAccent(up, 11, 9)).toBe(true);
     // Beyond the board's right edge the two frames agree pixel for pixel: the wall arrow adds nothing off the grid.
-    const r = cellRect(11, 10);
+    const r = cellRect(11, 10, 12);
     for (let y = r.y - r.h; y < r.y + 2 * r.h; y++) for (let x = r.x + r.w; x < r.x + r.w + 30; x++) expect(px(right, x, y), `${x},${y}`).toEqual(px(up, x, y));
   });
 });

@@ -1,6 +1,9 @@
 // The game, docs/snake.md "The game". Pure: a state in, a state out.
-/** The first game's grid; each later game is one larger (GameState.size). */
-export const GRID = 12;
+/** The first game's grid; each later game is two larger (GameState.size), so
+ *  every grid has an even number of cells and therefore a Hamiltonian cycle:
+ *  a player who follows one fills the board, which an odd-sided grid can
+ *  never guarantee (docs/snake.md, "The game"). */
+export const GRID = 4;
 
 export type Direction = 'up' | 'right' | 'down' | 'left';
 export interface Cell { x: number; y: number }

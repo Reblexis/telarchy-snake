@@ -34,7 +34,7 @@ METRIC=$(curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-
   "name": "Reached length",
   "description": "The length the current attempt has reached. One move a minute; the market picks the direction. Priced on the length in 60 moves; when the attempt ends (a death or a full grid) every open book settles at the length it reached. The next attempt starts again at 2.",
   "value": 2,
-  "marketRangeMax": 144,
+  "marketRangeMax": 16,
   "timePreference": { "enabled": false, "customHorizons": ["+60min"], "_note": "the operator replaces this with the attempt's absolute cell at its first step (docs/snake.md, The workspace)",
     "horizonCredits": { "+60min": { "book": 25, "proposal": 1000 } } }
 }')

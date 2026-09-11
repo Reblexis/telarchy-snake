@@ -61,7 +61,7 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
 
   it('the operator posts the three proposals of each step titled with the game and the move it decides', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const titles = () => calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]));
     expect(titles().sort()).toEqual(['Game 1, attempt 1, move 1: Continue forward', 'Game 1, attempt 1, move 1: Turn left', 'Game 1, attempt 1, move 1: Turn right']);
@@ -72,7 +72,7 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
 
   it('a death starts the next attempt and its moves count from 1 again', async () => {
     const { client, calls } = fakeClient(allTen); // ties continue forward: into the right wall at step 6
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 6);
     const titles = calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]));
     expect(titles[15]).toBe('Game 1, attempt 1, move 6: Continue forward');
@@ -84,7 +84,7 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
 
   it('a later game numbers its titles by that game, from attempt 1, move 1 again', async () => {
     const { client, calls } = fakeClient(upWins);
-    const g = { ...newGame(rng), complete: true, length: 144, deaths: 5 };
+    const g = { ...newGame(rng, 12, 1), complete: true, length: 144, deaths: 5 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     await op.tick(new Date('2026-09-11T11:01:00Z'));
@@ -93,7 +93,7 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
 
   it('a state file from before attempts were counted derives the attempt move from the decision log', async () => {
     const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 8); // death at step 6, then two moves of attempt 2
     const raw = JSON.parse(JSON.stringify(op.toJSON()));
     delete raw.game.attemptStep;
@@ -107,7 +107,7 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
 
 describe('the replay record (docs/snake.md, "The replay" and "The feed")', () => {
   it('a fresh operator records the start frame of game 1 at step 0 and no moves', () => {
-    const op = new Operator(fakeClient(allTen).client, newGame(rng), rng);
+    const op = new Operator(fakeClient(allTen).client, newGame(rng, 12, 1), rng);
     const r = op.replay();
     expect(r).not.toBe(null);
     expect(r!.games).toEqual([1]);
@@ -119,7 +119,7 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
 
   it('every applied move is recorded with its step, time, action, direction and whether it was undecided', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 2);
     const r = op.replay()!;
     expect(r.moves.length).toBe(2);
@@ -130,14 +130,14 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
 
   it('an undecided step is recorded as forward and undecided', async () => {
     const { client } = fakeClient(none);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 1);
     expect(op.replay()!.moves[0]).toMatchObject({ step: 1, action: 'forward', direction: 'right', undecided: true });
   });
 
   it('the food is recorded only when the move changed it, and a death is marked with the new food', async () => {
     const { client } = fakeClient(allTen); // ties continue forward: the snake runs right into the wall
-    const g = { ...newGame(rng), food: { x: 7, y: 6 } }; // one cell ahead
+    const g = { ...newGame(rng, 12, 1), food: { x: 7, y: 6 } }; // one cell ahead
     const op = new Operator(client, g, rng);
     await playSteps(op, 6);
     const r = op.replay()!;
@@ -152,7 +152,7 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
   it('replaying the recorded moves through the rules reproduces the live game exactly', async () => {
     const { client } = fakeClient(upWins);
     const rnd = () => Math.floor(Math.random() * 144);
-    const op = new Operator(client, newGame(rnd), rnd);
+    const op = new Operator(client, newGame(rnd, 12, 1), rnd);
     await playSteps(op, 30);
     const r = op.replay()!;
     let snake = r.start.snake, food = r.start.food, deaths = r.start.deaths;
@@ -169,7 +169,7 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
 
   it('from=I returns the moves from index I on, so a follower reads only what it lacks', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 5);
     expect(op.replay(undefined, 3)!.moves.map(m => m.step)).toEqual([4, 5]);
     expect(op.replay(undefined, 5)!.moves).toEqual([]);
@@ -179,7 +179,7 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
 
   it('every game since recording began is kept, listed oldest first, and asked for by number; an unknown game is null', async () => {
     const { client } = fakeClient(upWins);
-    const g = { ...newGame(rng), complete: true, length: 144 };
+    const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     await op.tick(new Date('2026-09-11T11:01:00Z')); // the cooldown is over: game 2 on 13x13
@@ -187,7 +187,7 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
     const r = op.replay()!;
     expect(r.games).toEqual([1, 2]);
     expect(r.gameNumber).toBe(2);
-    expect(r.size).toBe(13);
+    expect(r.size).toBe(14);
     expect(r.start.step).toBe(0);
     expect(r.moves.length).toBe(2);
     const g1 = op.replay(1)!;
@@ -198,7 +198,7 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
 
   it('the record survives a restart, and a state file from before recording seeds the start frame from the game as it stands', async () => {
     const { client } = fakeClient(upWins);
-    const op = new Operator(client, newGame(rng), rng);
+    const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 3);
     const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
     expect(back.replay()).toEqual(op.replay());
