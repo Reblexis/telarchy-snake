@@ -50,7 +50,10 @@ are free within it.
   keeps posting the full grid as the reading every minute, and the board
   shows the full snake and says so. After a **cooldown of five minutes** the
   next game starts on the larger grid, at length 2, with the game number
-  counted up. Until a game completes it runs without end.
+  counted up. Until a game completes it runs without end. **The cooldown is
+what the loop does between games**, the way a step is what it does during
+one: a complete game has no open step, so the minute belongs to the
+cooldown and the loop never asks for a step the operator would refuse.
 
 ## The workspace
 
@@ -467,7 +470,9 @@ every step so a restart continues the game.
 
 A watchdog (`scripts/watchdog.sh`, a systemd timer every minute on the
 host) runs `scripts/health.sh`, which asks the one question that matters:
-can somebody trade the snake right now. It checks that the step is moving,
+can somebody trade the snake right now. It checks that the step is moving
+(and, between games, that the next game is not more than a minute past
+`nextGameAt`, because there the step is meant to stand still),
 that the feed carries an open proposal, that the floor's own proxy is
 within three steps of the feed, that telarchy.com/snake serves, and that
 the open proposal carries its three option books. A stalled operator is

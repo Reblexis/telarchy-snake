@@ -29,7 +29,7 @@ NOW=$(date +%s); PREV=$(cat "$LAST" 2>/dev/null || echo 0)
 if [ $((NOW - PREV)) -lt "$COOLDOWN" ]; then say "not restarting: last restart $((NOW - PREV))s ago"; exit 1; fi
 
 case "$OUT" in
-  *"has not moved"*|*"feed unreachable"*|*"feed returned nothing"*|*"no open proposal"*|*"option books"*|*"not the shape"*)
+  *"has not moved"*|*"overdue"*|*"feed unreachable"*|*"feed returned nothing"*|*"no open proposal"*|*"option books"*|*"not the shape"*)
     mkdir -p "$(dirname "$LAST")"; echo "$NOW" > "$LAST"
     say "restarting the operator"
     systemctl --user restart telarchy-snake.service
