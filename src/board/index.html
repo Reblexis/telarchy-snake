@@ -153,7 +153,27 @@ let last = null;
 function fmt(v){ return v == null ? '-' : (Math.round(v*10)/10).toString(); }
 function signed(v){ return v == null ? '-' : (v >= 0 ? '+' : '') + fmt(v); }
 function rr(x, y, w, h, r){ ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.closePath(); }
-function draw(g, canvas = cv, size = GRID){
+const DELTA = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
+function chevron(cx, cy, dir, half, arm){
+  const [dx,dy] = DELTA[dir] || DELTA.right, px = -dy, py = dx;
+  ctx.beginPath(); ctx.moveTo(cx-dx*half+px*arm, cy-dy*half+py*arm); ctx.lineTo(cx+dx*half, cy+dy*half); ctx.lineTo(cx-dx*half-px*arm, cy-dy*half-py*arm);
+}
+// The next direction (docs/snake.md, "The board"): a chevron in the accent from the head into the cell
+// ahead, faint while open and solid once decided; pressed against the head's edge when that cell is a wall.
+function drawArrow(h, cell, size, next){
+  const [dx,dy] = DELTA[next.direction] || DELTA.right;
+  const ax = h.x+dx, ay = h.y+dy, wall = ax<0 || ay<0 || ax>=size || ay>=size;
+  const hx = (h.x+0.5)*cell, hy = (h.y+0.5)*cell;
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (wall) {
+    const half = cell*0.2, reach = cell*0.5-half-cell*0.13, cx = hx+dx*reach, cy = hy+dy*reach;
+    chevron(cx, cy, next.direction, half, cell*0.3); ctx.strokeStyle = '#111419'; ctx.lineWidth = cell*0.26; ctx.stroke();
+    chevron(cx, cy, next.direction, half, cell*0.3);
+  } else chevron((ax+0.5)*cell, (ay+0.5)*cell, next.direction, cell*0.14, cell*0.2);
+  ctx.globalAlpha = next.decided ? 1 : 0.55; ctx.strokeStyle = '#facc15'; ctx.lineWidth = Math.max(2, cell*0.12); ctx.stroke();
+  ctx.restore();
+}
+function draw(g, canvas = cv, size = GRID, next = null){
   ctx = canvas.getContext('2d');
   const S = canvas.width, cell = S / size;
   ctx.clearRect(0,0,S,S);
@@ -174,6 +194,7 @@ function draw(g, canvas = cv, size = GRID){
     const eyes = g.heading==='up' ? [[cx-side,cy-off],[cx+side,cy-off]] : g.heading==='down' ? [[cx-side,cy+off],[cx+side,cy+off]] : g.heading==='left' ? [[cx-off,cy-side],[cx-off,cy+side]] : [[cx+off,cy-side],[cx+off,cy+side]];
     ctx.fillStyle = '#0b0d10'; for (const [ex,ey] of eyes){ ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill(); }
   }
+  if (h && !g.hideHead && next && next.direction) drawArrow(h, cell, size, next);
 }
 const embed = new URLSearchParams(location.search).get('embed') === '1';
 if (embed) document.documentElement.classList.add('embed');
@@ -186,7 +207,7 @@ function impact(q){ const m = q && q.m60; if (!m || m.approved == null || m.decl
 function render(s){
   last = s;
   if (s.grid) GRID = s.grid;
-  draw(s.game);
+  draw(s.game, cv, GRID, s.next && DELTA[s.next.direction] ? { direction: s.next.direction, decided: !!s.next.decided } : { direction: s.game.heading, decided: false });
   // 2. the next move
   const nx = document.getElementById('next');
   if (s.next) {
@@ -291,7 +312,7 @@ function renderReplay(){
   const sl = document.getElementById('slider');
   sl.max = rp.moves.length; if (document.activeElement !== sl || rp.follow) sl.value = rp.idx + 1;
   const f = frameAt(rp.idx);
-  draw(f, document.getElementById('rc'), rp.size);
+  draw(f, document.getElementById('rc'), rp.size, { direction: f.heading, decided: true });
   const m = rp.idx >= 0 ? rp.moves[rp.idx] : null;
   // A death's frame is the respawn: it belongs to the attempt that ended, as its last move.
   const before = rp.idx > 0 ? rp.frames[rp.idx-1] : startFrame();

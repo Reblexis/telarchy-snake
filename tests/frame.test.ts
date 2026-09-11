@@ -92,6 +92,65 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
   });
 });
 
+describe('THE GRID SHOWS AN ARROW IN THE CELL THE SNAKE MOVES TO NEXT (docs/snake.md, "The stream")', () => {
+  // Head at (10,10) heading right; (3,3) is an empty interior cell.
+  const cellOf = (buf: Buffer, x: number, y: number, n = 12) => {
+    const r = cellRect(x, y, n);
+    return buf.subarray((r.y * WIDTH + r.x) * 3, ((r.y + r.h) * WIDTH + r.x + r.w) * 3);
+  };
+  /** Whether a cell holds a pixel in the accent (amber: red over green over blue), which neither the snake, the head, the food nor the ground has. */
+  const hasAccent = (buf: Buffer, x: number, y: number, n = 12) => {
+    const r = cellRect(x, y, n);
+    for (let yy = r.y; yy < r.y + r.h; yy++) for (let xx = r.x; xx < r.x + r.w; xx++) {
+      const [pr, pg, pb] = px(buf, xx, yy);
+      if (pr > 120 && pg > 90 && pb < 80 && pr > pg) return true;
+    }
+    return false;
+  };
+  const withNext = (direction: string, decided = false) => ({ ...state, next: { action: 'forward', direction, decided, seconds: 30 } });
+
+  it('the arrow cell differs from an empty cell: it holds the accent, the empty cell does not', () => {
+    const f = renderFrame(withNext('up') as any);
+    expect(hasAccent(f, 10, 9)).toBe(true);
+    expect(hasAccent(f, 3, 3)).toBe(false);
+    expect(Buffer.compare(cellOf(f, 10, 9), cellOf(f, 3, 3))).not.toBe(0);
+  });
+
+  it('the arrow moves with next.direction: up marks (10,9), down marks (10,11) and leaves (10,9) clear', () => {
+    const up = renderFrame(withNext('up') as any);
+    const down = renderFrame(withNext('down') as any);
+    expect(hasAccent(down, 10, 11)).toBe(true);
+    expect(hasAccent(down, 10, 9)).toBe(false);
+    expect(hasAccent(up, 10, 11)).toBe(false);
+  });
+
+  it('without next the arrow follows the heading (forward is the default): right marks (11,10)', () => {
+    const f = renderFrame(state as any);
+    expect(hasAccent(f, 11, 10)).toBe(true);
+    expect(hasAccent(f, 10, 9)).toBe(false);
+  });
+
+  it('a decided arrow is drawn differently from an open one, and both are in the accent', () => {
+    const open = renderFrame(withNext('up') as any);
+    const decided = renderFrame(withNext('up', true) as any);
+    expect(hasAccent(open, 10, 9)).toBe(true);
+    expect(hasAccent(decided, 10, 9)).toBe(true);
+    expect(Buffer.compare(cellOf(open, 10, 9), cellOf(decided, 10, 9))).not.toBe(0);
+  });
+
+  it('a wall ahead: the arrow is pressed against the head, inside the head cell, and nothing is drawn outside the board', () => {
+    const atWall = { ...state, game: { ...state.game, snake: [{ x: 11, y: 10 }, { x: 10, y: 10 }, { x: 9, y: 10 }] } };
+    const right = renderFrame({ ...atWall, next: { action: 'forward', direction: 'right', decided: false, seconds: 30 } } as any);
+    const up = renderFrame({ ...atWall, next: { action: 'left', direction: 'up', decided: false, seconds: 30 } } as any);
+    expect(hasAccent(right, 11, 10)).toBe(true);
+    expect(hasAccent(up, 11, 10)).toBe(false);
+    expect(hasAccent(up, 11, 9)).toBe(true);
+    // Beyond the board's right edge the two frames agree pixel for pixel: the wall arrow adds nothing off the grid.
+    const r = cellRect(11, 10);
+    for (let y = r.y - r.h; y < r.y + 2 * r.h; y++) for (let x = r.x + r.w; x < r.x + r.w + 30; x++) expect(px(right, x, y), `${x},${y}`).toEqual(px(up, x, y));
+  });
+});
+
 describe('the stream frame: the first screen and nothing more (docs/snake.md, "The stream")', () => {
   const rich = {
     ...state,

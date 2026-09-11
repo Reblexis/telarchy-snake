@@ -192,9 +192,16 @@ row, exactly these five elements, in this order, and nothing else:
 1. **The grid**, large and clean: a near-black board with soft grid
    lines, the snake as rounded green segments, its head clearly marked
    with its heading (an eye or wedge on the side it moves towards, a soft
-   glow around the head), the food as a rounded red dot. The cell size
-   follows `grid` on `/state`, so a larger game draws smaller cells.
-   Source: `game`, `grid`.
+   glow around the head), the food as a rounded red dot, and the next
+   direction as an arrow: a short chevron in the accent colour drawn from
+   the head into the cell the snake moves to next (`next.direction`; the
+   heading itself while `next` is absent, forward being the default),
+   faint while the step is open and solid once `next.decided`; when that
+   cell is off the grid the chevron is pressed against the head's edge
+   pointing out, so a wall crash is visible before the move. The replay
+   draws the same chevron for the replayed move's direction, solid. The
+   cell size follows `grid` on `/state`, so a larger game draws smaller
+   cells. Source: `game`, `grid`, `next`.
 2. **The next move**, one big line: the arrow of the resulting compass
    direction and the action, `→ Turn left`, with the seconds to the
    decision as a clock beside it, `0:31`. Before the decision it is the
@@ -401,7 +408,10 @@ line, the quiet line (newest trade, else commentary), and in small muted
 type `Trade at telarchy.com/snake`. No traders, no trades list, no
 leaderboard, no decisions, no counters and no rule text are drawn. The
 same visual language as the board applies (accent for the leader and the
-next move, green snake with a marked head, red food, near-black ground).
+next move, green snake with a marked head, red food, near-black ground),
+including the next-direction chevron on the grid: in the accent, in the
+cell ahead of the head in `next.direction`, faint while open and solid
+once decided, pressed against the head's edge when that cell is a wall.
 
 Text is set in Inter, bundled in the repo under `fonts/` with its OFL
 licence and registered at render time; the frame never depends on a

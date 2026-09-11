@@ -47,6 +47,13 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(html).toMatch(/10 moves a second|100\b/);
   });
 
+  it('THE GRID SHOWS AN ARROW IN THE CELL THE SNAKE MOVES TO NEXT: draw takes the next direction, live passes next.direction and decided, the replay passes the move\'s direction', () => {
+    expect(html).toMatch(/function draw\([^)]*\bnext\b[^)]*\)/);
+    expect(html).toMatch(/draw\(s\.game,[^)]*s\.next[^)]*\)/);
+    expect(html).toMatch(/draw\(f,.*f\.heading/);
+    expect(html).toMatch(/decided/);
+  });
+
   it('the tab row is kept in the embed, with More and the footer still hidden', () => {
     const embedRules = styles.split('\n').filter(l => l.includes('.embed ') && l.includes('display:none')).join('\n');
     expect(embedRules).not.toContain('#tabs');

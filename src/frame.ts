@@ -96,7 +96,49 @@ export const NEXT_LABEL: Record<string, string> = { forward: 'Continue', left: '
 const TILE_LABEL: Record<string, string> = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
 const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 
-function drawBoard(ctx: SKRSContext2D, g: any, N: number) {
+const DELTA: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+
+/** A chevron pointing along `dir`, centred on (cx, cy): two arms behind, the tip ahead. */
+function chevronPath(ctx: SKRSContext2D, cx: number, cy: number, dir: string, half: number, arm: number) {
+  const [dx, dy] = DELTA[dir] ?? DELTA.right;
+  const [px, py] = [-dy, dx];
+  ctx.beginPath();
+  ctx.moveTo(cx - dx * half + px * arm, cy - dy * half + py * arm);
+  ctx.lineTo(cx + dx * half, cy + dy * half);
+  ctx.lineTo(cx - dx * half - px * arm, cy - dy * half - py * arm);
+}
+
+/** The next direction: a chevron in the accent from the head into the cell
+ *  ahead (docs/snake.md, "The stream"), faint while the step is open and
+ *  solid once decided; pressed against the head's edge, over a halo in the
+ *  board's ground, when that cell is a wall. */
+function drawArrow(ctx: SKRSContext2D, head: { x: number; y: number }, N: number, next: { direction: string; decided: boolean }) {
+  const [dx, dy] = DELTA[next.direction] ?? DELTA.right;
+  const CELL = Math.floor(BOARD_PX / N);
+  const ax = head.x + dx, ay = head.y + dy;
+  const wall = ax < 0 || ay < 0 || ax >= N || ay >= N;
+  const h = cellRect(head.x, head.y, N);
+  const hx = h.x + h.w / 2, hy = h.y + h.h / 2;
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (wall) {
+    const half = CELL * 0.2;
+    // The tip stops a halo's half-width short of the edge, so nothing is drawn off the grid.
+    const reach = CELL * 0.5 - half - CELL * 0.13;
+    const cx = hx + dx * reach, cy = hy + dy * reach;
+    chevronPath(ctx, cx, cy, next.direction, half, CELL * 0.3);
+    ctx.strokeStyle = BOARD; ctx.lineWidth = CELL * 0.26; ctx.stroke();
+    chevronPath(ctx, cx, cy, next.direction, half, CELL * 0.3);
+  } else {
+    const r = cellRect(ax, ay, N);
+    chevronPath(ctx, r.x + r.w / 2, r.y + r.h / 2, next.direction, CELL * 0.14, CELL * 0.2);
+  }
+  ctx.globalAlpha = next.decided ? 1 : 0.55;
+  ctx.strokeStyle = LEAD; ctx.lineWidth = Math.max(2, CELL * 0.12); ctx.stroke();
+  ctx.restore();
+}
+
+function drawBoard(ctx: SKRSContext2D, g: any, N: number, next: { direction: string; decided: boolean } | null) {
   const CELL = Math.floor(BOARD_PX / N);
   const size = CELL * N;
   ctx.fillStyle = BOARD;
@@ -150,6 +192,7 @@ function drawBoard(ctx: SKRSContext2D, g: any, N: number) {
     ctx.fillStyle = EYE;
     for (const [ex, ey] of eyes) { ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill(); }
   }
+  if (snake[0] && next) drawArrow(ctx, snake[0], N, next);
 }
 
 export function renderFrame(s: any): Buffer {
@@ -159,7 +202,9 @@ export function renderFrame(s: any): Buffer {
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
   const g = s.game;
   const N: number = s.grid ?? g.size ?? GRID;
-  drawBoard(ctx, g, N);
+  const dirs = ['up', 'down', 'left', 'right'];
+  const nextDir = s.next && dirs.includes(s.next.direction) ? s.next.direction : g.heading;
+  drawBoard(ctx, g, N, dirs.includes(nextDir) ? { direction: nextDir, decided: s.next?.decided === true } : null);
 
   // 2. the next move, one big line with the clock
   let y = MARGIN + 24;
