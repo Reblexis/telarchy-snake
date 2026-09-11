@@ -1,7 +1,7 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
 import { GRID, newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
-import { decide, ACTIONS, ACTION_TITLE, HORIZONS, directionsFrom, emptyQuotes, type Action, type Decision, type Quotes, type Horizon } from './decide.js';
+import { decide, ACTIONS, proposalTitle, HORIZONS, directionsFrom, emptyQuotes, type Action, type Decision, type Quotes, type Horizon } from './decide.js';
 import { minuteCells } from './client.js';
 import { commentary } from './commentary.js';
 
@@ -75,6 +75,26 @@ export interface OperatorOptions {
 
 export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the snake length in 1, 5 and 60 moves. At :58 the proposal with the highest 60-move impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
 
+/** One recorded move of a game, docs/snake.md "The feed" (`/replay`). */
+export interface ReplayMove {
+  step: number;
+  at: string;
+  action: Action;
+  direction: Direction;
+  undecided: boolean;
+  /** The food's cell after the move; present only when the move ate it or killed the snake. */
+  food?: { x: number; y: number };
+  died: boolean;
+}
+/** One game's record: its start frame and every move applied since. */
+export interface GameRecord {
+  gameNumber: number;
+  size: number;
+  complete: boolean;
+  start: { step: number; snake: { x: number; y: number }[]; heading: Direction; food: { x: number; y: number }; deaths: number };
+  moves: ReplayMove[];
+}
+
 export interface DecisionRecord {
   step: number;
   at: string;
@@ -100,6 +120,17 @@ const NEAR_BOOKS_SECOND = 45;
 /** docs/snake.md, "The game": the pause between a completed game and the next. */
 const COOLDOWN_MS = 60 * 60_000;
 
+/** A game's record as it begins: its state now, no moves yet. */
+function startRecord(g: GameState): GameRecord {
+  return {
+    gameNumber: g.gameNumber ?? 1,
+    size: g.size ?? GRID,
+    complete: !!g.complete,
+    start: { step: g.step, snake: g.snake.map(c => ({ x: c.x, y: c.y })), heading: g.heading, food: { x: g.food.x, y: g.food.y }, deaths: g.deaths },
+    moves: [],
+  };
+}
+
 function utcDay(d: Date): string { return d.toISOString().slice(0, 10); }
 function isoMinute(d: Date): Date { const c = new Date(d); c.setUTCSeconds(0, 0); return c; }
 
@@ -118,6 +149,8 @@ export class Operator {
   /** The workspace leaderboard as last read (not persisted). */
   leaderboard: LeaderRow[] = [];
   activityAt: string | null = null;
+  /** Every game since recording began, oldest first (persisted), docs/snake.md "The replay". */
+  games: GameRecord[] = [];
   private pending: Direction | null = null; // decided, waiting for the top of minute
   /** Positions per book of the open step, keyed by market id, for this step only. */
   private positions: Map<string, TraderRow[]> = new Map();
@@ -128,6 +161,7 @@ export class Operator {
   constructor(private client: TelarchyClient, game: GameState, private rng: Rng, private opts: OperatorOptions = {}) {
     this.game = game;
     this.bestLength = game.length;
+    this.games = [startRecord(game)];
   }
 
   static fresh(client: TelarchyClient, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
@@ -164,7 +198,7 @@ export class Operator {
       `${g.deaths} deaths so far. Priced on the length in 1, 5 and 60 moves (${hhmm(cells.m1)}, ${hhmm(cells.m5)}, ${hhmm(cells.m60)} UTC). ` +
       `The highest 60-move impact is approved at :58, the others are declined with refund; ties continue forward; the snake moves at :00.${board}`;
     // All three at once, so they land in the same second and share the deadline.
-    const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(ACTION_TITLE[a], description, deadline)));
+    const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(proposalTitle(a, g.gameNumber ?? 1, stepNo), description, deadline)));
     const proposals = {} as Record<Action, ProposalRef>;
     ACTIONS.forEach((a, i) => { proposals[a] = refs[i]; });
     this.open = {
@@ -253,6 +287,7 @@ export class Operator {
           return; // a traded open book: try again next minute
         }
         this.game = newGame(this.rng, size, (this.game.gameNumber ?? 1) + 1);
+        this.games.push(startRecord(this.game));
         this.bestLength = this.game.length;
         this.completedAt = null;
         this.pending = null;
@@ -271,6 +306,7 @@ export class Operator {
     this.bestLength = Math.max(this.bestLength, this.game.length);
     const rec = this.decisions[this.decisions.length - 1];
     if (rec && rec.lengthAfter === null) rec.lengthAfter = this.game.length;
+    this.recordMove(before, this.game, dir, now, rec);
     this.pending = null;
     this.open = null;
     // The reading is stamped at the minute it was taken; the last one before
@@ -367,6 +403,40 @@ export class Operator {
     return { action: lead.approved ?? 'forward', direction: lead.direction, decided: false, seconds };
   }
 
+  /** Append the move just applied to the current game's record. */
+  private recordMove(before: GameState, after: GameState, dir: Direction, now: Date, rec: DecisionRecord | undefined) {
+    let g = this.games[this.games.length - 1];
+    if (!g || g.gameNumber !== (before.gameNumber ?? 1)) { g = startRecord(before); this.games.push(g); }
+    const died = after.deaths > before.deaths;
+    const ate = !died && (after.food.x !== before.food.x || after.food.y !== before.food.y);
+    const m: ReplayMove = {
+      step: after.step,
+      at: now.toISOString(),
+      action: rec && rec.step === after.step ? rec.action : 'forward',
+      direction: dir,
+      undecided: rec && rec.step === after.step ? rec.undecided : true,
+      died,
+    };
+    if (died || ate) m.food = { x: after.food.x, y: after.food.y };
+    g.moves.push(m);
+    g.complete = after.complete;
+  }
+
+  /** docs/snake.md "The feed": the record of game `gameNumber` (the newest
+   *  when absent) with its moves from index `from` on; null for an unknown game. */
+  replay(gameNumber?: number, from = 0) {
+    const g = gameNumber === undefined ? this.games[this.games.length - 1] : this.games.find(x => x.gameNumber === gameNumber);
+    if (!g) return null;
+    return {
+      games: this.games.map(x => x.gameNumber),
+      gameNumber: g.gameNumber,
+      size: g.size,
+      complete: g.complete,
+      start: g.start,
+      moves: g.moves.slice(Math.max(0, Math.floor(from) || 0)),
+    };
+  }
+
   recentDecisions(): DecisionRecord[] {
     return this.decisions.slice(-10).reverse();
   }
@@ -426,6 +496,7 @@ export class Operator {
     return {
       game: this.game, open: this.open, decisions: this.decisions, pending: this.pending, completedAt: this.completedAt,
       bestLength: this.bestLength, recentTrades: this.recentTrades, tradersToday: this.tradersToday,
+      games: this.games,
     };
   }
 
@@ -440,6 +511,9 @@ export class Operator {
     op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;
     op.recentTrades = Array.isArray(raw.recentTrades) ? raw.recentTrades : [];
     op.tradersToday = raw.tradersToday && Array.isArray(raw.tradersToday.handles) ? raw.tradersToday : { day: '', handles: [] };
+    // A state file from before recording began: the record starts from the
+    // game as it stands (docs/snake.md, "The replay").
+    op.games = Array.isArray(raw.games) && raw.games.length > 0 ? raw.games : [startRecord(op.game)];
     return op;
   }
 }

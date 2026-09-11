@@ -52,6 +52,14 @@ http.createServer((req, res) => {
   if (url.pathname === '/state') {
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
     res.end(JSON.stringify(op.publicState(new Date())));
+  } else if (url.pathname === '/replay') {
+    // docs/snake.md "The feed": one game's record, its moves from `from` on.
+    const game = url.searchParams.get('game');
+    const from = Number(url.searchParams.get('from') ?? '0');
+    const r = op.replay(game === null ? undefined : Number(game), Number.isFinite(from) ? from : 0);
+    if (!r) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no such game"}'); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(r));
   } else if (url.pathname === '/' || url.pathname === '/index.html') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(boardHtml);

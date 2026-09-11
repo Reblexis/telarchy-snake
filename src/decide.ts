@@ -7,6 +7,19 @@ export const ACTIONS: Action[] = ['forward', 'left', 'right'];
 export const ACTION_TITLE: Record<Action, string> = { forward: 'Continue forward', left: 'Turn left', right: 'Turn right' };
 export const TITLE_ACTION: Record<string, Action> = { 'Continue forward': 'forward', 'Turn left': 'left', 'Turn right': 'right' };
 
+/** docs/snake.md "The step": `Game G, move N: Turn left`, the game and the
+ *  step the proposal decides, then the action after the colon. */
+export function proposalTitle(action: Action, gameNumber: number, step: number): string {
+  return `Game ${gameNumber}, move ${step}: ${ACTION_TITLE[action]}`;
+}
+/** The action a proposal title names: the part after the last colon, or the
+ *  whole title when it is bare; null when it is none of the three. */
+export function actionOfTitle(title: string): Action | null {
+  const i = title.lastIndexOf(':');
+  const tail = (i >= 0 ? title.slice(i + 1) : title).trim();
+  return TITLE_ACTION[tail] ?? null;
+}
+
 const COMPASS: Direction[] = ['up', 'right', 'down', 'left'];
 /** The compass direction an action takes from a heading. */
 export function turn(heading: Direction, action: Action): Direction {

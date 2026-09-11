@@ -10,6 +10,7 @@
 <style>
   :root { --bg:#0b0d10; --board:#111419; --fg:#e8e6e1; --mute:#8b8f98; --line:#22262c; --tile:#15181e; --tile-lead:#2a2612; --snake:#4ade80; --head:#bbf7d0; --food:#f87171; --lead:#facc15; --link:#93c5fd; }
   * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
   html { background:var(--bg); }
   body { margin:0; background:var(--bg); color:var(--fg); font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; font-size:16px; line-height:1.4; padding-block:20px; padding-inline:20px; font-variant-numeric: tabular-nums; }
   a { color:var(--link); }
@@ -55,8 +56,19 @@
   .counters b { font-weight:600; }
   .rule { color:var(--mute); font-size:14px; max-width:70ch; }
   .foot { max-width:1240px; margin:24px auto 0; color:var(--mute); font-size:14px; }
+  #tabs { max-width:1240px; margin:0 auto 16px; display:flex; gap:20px; font-size:15px; }
+  #tabs a { color:var(--mute); text-decoration:none; padding-bottom:4px; border-bottom:2px solid transparent; }
+  #tabs a.on { color:var(--fg); border-color:var(--lead); }
+  #replay { max-width:1240px; margin:0 auto; display:grid; grid-template-columns: minmax(0, 680px) minmax(0, 1fr); gap:40px; align-items:start; }
+  #timeline { display:flex; flex-direction:column; gap:14px; }
+  #timeline .row { display:flex; align-items:center; gap:14px; }
+  #slider { flex:1; min-width:0; accent-color:var(--lead); }
+  #play { background:var(--tile); color:var(--fg); border:0; border-radius:10px; font:inherit; font-size:15px; padding:8px 16px; cursor:pointer; }
+  #games { background:var(--tile); color:var(--fg); border:0; border-radius:10px; font:inherit; font-size:15px; padding:8px 12px; }
+  #caption { font-size:22px; margin:0; }
   @media (max-width: 900px) {
-    main { grid-template-columns: minmax(0, 1fr); gap:24px; }
+    main, #replay { grid-template-columns: minmax(0, 1fr); gap:24px; }
+    #caption { font-size:18px; }
     .side { gap:22px; }
     .tile { padding:14px 12px 12px; }
     .tile .arrow { font-size:26px; }
@@ -76,10 +88,17 @@
   .embed .status { font-size:clamp(13px, 2.8vh, 20px); }
   .embed .quiet { font-size:clamp(12px, 2.8vh, 17px); }
   .embed .label { font-size:clamp(10px, 2vh, 14px); margin:0; }
+  .embed #tabs { margin:0 0 8px; font-size:clamp(11px, 2.4vh, 14px); gap:14px; }
+  .embed main { height:calc(100vh - 24px - 2.4vh - 12px); }
+  .embed canvas { height:calc(100vh - 24px - 2.4vh - 12px); }
+  .embed #replay { grid-template-columns: auto minmax(0, 1fr); gap:24px; max-width:none; height:calc(100vh - 24px - 2.4vh - 12px); align-items:stretch; }
+  .embed #timeline { gap:clamp(6px, 1.5vh, 14px); }
+  .embed #caption { font-size:clamp(13px, 2.8vh, 20px); }
   .embed #more, .embed .foot { display:none; }
 </style>
 </head>
 <body>
+<nav id="tabs"><a href="#live" class="on" data-tab="live">Live</a><a href="#replay" data-tab="replay">Replay</a></nav>
 <main id="first">
   <canvas id="c" width="720" height="720"></canvas>
   <div class="side">
@@ -92,6 +111,13 @@
     <p class="quiet" id="quiet"></p>
   </div>
 </main>
+<section id="replay" hidden>
+  <canvas id="rc" width="720" height="720"></canvas>
+  <div id="timeline">
+    <div class="row"><button id="play" type="button">Play</button><input type="range" id="slider" min="0" max="0" value="0"><select id="games" hidden></select></div>
+    <p id="caption">Loading the game.</p>
+  </div>
+</section>
 <details id="more">
   <summary>More</summary>
   <h2>Prices in 1, 5 and 60 moves</h2>
@@ -116,7 +142,8 @@
 <p class="foot">A Telarchy workspace steering its own snake. Trade at <a id="wslink" href="https://telarchy.com/snake">telarchy.com/snake</a> · stream <a href="https://www.twitch.tv/telarchy" target="_blank" rel="noopener">twitch.tv/telarchy</a> · data <a href="/state">/state</a></p>
 <script>
 let GRID = 12;
-const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const cv = document.getElementById('c');
+let ctx = cv.getContext('2d');
 const acts = ['forward','left','right'];
 const actTitle = { forward: 'Continue forward', left: 'Turn left', right: 'Turn right' };
 const nextLabel = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
@@ -126,8 +153,9 @@ let last = null;
 function fmt(v){ return v == null ? '-' : (Math.round(v*10)/10).toString(); }
 function signed(v){ return v == null ? '-' : (v >= 0 ? '+' : '') + fmt(v); }
 function rr(x, y, w, h, r){ ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.closePath(); }
-function draw(g){
-  const S = cv.width, cell = S / GRID;
+function draw(g, canvas = cv, size = GRID){
+  ctx = canvas.getContext('2d');
+  const S = canvas.width, cell = S / size;
   ctx.clearRect(0,0,S,S);
   ctx.strokeStyle = '#1a1e25'; ctx.lineWidth = 1;
   for (let i=1;i<GRID;i++){ ctx.beginPath(); ctx.moveTo(i*cell+0.5,0); ctx.lineTo(i*cell+0.5,S); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i*cell+0.5); ctx.lineTo(S,i*cell+0.5); ctx.stroke(); }
@@ -139,7 +167,7 @@ function draw(g){
     ctx.beginPath(); g.snake.forEach((p,i)=>{ const [x,y]=c(p); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }); ctx.stroke();
   }
   const h = g.snake[0];
-  if (h) {
+  if (h && !g.hideHead) {
     ctx.save(); ctx.shadowColor = 'rgba(74,222,128,0.35)'; ctx.shadowBlur = cell*0.6; ctx.fillStyle = '#bbf7d0';
     rr(h.x*cell+pad, h.y*cell+pad, cell-2*pad, cell-2*pad, radius); ctx.fill(); ctx.restore();
     const [cx, cy] = c(h), off = cell*0.22, side = cell*0.16, er = Math.max(1.5, cell*0.07);
@@ -203,8 +231,95 @@ function render(s){
   document.getElementById('counters').innerHTML = `<span><b>${s.bestLength ?? s.game.length}</b> best this game</span><span><b>${s.deathsToday ?? 0}</b> deaths today</span><span><b>${s.game.step}</b> step</span><span><b>${arrows[s.game.heading]} ${s.game.heading}</b> heading</span>`;
   document.getElementById('rule').textContent = s.rule || '';
 }
-async function poll(){ try { const r = await fetch('/state', {cache:'no-store'}); render(await r.json()); } catch(e){} }
+async function poll(){ if (tab !== 'live') return; try { const r = await fetch('/state', {cache:'no-store'}); render(await r.json()); } catch(e){} }
 setInterval(poll, 2000); poll();
+
+// The tabs: Live (the first screen) and Replay; Live unless the visitor asks.
+let tab = 'live';
+function showTab(t){
+  tab = t === 'replay' ? 'replay' : 'live';
+  document.getElementById('first').hidden = tab !== 'live';
+  document.getElementById('replay').hidden = tab !== 'replay';
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
+  if (tab === 'live') poll(); else pollReplay();
+}
+document.querySelectorAll('#tabs a').forEach(a => a.addEventListener('click', e => {
+  e.preventDefault(); showTab(a.dataset.tab); history.replaceState(null, '', a.dataset.tab === 'replay' ? '#replay' : location.pathname + location.search);
+}));
+if (location.hash === '#replay') { showTab('replay'); requestAnimationFrame(() => window.scrollTo(0, 0)); }
+
+// The replay (docs/snake.md, "The replay"): the recorded start frame and moves
+// of one game, replayed through the rules on the page; frames[i] is the state
+// after move i, frames[-1] the start. While `follow` is on the slider sits at
+// the newest move and every new move advances the frame.
+const rp = { game: null, games: [], size: 12, complete: false, moves: [], frames: [], start: null, follow: true, idx: -1, playing: false, timer: null };
+const DELTA = { up:[0,-1], right:[1,0], down:[0,1], left:[-1,0] };
+function startFrame(){ return { snake: rp.start.snake, heading: rp.start.heading, food: rp.start.food, deaths: rp.start.deaths, length: rp.start.snake.length }; }
+function applyMove(f, m){
+  const size = rp.size, c = Math.floor(size/2);
+  if (m.died) { const snake = [{x:c,y:c},{x:c-1,y:c}]; return { snake, heading: 'right', food: m.food || f.food, deaths: f.deaths + 1, length: 2 }; }
+  const [dx, dy] = DELTA[m.direction] || [0,0];
+  const next = { x: f.snake[0].x + dx, y: f.snake[0].y + dy };
+  const ate = !!m.food;
+  const snake = [next, ...(ate ? f.snake : f.snake.slice(0, -1))];
+  return { snake, heading: m.direction, food: ate ? m.food : f.food, deaths: f.deaths, length: snake.length };
+}
+function frameAt(i){ return i < 0 ? startFrame() : rp.frames[i]; }
+function resetReplay(r){
+  rp.game = r.gameNumber; rp.size = r.size; rp.start = r.start; rp.complete = r.complete; rp.moves = []; rp.frames = []; rp.idx = -1; rp.follow = true;
+}
+function appendMoves(moves){
+  for (const m of moves) { const prev = rp.frames.length ? rp.frames[rp.frames.length-1] : startFrame(); rp.frames.push(applyMove(prev, m)); rp.moves.push(m); }
+}
+async function pollReplay(){
+  if (tab !== 'replay' || !document.getElementById('replay')) return;
+  try {
+    const url = rp.game == null ? '/replay?from=0' : '/replay?game=' + rp.game + '&from=' + rp.moves.length;
+    const r = await fetch(url, {cache:'no-store'});
+    if (!r.ok) return;
+    const d = await r.json();
+    if (rp.game !== d.gameNumber || !rp.start) resetReplay(d);
+    rp.games = d.games || []; rp.complete = d.complete;
+    appendMoves(d.moves || []);
+    renderReplay();
+  } catch(e){}
+}
+setInterval(pollReplay, 2000);
+function renderReplay(){
+  if (!rp.start) return;
+  if (rp.follow) rp.idx = rp.moves.length - 1;
+  const sl = document.getElementById('slider');
+  sl.max = rp.moves.length; if (document.activeElement !== sl || rp.follow) sl.value = rp.idx + 1;
+  const f = frameAt(rp.idx);
+  draw(f, document.getElementById('rc'), rp.size);
+  const m = rp.idx >= 0 ? rp.moves[rp.idx] : null;
+  const last = rp.moves.length ? rp.moves[rp.moves.length-1].step : rp.start.step;
+  const what = m ? `move ${m.step} of ${last} · ${m.undecided ? 'undecided' : actTitle[m.action] || m.action} ${arrows[m.direction] || ''}` : `start at move ${rp.start.step}`;
+  document.getElementById('caption').textContent = `Game ${rp.game} · ${what} · length ${f.length}${rp.complete && rp.follow ? ' · complete' : ''}`;
+  const gs = document.getElementById('games');
+  gs.hidden = rp.games.length < 2;
+  if (gs.options.length !== rp.games.length) gs.innerHTML = rp.games.map(g => `<option value="${g}">Game ${g}</option>`).join('');
+  gs.value = String(rp.game);
+  document.getElementById('play').textContent = rp.playing ? 'Pause' : 'Play';
+}
+document.getElementById('slider').addEventListener('input', e => {
+  const v = Number(e.target.value); rp.idx = v - 1; rp.follow = v >= rp.moves.length; renderReplay();
+});
+document.getElementById('games').addEventListener('change', async e => {
+  rp.game = Number(e.target.value); rp.start = null; rp.moves = []; rp.frames = []; await pollReplay();
+});
+// Play: 10 moves a second (one every 100 ms); through the end it resumes following.
+document.getElementById('play').addEventListener('click', () => {
+  if (rp.playing) { clearInterval(rp.timer); rp.playing = false; renderReplay(); return; }
+  if (rp.follow) { rp.idx = -1; rp.follow = false; }
+  rp.playing = true;
+  rp.timer = setInterval(() => {
+    rp.idx++;
+    if (rp.idx >= rp.moves.length - 1) { rp.follow = true; clearInterval(rp.timer); rp.playing = false; }
+    renderReplay();
+  }, 100);
+  renderReplay();
+});
 setInterval(()=>{ if(!last||!last.open||!last.next||last.next.decided) return; const s = Math.max(0, Math.round((Date.parse(last.open.decideAt)-Date.now())/1000)); const n = document.getElementById('clock'); if (n) n.textContent = clockText(s); }, 250);
 </script>
 </body>

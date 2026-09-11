@@ -45,8 +45,8 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     });
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
     const q = await c.readQuotes([
-      { id: 'p-forward', title: 'Continue forward', url: '' }, { id: 'p-right', title: 'Turn right', url: '' },
-      { id: 'p-left', title: 'Turn left', url: '' },
+      { id: 'p-forward', title: 'Game 1, move 7: Continue forward', url: '' }, { id: 'p-right', title: 'Game 1, move 7: Turn right', url: '' },
+      { id: 'p-left', title: 'Game 1, move 7: Turn left', url: '' },
     ], new Date('2026-09-11T10:00:00.400Z'));
     expect(q.right.m60).toEqual({ approved: 5, declined: 3.5, approvedMarketId: 'a-p-right', declinedMarketId: 'd-p-right' });
     expect(q.right.m1).toEqual({ approved: 1.5, declined: 1 });

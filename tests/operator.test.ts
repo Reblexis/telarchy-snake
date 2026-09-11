@@ -64,12 +64,12 @@ const none = (): Quotes => ({ forward: h(null, null), left: h(null, null), right
 const rng = () => 0;
 
 describe('the operator loop (docs/snake.md, "The step" and "What must hold")', () => {
-  it('posts exactly three proposals per minute, titled Turn left / Turn right / Continue forward, all with the same deadline: the next top of minute', async () => {
+  it('posts exactly three proposals per minute, titled Game G, move N: Turn left / Turn right / Continue forward, all with the same deadline: the next top of minute', async () => {
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00.700Z'));
     const posts = calls.filter(c => c.name === 'postProposal');
-    expect(posts.map(c => c.args[0]).sort()).toEqual(['Continue forward', 'Turn left', 'Turn right']);
+    expect(posts.map(c => c.args[0]).sort()).toEqual(['Game 1, move 1: Continue forward', 'Game 1, move 1: Turn left', 'Game 1, move 1: Turn right']);
     expect(posts.every(c => c.args[2] === '2026-09-11T10:01:00.000Z')).toBe(true);
     expect(op.open?.decideAt).toBe('2026-09-11T10:00:58.000Z');
     expect(op.open?.deadline).toBe('2026-09-11T10:01:00.000Z');
