@@ -4,7 +4,7 @@
 import { createCanvas, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
 import { fileURLToPath } from 'node:url';
 import { GRID } from './engine.js';
-import { impact60, ACTIONS, ACTION_TITLE } from './decide.js';
+import { decide, priceOf, ACTIONS, ACTION_TITLE, type Quotes } from './decide.js';
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
@@ -225,15 +225,13 @@ export function renderFrame(s: any): Buffer {
     text(ctx, 'Waiting', X, y, 48, MUTE);
   }
 
-  // 3. three choice tiles: arrow, name, impact; the leader in the accent
+  // 3. three choice tiles: arrow, name, price; the leader in the accent with its lead
   y += 40;
   const gap = 12, tw = Math.floor((W - 2 * gap) / 3), th = 150;
   if (s.open) {
-    let best: string | null = null, bp = -Infinity;
-    for (const a of ACTIONS) {
-      const p = impact60(s.open.quotes?.[a]);
-      if (p !== null && p > bp) { bp = p; best = a; }
-    }
+    const quotes = (s.open.quotes ?? {}) as Quotes;
+    // The leader is the option the rule would choose now (docs/snake.md, "The step").
+    const best = decide(quotes, g.heading).approved;
     ACTIONS.forEach((a, i) => {
       const tx = X + i * (tw + gap);
       const lead = a === best;
@@ -243,7 +241,10 @@ export function renderFrame(s: any): Buffer {
       const dir = s.open.directions?.[a];
       text(ctx, dir ? ARROW[dir] ?? '' : '', tx + 18, y + 48, 34, lead ? LEAD : FG);
       text(ctx, TILE_LABEL[a], tx + 18, y + 80, 18, lead ? LEAD : MUTE, 400);
-      text(ctx, signed(impact60(s.open.quotes?.[a])), tx + 18, y + 128, 40, lead ? LEAD : FG);
+      text(ctx, fmt(priceOf(quotes[a])), tx + 18, y + 128, 40, lead ? LEAD : FG);
+      // the leader alone shows its lead over the best other option, as Telarchy reports it
+      const by = quotes[a]?.m60?.lead;
+      if (lead && typeof by === 'number' && Number.isFinite(by)) text(ctx, signed(by), tx + tw - 16, y + 48, 22, LEAD, 600, 'right');
     });
   } else if (s.complete) {
     const lines = ['The snake filled the grid.'];

@@ -84,11 +84,13 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(html).toMatch(/Record \$\{s\.bestLength/);
   });
 
-  it('the provisioning script creates the one metric, Reached length, on the +60min horizon alone', () => {
+  it('the provisioning script creates the one metric, Reached length, on the +60min horizon alone, and tells the floor about one proposal with three options', () => {
     const sh = fs.readFileSync(new URL('../scripts/provision.sh', import.meta.url), 'utf8');
     expect(sh).toContain('"name": "Reached length"');
     expect(sh).toMatch(/"customHorizons": \["\+60min"\]/);
     expect(sh).not.toMatch(/\+1min|\+5min/);
+    expect(sh).not.toMatch(/three proposals|approved minus declined|highest impact/i);
+    expect(sh).toMatch(/three options/i);
   });
 
   it('body text is left-aligned: no centred block', () => {
@@ -112,6 +114,13 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(html).toContain('s.commentary');
     expect(html).toContain('s.leaderboard');
     expect(html).toContain('s.traders');
-    expect(html).toContain('s.open.proposals');
+    expect(html).toContain('s.open.proposal.url');
+    expect(html).not.toContain('s.open.proposals');
+  });
+
+  it('the tiles and the More table show prices and leads, never approved minus declined or impact', () => {
+    expect(html).not.toMatch(/impact|approved|declined|branch/i);
+    expect(html).toMatch(/\.price\b/);
+    expect(html).toMatch(/\.lead\b/);
   });
 });

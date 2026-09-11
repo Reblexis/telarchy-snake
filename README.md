@@ -1,9 +1,9 @@
 # telarchy-snake
 
-A snake game steered by a Telarchy workspace: three proposals a minute
-(turn left, turn right, continue), the market prices each on the length
-the attempt will have reached an hour after it started, the highest impact is approved
-and the snake moves; when the attempt ends every open book settles at
+A snake game steered by a Telarchy workspace: one proposal a minute with
+three options (continue forward, turn left, turn right), the market prices
+each option on the length the attempt will have reached an hour after it
+started, the option with the highest price is chosen and the snake moves; when the attempt ends every open book settles at
 the length it reached. `docs/snake.md` governs; the code exists
 to satisfy it.
 

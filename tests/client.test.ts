@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { HttpTelarchyClient, minuteCells } from '../src/client.js';
+import { proposalOptions, OPTION_LABEL } from '../src/decide.js';
 
 type Req = { url: string; method: string; headers: Record<string, string>; body: any };
 
@@ -15,93 +16,142 @@ function fakeFetch(handler: (r: Req) => { status?: number; json: any }) {
 }
 
 const opts = { baseUrl: 'https://telarchy.com/api', apiKey: 'k', workspaceId: 'ws1', metricId: 'm1', workspaceUrl: 'https://telarchy.com/snake' };
+const OPTIONS = proposalOptions();
+const REF = { id: 'p-1', number: 1, url: 'https://telarchy.com/snake/p/1' };
+/** One row's options as the app returns them: each option's consensus, its delta against the best other, and its market id. */
+function row(px: Record<'forward' | 'left' | 'right', number | null>) {
+  return (['forward', 'left', 'right'] as const).map(id => {
+    const others = (['forward', 'left', 'right'] as const).filter(o => o !== id).map(o => px[o]).filter((v): v is number => v !== null);
+    const c = px[id];
+    return { id, label: OPTION_LABEL[id], marketId: `m-${id}`, consensus: c, liquidity: 1000, tradeCount: 0, resolved: false, voided: false, actualValue: null,
+      delta: c === null || others.length === 0 ? null : c - Math.max(...others) };
+  });
+}
 
 describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', () => {
-  it('posts a proposal with the agent key and workspace header, no subsidy, the given deadline, and returns its public url', async () => {
-    const { reqs, fetchImpl } = fakeFetch(() => ({ status: 201, json: { id: 'p-1', number: 41, conditionalMarketIds: [] } }));
+  it('posts ONE proposal with the three options in order, the agent key and workspace header, no subsidy, the given deadline, and returns its id, number and public url', async () => {
+    const { reqs, fetchImpl } = fakeFetch(() => ({ status: 201, json: { id: 'p-1', number: 41, conditionalMarketIds: [], options: OPTIONS } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:00.400Z'));
-    const ref = await c.postProposal('Turn left', 'Step 1: ...', new Date('2026-09-11T10:01:00Z'));
+    const ref = await c.postProposal('Game 1, attempt 1, move 1', 'I will ...', new Date('2026-09-11T10:01:00Z'), OPTIONS);
+    expect(reqs.length).toBe(1);
     expect(reqs[0].url).toBe('https://telarchy.com/api/proposals');
     expect(reqs[0].method).toBe('POST');
     expect(reqs[0].headers['X-Agent-Key']).toBe('k');
     expect(reqs[0].headers['X-Workspace-Id']).toBe('ws1');
-    expect(reqs[0].body.title).toBe('Turn left');
-    expect(reqs[0].body.description).toBe('Step 1: ...');
+    expect(reqs[0].body.title).toBe('Game 1, attempt 1, move 1');
+    expect(reqs[0].body.description).toBe('I will ...');
+    expect(reqs[0].body.options).toEqual([
+      { id: 'forward', label: 'Continue forward' }, { id: 'left', label: 'Turn left' }, { id: 'right', label: 'Turn right' },
+    ]);
     expect('liquiditySubsidy' in reqs[0].body).toBe(false);
     expect(reqs[0].body.decideBy).toBe('2026-09-11T10:01:00.000Z'); // the deadline is given, not derived from posting time
-    expect(ref).toEqual({ id: 'p-1', title: 'Turn left', url: 'https://telarchy.com/snake/p/41' });
+    expect(ref).toEqual({ id: 'p-1', number: 41, url: 'https://telarchy.com/snake/p/41' });
   });
 
-  it('reads the one horizon by its minute cell, +60 minutes after the opening minute, per action by title; the +1 and +5 cells are not read', async () => {
-    const { fetchImpl } = fakeFetch(r => {
-      const id = r.url.split('/').pop()!;
-      const px: Record<string, number> = { 'p-forward': 4, 'p-right': 5, 'p-left': 2 };
-      return { json: { id, markets: [
-        { targetDate: '2026-09-11T10:01', approved: { consensus: 1.5 }, declined: { consensus: 1 } },
-        { targetDate: '2026-09-11T10:05', approved: { consensus: 2.5 }, declined: { consensus: 2 } },
-        { targetDate: '2026-09-11T11:00', approved: { consensus: px[id], marketId: `a-${id}` }, declined: { consensus: 3.5, marketId: `d-${id}` } },
-        { targetDate: '2026-09-11', approved: { consensus: 99 }, declined: { consensus: 99 } },
-      ] } };
-    });
-    const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
-    const q = await c.readQuotes([
-      { id: 'p-forward', title: 'Game 1, move 7: Continue forward', url: '' }, { id: 'p-right', title: 'Game 1, move 7: Turn right', url: '' },
-      { id: 'p-left', title: 'Game 1, move 7: Turn left', url: '' },
-    ], minuteCells(new Date('2026-09-11T10:00:00.400Z')).m60);
-    expect(q.right.m60).toEqual({ approved: 5, declined: 3.5, approvedMarketId: 'a-p-right', declinedMarketId: 'd-p-right' });
-    expect(Object.keys(q.right)).toEqual(['m60']);
-    expect(q.left.m60.approved).toBe(2);
-  });
-
-  it('matches a minute cell by its settlement instant when the summary carries no target date (production shape)', async () => {
-    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
-      { resolvesOn: '2026-09-11T11:01:00Z', approved: { consensus: 4.5 }, declined: { consensus: 3 } },
-      { resolvesOn: '2026-09-11T10:06:00.000Z', approved: { consensus: 2 }, declined: { consensus: 2 } },
-      { resolvesOn: '2026-09-11T10:02:00Z', approved: { consensus: 1 }, declined: { consensus: 1 } },
+  it('reads the one proposal once and takes each option\'s price, lead and market id from the row on the attempt\'s cell; other cells are not read', async () => {
+    const { reqs, fetchImpl } = fakeFetch(() => ({ json: { id: 'p-1', markets: [
+      { targetDate: '2026-09-11T10:01', options: row({ forward: 1, left: 1, right: 1 }) },
+      { targetDate: '2026-09-11T11:00', options: row({ forward: 4, left: 2, right: 5 }) },
+      { targetDate: '2026-09-11', options: row({ forward: 99, left: 99, right: 99 }) },
     ] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Continue forward', url: '' }], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
-    expect(q.forward.m60).toEqual({ approved: 4.5, declined: 3 });
+    const q = await c.readQuotes(REF, minuteCells(new Date('2026-09-11T10:00:00.400Z')).m60);
+    expect(reqs.length).toBe(1);
+    expect(reqs[0].url).toBe('https://telarchy.com/api/proposals/p-1');
+    expect(q.right.m60).toEqual({ price: 5, lead: 1, marketId: 'm-right' });
+    expect(q.forward.m60).toEqual({ price: 4, lead: -1, marketId: 'm-forward' });
+    expect(q.left.m60).toEqual({ price: 2, lead: -3, marketId: 'm-left' });
+    expect(Object.keys(q.right)).toEqual(['m60']);
+  });
+
+  it('an option row without a consensus is a null price with the reason "no consensus"; its lead is null too', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ targetDate: '2026-09-11T11:00', options: [
+      { id: 'forward', label: 'Continue forward', marketId: 'm-forward', consensus: 4, delta: null },
+      { id: 'left', label: 'Turn left', marketId: 'm-left', consensus: null, delta: null },
+      { id: 'right', label: 'Turn right', marketId: 'm-right', consensus: null, delta: null },
+    ] }] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const q = await c.readQuotes(REF, '2026-09-11T11:00');
+    expect(q.forward.m60).toEqual({ price: 4, lead: null, marketId: 'm-forward' });
+    expect(q.left.m60).toEqual({ price: null, lead: null, marketId: 'm-left', reason: 'no consensus' });
+  });
+
+  it('AN OLDER APP THAT RETURNS NO OPTIONS ON THE ROW gives every action a null price and says so, without crashing', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
+      { targetDate: '2026-09-11T11:00', approved: { consensus: 4, marketId: 'a' }, declined: { consensus: 3, marketId: 'd' } },
+    ] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const q = await c.readQuotes(REF, '2026-09-11T11:00');
+    for (const a of ['forward', 'left', 'right'] as const) {
+      expect(q[a].m60.price).toBe(null);
+      expect(q[a].m60.lead).toBe(null);
+      expect(q[a].m60.marketId).toBeUndefined();
+      expect(q[a].m60.reason).toBe('no options on 2026-09-11T11:00');
+    }
+  });
+
+  it('an option the row does not carry is a null price naming the missing option', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ targetDate: '2026-09-11T11:00', options: row({ forward: 4, left: 2, right: 5 }).filter(o => o.id !== 'left') }] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const q = await c.readQuotes(REF, '2026-09-11T11:00');
+    expect(q.forward.m60.price).toBe(4);
+    expect(q.left.m60).toEqual({ price: null, lead: null, reason: 'no option left on 2026-09-11T11:00' });
+  });
+
+  it('matches a minute cell by its settlement instant when the row carries no target date (production shape)', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
+      { resolvesOn: '2026-09-11T11:01:00Z', options: row({ forward: 4.5, left: 3, right: 3 }) },
+      { resolvesOn: '2026-09-11T10:06:00.000Z', options: row({ forward: 2, left: 2, right: 2 }) },
+      { resolvesOn: '2026-09-11T10:02:00Z', options: row({ forward: 1, left: 1, right: 1 }) },
+    ] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
+    const q = await c.readQuotes(REF, minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
+    expect(q.forward.m60).toEqual({ price: 4.5, lead: 1.5, marketId: 'm-forward' });
     expect(Object.keys(q.forward)).toEqual(['m60']);
   });
 
   it('the cells roll over the hour and the day correctly', async () => {
-    const seen: string[] = [];
     const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
-      { targetDate: '2026-09-12T00:00', approved: { consensus: 1 }, declined: { consensus: 1 } },
-      { targetDate: '2026-09-12T00:04', approved: { consensus: 5 }, declined: { consensus: 5 } },
-      { targetDate: '2026-09-12T00:59', approved: { consensus: 60 }, declined: { consensus: 60 } },
+      { targetDate: '2026-09-12T00:00', options: row({ forward: 1, left: 1, right: 1 }) },
+      { targetDate: '2026-09-12T00:04', options: row({ forward: 5, left: 5, right: 5 }) },
+      { targetDate: '2026-09-12T00:59', options: row({ forward: 60, left: 61, right: 60 }) },
     ] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T23:59:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }], minuteCells(new Date('2026-09-11T23:59:00Z')).m60);
-    expect(q.left.m60.approved).toBe(60);
-    void seen;
+    const q = await c.readQuotes(REF, minuteCells(new Date('2026-09-11T23:59:00Z')).m60);
+    expect(q.left.m60.price).toBe(61);
   });
 
-  it('a missing pair, or a proposal that cannot be read, is a null price on that horizon, not a throw', async () => {
-    const { fetchImpl } = fakeFetch(r => r.url.endsWith('p-up')
-      ? { json: { markets: [{ targetDate: '2026-09-11T11:00', approved: { consensus: null }, declined: { consensus: null } }] } }
-      : { status: 500, json: { error: 'boom' } });
+  it('a proposal that cannot be read is a null price on every action with the error, not a throw', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ status: 500, json: { error: 'boom' } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' }], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
-    expect(q.left.m60).toEqual({ approved: null, declined: null, reason: 'no consensus' });
-    expect(q.right.m60).toEqual({ approved: null, declined: null, reason: expect.stringMatching(/500/) });
+    const q = await c.readQuotes(REF, minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
+    for (const a of ['forward', 'left', 'right'] as const) expect(q[a].m60).toEqual({ price: null, lead: null, reason: expect.stringMatching(/GET \/proposals\/p-1 -> 500/) });
   });
 
-  it('approve posts to /approve; decline posts to /decline with refund: true so both branches void', async () => {
+  it('THE APPROVAL CARRIES THE CHOSEN OPTION: approve posts { option } to /approve in one call', async () => {
     const { reqs, fetchImpl } = fakeFetch(() => ({ json: { ok: true } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    await c.decideProposal({ id: 'p-1', title: 'Turn left', url: '' }, 'approve');
-    await c.decideProposal({ id: 'p-2', title: 'Turn right', url: '' }, 'decline');
+    await c.approveOption(REF, 'right');
+    expect(reqs.length).toBe(1);
     expect(reqs[0].url).toBe('https://telarchy.com/api/proposals/p-1/approve');
-    expect(reqs[1].url).toBe('https://telarchy.com/api/proposals/p-2/decline');
-    expect(reqs[1].body).toEqual({ refund: true });
+    expect(reqs[0].method).toBe('POST');
+    expect(reqs[0].body).toEqual({ option: 'right' });
+  });
+
+  it('decline posts to /decline with refund: true so every option voids and refunds', async () => {
+    const { reqs, fetchImpl } = fakeFetch(() => ({ json: { ok: true } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    await c.declineProposal(REF);
+    expect(reqs.length).toBe(1);
+    expect(reqs[0].url).toBe('https://telarchy.com/api/proposals/p-1/decline');
+    expect(reqs[0].body).toEqual({ refund: true });
   });
 
   it('a failed decision throws with the status so the operator can take the undecided path', async () => {
     const { fetchImpl } = fakeFetch(() => ({ status: 409, json: { error: 'no' } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    await expect(c.decideProposal({ id: 'p-1', title: 'Turn left', url: '' }, 'approve')).rejects.toThrow(/409/);
+    await expect(c.approveOption(REF, 'left')).rejects.toThrow(/409/);
+    await expect(c.declineProposal(REF)).rejects.toThrow(/409/);
   });
 
   it('posts a reading as PUT /metrics/:id with the value and its timestamp, and never null', async () => {
@@ -264,17 +314,18 @@ describe('bounded calls (docs/snake.md, "The step": "No call to Telarchy waits w
   it('a read that does not answer within the bound is abandoned: readQuotes returns null prices with the reason "no answer"', async () => {
     const c = new HttpTelarchyClient(bounded, hungFetch() as any);
     const t = Date.now();
-    const q = await c.readQuotes([{ id: 'p-left', title: 'Turn left', url: '' }], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
+    const q = await c.readQuotes(REF, minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
     expect(Date.now() - t).toBeLessThan(1000);
-    expect(q.left.m60.approved).toBe(null);
+    expect(q.left.m60.price).toBe(null);
     expect(q.left.m60.reason).toMatch(/no answer/);
   });
 
   it('a write that does not answer within the bound throws, so the operator takes its failure path instead of waiting', async () => {
     const c = new HttpTelarchyClient(bounded, hungFetch() as any);
-    await expect(c.decideProposal({ id: 'p-1', title: 'Turn left', url: '' }, 'approve')).rejects.toThrow(/no answer|abort|timeout/i);
+    await expect(c.approveOption(REF, 'left')).rejects.toThrow(/no answer|abort|timeout/i);
+    await expect(c.declineProposal(REF)).rejects.toThrow(/no answer|abort|timeout/i);
     await expect(c.settleMetric(4, new Date(), 'Game 1, attempt 1 ended at length 4')).rejects.toThrow(/no answer|abort|timeout/i);
-    await expect(c.postProposal('Turn left', 'x', new Date(Date.now() + 60_000))).rejects.toThrow(/no answer|abort|timeout/i);
+    await expect(c.postProposal('Game 1, attempt 1, move 1', 'x', new Date(Date.now() + 60_000), OPTIONS)).rejects.toThrow(/no answer|abort|timeout/i);
   });
 
   it('the public reads are bounded too: a hung activity read leaves that book out, a hung leaderboard read throws', async () => {
@@ -289,48 +340,38 @@ describe('bounded calls (docs/snake.md, "The step": "No call to Telarchy waits w
     const seen: any[] = [];
     const fetchImpl = async (_url: string, init: any = {}) => { seen.push(init.signal); return new Response('{"markets":[]}', { status: 200 }); };
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    await c.readQuotes([{ id: 'p', title: 'Turn left', url: '' }], minuteCells(new Date()).m60);
+    await c.readQuotes(REF, minuteCells(new Date()).m60);
     await c.refreshBooks();
     expect(seen.length).toBe(2);
     expect(seen.every(s => s instanceof AbortSignal)).toBe(true);
   });
 
-  it('a null price says why: no pair on the cell, no consensus, or the error', async () => {
-    const { fetchImpl } = fakeFetch(r => {
-      const id = r.url.split('/').pop()!;
-      if (id === 'p-forward') return { json: { markets: [{ resolvesOn: '2026-09-11T10:02:00Z', approved: { consensus: 2 }, declined: { consensus: 2 } }] } };
-      if (id === 'p-left') return { json: { markets: [{ resolvesOn: '2026-09-11T11:01:00Z', approved: { consensus: 3, marketId: 'a' }, declined: { consensus: null, marketId: 'd' } }] } };
-      return { status: 500, json: { error: 'boom' } };
-    });
-    const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    const q = await c.readQuotes([
-      { id: 'p-forward', title: 'Continue forward', url: '' }, { id: 'p-left', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' },
-    ], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
-    expect(q.forward.m60.reason).toBe('no pair on 2026-09-11T11:00');
-    expect(q.left.m60.reason).toBe('no consensus');
-    expect(q.left.m60.approved).toBe(3);
-    expect(q.right.m60.reason).toMatch(/GET \/proposals\/p-right -> 500/);
+  it('a null price says why: no book on the cell, no consensus, or the error', async () => {
+    const noRow = new HttpTelarchyClient(opts, fakeFetch(() => ({ json: { markets: [{ resolvesOn: '2026-09-11T10:02:00Z', options: row({ forward: 2, left: 2, right: 2 }) }] } })).fetchImpl as any);
+    const q1 = await noRow.readQuotes(REF, minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
+    expect(q1.forward.m60).toEqual({ price: null, lead: null, reason: 'no book on 2026-09-11T11:00' });
+    const partial = new HttpTelarchyClient(opts, fakeFetch(() => ({ json: { markets: [{ resolvesOn: '2026-09-11T11:01:00Z', options: row({ forward: 3, left: null, right: 4 }) }] } })).fetchImpl as any);
+    const q2 = await partial.readQuotes(REF, minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
+    expect(q2.left.m60.reason).toBe('no consensus');
+    expect(q2.forward.m60.price).toBe(3);
+    expect(q2.forward.m60.reason).toBeUndefined();
+    const broken = new HttpTelarchyClient(opts, fakeFetch(() => ({ status: 500, json: { error: 'boom' } })).fetchImpl as any);
+    const q3 = await broken.readQuotes(REF, minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
+    expect(q3.right.m60.reason).toMatch(/GET \/proposals\/p-1 -> 500/);
   });
 
-  it('a priced pair carries no reason', async () => {
-    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ resolvesOn: '2026-09-11T11:01:00Z', approved: { consensus: 3 }, declined: { consensus: 2 } }] } }));
+  it('a priced option carries no reason', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ resolvesOn: '2026-09-11T11:01:00Z', options: row({ forward: 3, left: 2, right: 2 }) }] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    const q = await c.readQuotes([{ id: 'p', title: 'Turn left', url: '' }], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
+    const q = await c.readQuotes(REF, minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
     expect(q.left.m60.reason).toBeUndefined();
+    expect(q.forward.m60.reason).toBeUndefined();
   });
 
-  it('reads the three proposals concurrently, not one after another', async () => {
-    let inFlight = 0, maxInFlight = 0;
-    const fetchImpl = async () => {
-      inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise(r => setTimeout(r, 5));
-      inFlight--;
-      return new Response('{"markets":[]}', { status: 200 });
-    };
+  it('reading the quotes is one request per read, not one per option', async () => {
+    const { reqs, fetchImpl } = fakeFetch(() => ({ json: { markets: [] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    await c.readQuotes([
-      { id: 'a', title: 'Continue forward', url: '' }, { id: 'b', title: 'Turn left', url: '' }, { id: 'c', title: 'Turn right', url: '' },
-    ], minuteCells(new Date()).m60);
-    expect(maxInFlight).toBe(3);
+    await c.readQuotes(REF, minuteCells(new Date()).m60);
+    expect(reqs.length).toBe(1);
   });
 });

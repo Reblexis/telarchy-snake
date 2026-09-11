@@ -19,7 +19,8 @@ export interface LogStep {
   action: Action | null;
   direction: Direction;
   undecided: boolean;
-  impact: Record<Action, number | null>;
+  /** Every option's price as read at the decision, null when unreadable. */
+  prices: Record<Action, number | null>;
   length: number;
   deaths: number;
 }
@@ -46,6 +47,16 @@ export interface History {
   total: number;
   from: number;
   steps: LogStep[];
+}
+
+/** A line written before options carries `impact` (approved minus declined),
+ *  which is no price: it reads back with every option's price null. */
+function fromDisk(l: any): LogStep {
+  if (l && l.prices === undefined) {
+    const { impact: _old, ...rest } = l;
+    return { ...rest, prices: { forward: null, left: null, right: null } };
+  }
+  return l;
 }
 
 export const HISTORY_LIMIT = 300;
@@ -172,7 +183,7 @@ export class GameLog {
     const first = start === undefined ? Math.max(0, total - lim) : start;
     const steps: LogStep[] = [];
     for (const raw of kept) {
-      try { steps.push(JSON.parse(raw)); } catch { /* a torn line: skipped */ }
+      try { steps.push(fromDisk(JSON.parse(raw))); } catch { /* a torn line: skipped */ }
     }
     const meta: History['game'] = { number: g.number, size: g.size, startedAt: g.startedAt, endedAt: g.endedAt };
     if (g.partial) meta.partial = true;

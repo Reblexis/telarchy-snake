@@ -7,12 +7,12 @@ const state = {
   complete: false,
   open: {
     step: 13, openedAt: '', decideAt: new Date(Date.now() + 30_000).toISOString(),
-    proposals: { forward: { id: '1', title: 'Continue forward', url: 'https://telarchy.com/snake/p/1' }, left: { id: '2', title: 'Turn left', url: '' }, right: { id: '3', title: 'Turn right', url: '' } },
+    proposal: { id: '1', number: 1, url: 'https://telarchy.com/snake/p/1' },
     directions: { forward: 'right', left: 'up', right: 'down' },
     quotes: {
-      forward: { m60: { approved: 3.2, declined: 3 } },
-      left: { m60: { approved: 3.9, declined: 3 } },
-      right: { m60: { approved: null, declined: null } },
+      forward: { m60: { price: 3.2, lead: -0.7, marketId: 'f' } },
+      left: { m60: { price: 3.9, lead: 0.7, marketId: 'l' } },
+      right: { m60: { price: null, lead: null, reason: 'no consensus' } },
     },
   },
   secondsToDecision: 30,
@@ -64,10 +64,29 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
     expect(f.length).toBe(WIDTH * HEIGHT * 3);
   });
 
-  it('the leading direction is marked: its tile differs from a non-leading one', () => {
+  it('the leading option is marked by its price: moving the highest price to another tile changes the frame', () => {
     const f = renderFrame(state as any);
-    const g = renderFrame({ ...state, open: { ...state.open, quotes: { ...state.open.quotes, left: { ...state.open.quotes.left, m60: { approved: 1, declined: 3 } }, forward: { ...state.open.quotes.forward, m60: { approved: 9, declined: 3 } } } } } as any);
+    const g = renderFrame({ ...state, open: { ...state.open, quotes: { ...state.open.quotes, left: { m60: { price: 1, lead: -8 } }, forward: { m60: { price: 9, lead: 8 } } } } } as any);
     expect(Buffer.compare(f, g)).not.toBe(0);
+  });
+
+  it('THE TILES SHOW EACH OPTION\'S PRICE: changing one price changes the frame, and a null price still renders', () => {
+    const f = renderFrame(state as any);
+    const g = renderFrame({ ...state, open: { ...state.open, quotes: { ...state.open.quotes, forward: { m60: { price: 3.3, lead: -0.6 } } } } } as any);
+    expect(Buffer.compare(f, g)).not.toBe(0);
+    expect(renderFrame({ ...state, open: { ...state.open, quotes: { forward: { m60: { price: null, lead: null } }, left: { m60: { price: null, lead: null } }, right: { m60: { price: null, lead: null } } } } } as any).length).toBe(WIDTH * HEIGHT * 3);
+  });
+
+  it('the leader\'s lead is drawn: changing the lead alone changes the frame', () => {
+    const f = renderFrame(state as any);
+    const g = renderFrame({ ...state, open: { ...state.open, quotes: { ...state.open.quotes, left: { m60: { price: 3.9, lead: 1.7 } } } } } as any);
+    expect(Buffer.compare(f, g)).not.toBe(0);
+  });
+
+  it('the tiles read the price, never approved minus declined: an old-shape quote renders as unpriced, the same as a null price', () => {
+    const old = renderFrame({ ...state, open: { ...state.open, quotes: { forward: { m60: { approved: 9, declined: 3 } }, left: { m60: { approved: 1, declined: 3 } }, right: { m60: { approved: 1, declined: 3 } } } } } as any);
+    const nul = renderFrame({ ...state, open: { ...state.open, quotes: { forward: { m60: { price: null, lead: null } }, left: { m60: { price: null, lead: null } }, right: { m60: { price: null, lead: null } } } } } as any);
+    expect(Buffer.compare(old, nul)).toBe(0);
   });
 
   it('the heading is marked on the head: a snake heading right and one heading up render different head cells', () => {
@@ -157,11 +176,11 @@ describe('the stream frame: the first screen and nothing more (docs/snake.md, "T
     bestLength: 5,
     next: { action: 'left', direction: 'up', decided: false, seconds: 30 },
     commentary: 'Food is 6 cells up and 7 cells left: the market leans turn left (up).',
-    traders: [{ handle: 'ada_bot', action: 'left', horizon: 'm60', branch: 'approved', side: 'higher', shares: 2, cost: 5, worth: 6 }],
+    traders: [{ handle: 'ada_bot', action: 'left', horizon: 'm60', side: 'higher', shares: 2, cost: 5, worth: 6 }],
     tradersThisStep: 1, tradersToday: 3,
-    recentTrades: [{ id: 't1', at: '2026-09-11T10:00:08Z', handle: 'ada_bot', step: 13, action: 'left', horizon: 'm60', branch: 'approved', side: 'higher', kind: 'buy', shares: 2, cost: 5, marketId: 'x', price: 3.5 }],
+    recentTrades: [{ id: 't1', at: '2026-09-11T10:00:08Z', handle: 'ada_bot', step: 13, action: 'left', horizon: 'm60', side: 'higher', kind: 'buy', shares: 2, cost: 5, marketId: 'x', price: 3.5 }],
     leaderboard: [{ rank: 1, handle: 'ada_bot', profit: 12.5, trades: 9 }],
-    recentDecisions: [{ step: 12, action: 'forward', direction: 'right', undecided: false, quotes: state.open.quotes, lengthBefore: 3, lengthAfter: 3 }],
+    recentDecisions: [{ step: 12, action: 'forward', direction: 'right', undecided: false, quotes: state.open.quotes, prices: { forward: 3.2, left: 3.9, right: null }, lengthBefore: 3, lengthAfter: 3 }],
   };
 
   it('the next-move line fits beside the clock in the right column', () => {
