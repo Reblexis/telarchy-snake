@@ -84,8 +84,8 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       : { status: 500, json: { error: 'boom' } });
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
     const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' }], new Date('2026-09-11T10:00:00Z'));
-    expect(q.left.m60).toEqual({ approved: null, declined: null });
-    expect(q.right.m60).toEqual({ approved: null, declined: null });
+    expect(q.left.m60).toEqual({ approved: null, declined: null, reason: 'no consensus' });
+    expect(q.right.m60).toEqual({ approved: null, declined: null, reason: expect.stringMatching(/500/) });
   });
 
   it('approve posts to /approve; decline posts to /decline with refund: true so both branches void', async () => {
@@ -233,5 +233,91 @@ describe('the activity reads (docs/snake.md, "The feed")', () => {
     const c = new HttpTelarchyClient(opts, (async () => new Response('{}')) as any);
     const names = Object.getOwnPropertyNames(Object.getPrototypeOf(c));
     expect(names.some(n => /trade|order/i.test(n))).toBe(false);
+  });
+});
+
+describe('bounded calls (docs/snake.md, "The step": "No call to Telarchy waits without limit")', () => {
+  /** A fetch that never answers unless the request's signal aborts it. */
+  function hungFetch() {
+    const fetchImpl = (_url: string, init: any = {}) => new Promise<Response>((_resolve, reject) => {
+      const s: AbortSignal | undefined = init.signal;
+      if (!s) return; // no bound: hang for ever, which is what the test must not see
+      s.addEventListener('abort', () => reject(s.reason ?? new Error('aborted')));
+    });
+    return fetchImpl;
+  }
+  const bounded = { ...opts, timeouts: { read: 30, write: 30 } };
+
+  it('a read that does not answer within the bound is abandoned: readQuotes returns null prices with the reason "no answer"', async () => {
+    const c = new HttpTelarchyClient(bounded, hungFetch() as any);
+    const t = Date.now();
+    const q = await c.readQuotes([{ id: 'p-left', title: 'Turn left', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    expect(Date.now() - t).toBeLessThan(1000);
+    expect(q.left.m60.approved).toBe(null);
+    expect(q.left.m60.reason).toMatch(/no answer/);
+  });
+
+  it('a write that does not answer within the bound throws, so the operator takes its failure path instead of waiting', async () => {
+    const c = new HttpTelarchyClient(bounded, hungFetch() as any);
+    await expect(c.decideProposal({ id: 'p-1', title: 'Turn left', url: '' }, 'approve')).rejects.toThrow(/no answer|abort|timeout/i);
+    await expect(c.settleMetric(4, new Date(), 'Game 1, attempt 1 ended at length 4')).rejects.toThrow(/no answer|abort|timeout/i);
+    await expect(c.postProposal('Turn left', 'x', new Date(Date.now() + 60_000))).rejects.toThrow(/no answer|abort|timeout/i);
+  });
+
+  it('the public reads are bounded too: a hung activity read leaves that book out, a hung leaderboard read throws', async () => {
+    const c = new HttpTelarchyClient(bounded, hungFetch() as any);
+    const t = Date.now();
+    expect(await c.readActivity(['m1'])).toEqual({});
+    await expect(c.readLeaderboard(5)).rejects.toThrow();
+    expect(Date.now() - t).toBeLessThan(1000);
+  });
+
+  it('every request carries an abort signal (the bound), with the default bounds when none are given', async () => {
+    const seen: any[] = [];
+    const fetchImpl = async (_url: string, init: any = {}) => { seen.push(init.signal); return new Response('{"markets":[]}', { status: 200 }); };
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    await c.readQuotes([{ id: 'p', title: 'Turn left', url: '' }], new Date());
+    await c.refreshBooks();
+    expect(seen.length).toBe(2);
+    expect(seen.every(s => s instanceof AbortSignal)).toBe(true);
+  });
+
+  it('a null price says why: no pair on the cell, no consensus, or the error', async () => {
+    const { fetchImpl } = fakeFetch(r => {
+      const id = r.url.split('/').pop()!;
+      if (id === 'p-forward') return { json: { markets: [{ resolvesOn: '2026-09-11T10:02:00Z', approved: { consensus: 2 }, declined: { consensus: 2 } }] } };
+      if (id === 'p-left') return { json: { markets: [{ resolvesOn: '2026-09-11T11:01:00Z', approved: { consensus: 3, marketId: 'a' }, declined: { consensus: null, marketId: 'd' } }] } };
+      return { status: 500, json: { error: 'boom' } };
+    });
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const q = await c.readQuotes([
+      { id: 'p-forward', title: 'Continue forward', url: '' }, { id: 'p-left', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' },
+    ], new Date('2026-09-11T10:00:00Z'));
+    expect(q.forward.m60.reason).toBe('no pair on 2026-09-11T11:00');
+    expect(q.left.m60.reason).toBe('no consensus');
+    expect(q.left.m60.approved).toBe(3);
+    expect(q.right.m60.reason).toMatch(/GET \/proposals\/p-right -> 500/);
+  });
+
+  it('a priced pair carries no reason', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ resolvesOn: '2026-09-11T11:01:00Z', approved: { consensus: 3 }, declined: { consensus: 2 } }] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const q = await c.readQuotes([{ id: 'p', title: 'Turn left', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    expect(q.left.m60.reason).toBeUndefined();
+  });
+
+  it('reads the three proposals concurrently, not one after another', async () => {
+    let inFlight = 0, maxInFlight = 0;
+    const fetchImpl = async () => {
+      inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(r => setTimeout(r, 5));
+      inFlight--;
+      return new Response('{"markets":[]}', { status: 200 });
+    };
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    await c.readQuotes([
+      { id: 'a', title: 'Continue forward', url: '' }, { id: 'b', title: 'Turn left', url: '' }, { id: 'c', title: 'Turn right', url: '' },
+    ], new Date());
+    expect(maxInFlight).toBe(3);
   });
 });

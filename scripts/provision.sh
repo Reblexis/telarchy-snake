@@ -36,7 +36,7 @@ METRIC=$(curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-
   "value": 2,
   "marketRangeMax": 144,
   "timePreference": { "enabled": false, "customHorizons": ["+60min"],
-    "horizonCredits": { "+60min": { "book": 25, "proposal": 40 } } }
+    "horizonCredits": { "+60min": { "book": 25, "proposal": 1000 } } }
 }')
 MID=$(echo "$METRIC" | j "d['id']")
 

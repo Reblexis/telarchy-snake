@@ -19,7 +19,17 @@ export interface ClientOptions {
   metricId: string;
   workspaceUrl: string;
   session?: SessionAuth;
+  /** docs/snake.md "The step": no call waits without limit. Milliseconds a
+   *  read (a poll, an activity read) and a write (a proposal, a decision, a
+   *  reading, a settlement, a refresh) may take before it is abandoned. */
+  timeouts?: { read?: number; write?: number };
 }
+
+/** The bounds when the options name none (docs/snake.md, "The step"). */
+export const DEFAULT_TIMEOUTS = { read: 10_000, write: 20_000 };
+/** A call slower than this is logged with its path and duration. */
+const SLOW_CALL_MS = 5_000;
+export const NO_ANSWER = 'no answer';
 
 type FetchLike = typeof fetch;
 
@@ -46,6 +56,30 @@ export class HttpTelarchyClient implements TelarchyClient {
   ) {}
 
   private cookie: string | null = null;
+
+  private bound(kind: 'read' | 'write'): number {
+    return this.o.timeouts?.[kind] ?? DEFAULT_TIMEOUTS[kind];
+  }
+
+  /** One bounded request: aborted after the bound with a "no answer" error,
+   *  logged when slow (docs/snake.md, "The step"). */
+  private async request(url: string, init: RequestInit, kind: 'read' | 'write'): Promise<Response> {
+    const ms = this.bound(kind);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(new Error(`${NO_ANSWER} in ${ms}ms`)), ms);
+    const started = Date.now();
+    try {
+      return await this.fetchImpl(url, { ...init, signal: ctl.signal });
+    } catch (e) {
+      const err = e as Error;
+      if (ctl.signal.aborted) throw new Error(`${init.method ?? 'GET'} ${new URL(url).pathname} -> ${NO_ANSWER} in ${ms}ms`);
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      const took = Date.now() - started;
+      if (took >= SLOW_CALL_MS) console.error(`slow call: ${init.method ?? 'GET'} ${new URL(url).pathname} took ${(took / 1000).toFixed(1)}s`);
+    }
+  }
 
   private async signIn(): Promise<void> {
     const s = this.o.session!;
@@ -77,11 +111,11 @@ export class HttpTelarchyClient implements TelarchyClient {
   }
 
   private async call(method: string, path: string, body?: unknown, retried = false): Promise<any> {
-    const res = await this.fetchImpl(`${this.o.baseUrl}${path}`, {
+    const res = await this.request(`${this.o.baseUrl}${path}`, {
       method,
       headers: await this.headers(),
       body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    }, method === 'GET' ? 'read' : 'write');
     // The beta gate answers a stale session with a bare 404, a route with 401.
     if (this.o.session && !retried && (res.status === 401 || res.status === 404)) {
       this.cookie = null;
@@ -99,12 +133,14 @@ export class HttpTelarchyClient implements TelarchyClient {
     return { id: String(r.id), title, url: `${this.o.workspaceUrl}/p/${r.number}` };
   }
 
+  /** The three proposals are read at once, and a missing price says why
+   *  (docs/snake.md "The step", `undecidedReason`). */
   async readQuotes(refs: ProposalRef[], openedAt: Date): Promise<Quotes> {
     const cells = minuteCells(openedAt);
     const out = {} as Quotes;
-    for (const ref of refs) {
+    await Promise.all(refs.map(async ref => {
       const action = actionOfTitle(ref.title);
-      if (!action) continue;
+      if (!action) return;
       const q = emptyDirectionQuotes();
       try {
         const r = await this.call('GET', `/proposals/${encodeURIComponent(ref.id)}`);
@@ -123,13 +159,17 @@ export class HttpTelarchyClient implements TelarchyClient {
             const dId = m.declined?.marketId ?? m.declinedMarketId;
             if (typeof aId === 'string') q[h].approvedMarketId = aId;
             if (typeof dId === 'string') q[h].declinedMarketId = dId;
+            if (q[h].approved === null || q[h].declined === null) q[h].reason = 'no consensus';
+          } else {
+            q[h].reason = `no pair on ${cell}`;
           }
         }
-      } catch {
+      } catch (e) {
         // unreadable: null prices, the decision rule handles it
+        for (const h of Object.keys(cells) as Horizon[]) q[h].reason = (e as Error).message;
       }
       out[action] = q;
-    }
+    }));
     return out;
   }
 
@@ -152,7 +192,7 @@ export class HttpTelarchyClient implements TelarchyClient {
   }
 
   private async publicGet(path: string): Promise<any> {
-    const res = await this.fetchImpl(`${this.o.baseUrl}${path}`, { method: 'GET', headers: { Accept: 'application/json' } });
+    const res = await this.request(`${this.o.baseUrl}${path}`, { method: 'GET', headers: { Accept: 'application/json' } }, 'read');
     if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
     return res.json();
   }

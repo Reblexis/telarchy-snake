@@ -90,11 +90,17 @@ posting the three proposals; the baseline book for the step's cell is
 then open and every proposal gets its pair.
 
 Liquidity: every pair book a proposal opens is funded by the workspace
-owner through the metric's proposal credits on the 60-move horizon (40
-credits a book, so a five-credit trade is an opinion and a twenty-credit
-one does not pin the book),
-never by the proposer; the operator posts
-with no subsidy of its own. The workspace's decision window is one minute,
+owner through the metric's proposal credits on the 60-move horizon (1,000
+credits a branch, so a five-credit trade is an opinion and a hundred-credit
+one does not pin the book), never by the proposer; the operator posts
+with no subsidy of its own. A step therefore puts 6,000 credits out and
+gets 5,000 back within the minute (the two declined proposals and the
+approved one's declined branch void and refund); the approved branch's
+1,000 stays out until that book settles, at its minute or at the attempt's
+end, so at most 61 steps' worth, 66,000 credits, is ever out at once. The
+operator's float must stay above that or Telarchy refuses the proposals
+(`Insufficient balance for forecast subsidy`); what traders win off the
+approved books is the only thing that draws it down. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
 The workspace is **muted**: `notificationsMuted` is on, so nothing it does
@@ -140,7 +146,23 @@ price. Then:
   order;
 - if no price can be read, or the API fails, the snake continues in its
   current heading and the three proposals are declined with refund; the
-  step is logged as undecided.
+  step is logged as undecided, and the record says why
+  (`undecidedReason` on the decision, shown on `/state`): which action
+  had no price and what was missing (no pair on the cell, no consensus,
+  no answer from Telarchy), or the error the approval returned.
+
+No call to Telarchy waits without limit. The app can stall for minutes
+at a time, and a loop stuck in one read past the deadline is how a step
+whose proposals were posted on time still lapses undecided (Telarchy
+lapses an undecided proposal at its deadline, `lapsed`, and refuses the
+approval after that). So: a poll read is abandoned after ten seconds and
+counts as unreadable for that poll; no poll starts in the last ten
+seconds before the decision, so a slow poll can delay nothing past :58;
+the decision's own read is abandoned after two seconds, and the decision
+then falls on the prices last polled during the minute; the decision
+calls, the settlement, the reading and the proposals wait at most twenty
+seconds each. A call that takes longer than five seconds is logged with
+its path and duration.
 
 The approved action is applied at the next top of minute. So the board
 shows: proposals for step N open during minute N, decision at N:58, move
@@ -266,7 +288,8 @@ a page needs to show the game live and replay any of it.
 state, the workspace and metric ids, the open step with its three
 proposals, and for each action the approved and declined market ids and
 their live prices, the cell key, the decide instant and the next step
-instant, the decision rule in words, recent decisions and counters. A
+instant, the decision rule in words, recent decisions (each with its
+`undecidedReason`, null when the step was decided) and counters. A
 bot needs one read of `/state` per step to know what to trade.
 
 The activity fields on `/state`, all read from Telarchy's public

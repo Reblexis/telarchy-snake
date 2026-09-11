@@ -78,6 +78,10 @@ export interface OperatorOptions {
   metricId?: string;
   /** The on-disk game record behind /games and /history (docs/snake.md "The feed"); none in tests that do not need it. */
   log?: GameLog;
+  /** docs/snake.md "The step", "No call to Telarchy waits without limit":
+   *  how long a poll read, and the decision's own read, may take. */
+  pollTimeoutMs?: number;
+  decideReadTimeoutMs?: number;
 }
 
 export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the length the attempt will have reached in 60 moves; when the attempt ends (a death or a full grid) every open book settles at the length it reached. At :58 the proposal with the highest impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
@@ -115,9 +119,35 @@ export interface DecisionRecord {
   lengthBefore: number;
   lengthAfter: number | null;
   deathsBefore: number;
+  /** Why the step was undecided (docs/snake.md, "The step"): which action
+   *  had no price and what was missing, or the error the approval returned.
+   *  Null when the step was decided. */
+  undecidedReason: string | null;
 }
 
 const DECIDE_SECOND = 58;
+/** docs/snake.md "The step": a poll read is abandoned after this, and no
+ *  poll starts within this of the decision. */
+const POLL_TIMEOUT_MS = 10_000;
+/** The decision's own read: abandoned after this, falling on the last poll. */
+const DECIDE_READ_TIMEOUT_MS = 2_000;
+const NO_ANSWER = 'no answer';
+
+/** `p`, or a rejection saying "no answer" once `ms` have passed. */
+function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${NO_ANSWER} in ${ms}ms`)), ms);
+    p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
+}
+
+/** The reason a step is undecided on these quotes: each action without a
+ *  price and what its quote says was missing. */
+function noPriceReason(quotes: Quotes): string {
+  return ACTIONS.filter(a => impact60(quotes[a]) === null)
+    .map(a => `${a}: ${quotes[a]?.m60?.reason ?? 'no price'}`)
+    .join('; ');
+}
 /** docs/snake.md, "The feed": the rolling trades log keeps this many. */
 const TRADES_KEPT = 30;
 const LEADERBOARD_SIZE = 5;
@@ -246,12 +276,23 @@ export class Operator {
     return this.open;
   }
 
-  /** During the minute: refresh the live quotes on the open step, deciding nothing. */
-  async pollQuotes(_now: Date): Promise<void> {
+  private pollTimeout(): number { return this.opts.pollTimeoutMs ?? POLL_TIMEOUT_MS; }
+
+  /** docs/snake.md "The step": no poll starts in the last ten seconds
+   *  before the decision, so a slow poll can delay nothing past :58. */
+  private pollAllowed(now: Date): boolean {
     const open = this.open;
-    if (!open || open.decision) return;
+    if (!open || open.decision) return true;
+    const toDecision = Date.parse(open.decideAt) - now.getTime();
+    return toDecision < 0 || toDecision > POLL_TIMEOUT_MS;
+  }
+
+  /** During the minute: refresh the live quotes on the open step, deciding nothing. */
+  async pollQuotes(now: Date): Promise<void> {
+    const open = this.open;
+    if (!open || open.decision || !this.pollAllowed(now)) return;
     try {
-      open.quotes = await this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), new Date(open.openedAt));
+      open.quotes = await within(this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), new Date(open.openedAt)), this.pollTimeout());
     } catch {
       // keep the last quotes
     }
@@ -262,27 +303,32 @@ export class Operator {
     const open = this.open;
     if (!open) throw new Error('no step is open');
     if (open.decision) return open.decision;
+    // The last read, bounded: past its bound the decision falls on the
+    // prices last polled during the minute (docs/snake.md, "The step").
     let quotes: Quotes;
     try {
-      quotes = await this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), new Date(open.openedAt));
-    } catch {
-      quotes = emptyQuotes();
+      quotes = await within(this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), new Date(open.openedAt)), this.opts.decideReadTimeoutMs ?? DECIDE_READ_TIMEOUT_MS);
+    } catch (e) {
+      quotes = open.quotes ?? emptyQuotes();
+      if (!open.quotes) for (const a of ACTIONS) quotes[a].m60.reason = (e as Error).message;
     }
     let decision = decide(quotes, this.game.heading);
+    let undecidedReason: string | null = decision.undecided ? noPriceReason(quotes) : null;
     // Approve first: if that fails the step is undecided and the snake keeps
     // its heading; the other three are declined regardless so nothing is
     // left pending past the deadline.
     if (decision.approved) {
       try {
         await this.client.decideProposal(open.proposals[decision.approved], 'approve');
-      } catch {
+      } catch (e) {
+        undecidedReason = `approve of ${decision.approved} failed: ${(e as Error).message}`;
         decision = { approved: null, declined: [...ACTIONS], direction: this.game.heading, undecided: true };
       }
     }
-    for (const a of decision.declined) {
-      if (a === decision.approved) continue;
+    // The declines together, so the decision lands inside its two seconds.
+    await Promise.all(decision.declined.filter(a => a !== decision.approved).map(async a => {
       try { await this.client.decideProposal(open.proposals[a], 'decline'); } catch { /* logged below as undecided */ }
-    }
+    }));
     open.quotes = quotes;
     open.decision = decision;
     this.pending = decision.direction;
@@ -298,6 +344,7 @@ export class Operator {
       lengthBefore: this.game.length,
       lengthAfter: null,
       deathsBefore: this.game.deaths,
+      undecidedReason,
     });
     return decision;
   }
@@ -394,13 +441,14 @@ export class Operator {
    *  minute. Reads only; nothing here can trade. Failures keep the last
    *  activity. */
   async pollActivity(now: Date): Promise<void> {
+    if (!this.pollAllowed(now)) return;
     const open = this.open;
     if (open && open.quotes) {
       if (this.positionsStep !== open.step) { this.positions = new Map(); this.positionsStep = open.step; }
       const books = this.books(HORIZONS);
       if (books.size > 0) {
         try {
-          const activity = await this.client.readActivity([...books.keys()]);
+          const activity = await within(this.client.readActivity([...books.keys()]), this.pollTimeout());
           const day = utcDay(now);
           const seen = new Set(this.recentTrades.map(t => t.id));
           for (const [marketId, meta] of books) {
@@ -431,7 +479,7 @@ export class Operator {
     }
     if (now.getTime() - this.leaderboardAt >= LEADERBOARD_EVERY_MS) {
       this.leaderboardAt = now.getTime();
-      try { this.leaderboard = await this.client.readLeaderboard(LEADERBOARD_SIZE); } catch { /* keep the last */ }
+      try { this.leaderboard = await within(this.client.readLeaderboard(LEADERBOARD_SIZE), this.pollTimeout()); } catch { /* keep the last */ }
     }
   }
 
@@ -572,7 +620,8 @@ export class Operator {
     }
     const op = new Operator(client, game, rng, opts);
     op.open = raw.open ?? null;
-    op.decisions = decisions;
+    // A record from before the reason was kept: undecided with no reason known.
+    op.decisions = decisions.map(d => (d.undecidedReason === undefined ? { ...d, undecidedReason: d.undecided ? 'not recorded' : null } : d));
     op.pending = raw.pending ?? null;
     op.completedAt = raw.completedAt ?? null;
     op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;

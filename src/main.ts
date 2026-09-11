@@ -52,8 +52,10 @@ const boardHtml = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.me
 
 createServer(op, boardHtml).listen(PORT, () => console.log(`board on :${PORT}`));
 
-// Scheduler: :00 tick (move + post), :55 close (decide). Wall-clock driven so a
-// long API call never drifts the minute; a missed second is caught up.
+// Scheduler: :00 tick (move + post), :58 close (decide). Wall-clock driven so a
+// long API call never drifts the minute; a missed second is caught up. Every
+// call is bounded (client timeouts, docs/snake.md "The step"), so `busy` can
+// hold the loop for at most one bound, never past a deadline.
 let busy = false;
 let lastTickMinute = -1;
 let lastCloseMinute = -1;
@@ -84,7 +86,7 @@ async function loop() {
       await op.tick(now);
       save(op);
       const d = op.decisions[op.decisions.length - 1];
-      console.log(`step ${d.step} ${d.direction}${d.undecided ? ' (undecided)' : ''} length ${d.lengthBefore} -> ${d.lengthAfter}`);
+      console.log(`step ${d.step} ${d.direction}${d.undecided ? ` (undecided: ${d.undecidedReason})` : ''} length ${d.lengthBefore} -> ${d.lengthAfter}`);
     } else if (now.getTime() - lastActivity >= ACTIVITY_EVERY_MS) {
       lastActivity = now.getTime();
       await op.pollActivity(now);

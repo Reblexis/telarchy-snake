@@ -38,6 +38,10 @@ export interface Quote {
   /** The pair's market ids, when known, so a bot can trade from /state. */
   approvedMarketId?: string;
   declinedMarketId?: string;
+  /** Why a price is missing (docs/snake.md "The step", `undecidedReason`):
+   *  no pair on the cell, no consensus, no answer, or the error. Absent on a
+   *  priced pair. */
+  reason?: string;
 }
 /** The one horizon: the length the attempt will have reached in 60 moves. */
 export type Horizon = 'm60';

@@ -440,8 +440,8 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
   it('the six books of the open step are the only books read, on every call', async () => {
     const { op, calls } = await opened();
     await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    await op.pollActivity(new Date('2026-09-11T10:00:36Z'));
     await op.pollActivity(new Date('2026-09-11T10:00:46Z'));
-    await op.pollActivity(new Date('2026-09-11T10:00:56Z'));
     const sizes = calls.filter(c => c.name === 'readActivity').map(c => (c.args[0] as string[]).length);
     expect(sizes).toEqual([6, 6, 6]);
   });
@@ -669,5 +669,142 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     expect(typeof s.commentary).toBe('string');
     expect(s.commentary.length).toBeGreaterThan(0);
     expect(s.commentary.includes('\n')).toBe(false);
+  });
+});
+
+describe('bounded calls and the reason a step is undecided (docs/snake.md, "The step": "No call to Telarchy waits without limit")', () => {
+  const hang = () => new Promise<never>(() => {});
+  const T0 = new Date('2026-09-11T10:00:00Z');
+
+  it('a poll read that does not answer is abandoned within the bound, and the step still decides at :58 on a read that does answer', async () => {
+    const { client, calls } = fakeClient(upWins);
+    let reads = 0;
+    const stuck: TelarchyClient = { ...client, async readQuotes(refs, at) { reads++; if (reads === 1) return hang(); return client.readQuotes(refs, at); } };
+    const op = new Operator(stuck, newGame(rng), rng, { pollTimeoutMs: 20, decideReadTimeoutMs: 20 });
+    await op.openStep(T0);
+    const t = Date.now();
+    await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
+    expect(Date.now() - t).toBeLessThan(1000);
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.undecided).toBe(false);
+    expect(d.approved).toBe('left');
+    expect(calls.filter(c => c.name === 'decideProposal' && c.args[1] === 'approve').length).toBe(1);
+  });
+
+  it('no poll starts in the last ten seconds before the decision, so a slow poll can delay nothing past :58', async () => {
+    const { client, calls } = fakeClient(withIds);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(T0);
+    await op.pollQuotes(new Date('2026-09-11T10:00:47Z'));
+    expect(calls.filter(c => c.name === 'readQuotes').length).toBe(1);
+    await op.pollQuotes(new Date('2026-09-11T10:00:48Z'));
+    await op.pollQuotes(new Date('2026-09-11T10:00:57Z'));
+    expect(calls.filter(c => c.name === 'readQuotes').length).toBe(1);
+    await op.pollActivity(new Date('2026-09-11T10:00:49Z'));
+    expect(calls.filter(c => c.name === 'readActivity').length).toBe(0);
+    expect(calls.filter(c => c.name === 'readLeaderboard').length).toBe(0);
+    await op.pollActivity(new Date('2026-09-11T10:01:05Z'));
+    expect(calls.filter(c => c.name === 'readActivity').length).toBe(1);
+  });
+
+  it('when the decision\'s own read does not answer within its bound, the decision falls on the prices last polled', async () => {
+    const { client, calls } = fakeClient(upWins);
+    let reads = 0;
+    const stuck: TelarchyClient = { ...client, async readQuotes(refs, at) { reads++; if (reads === 2) return hang(); return client.readQuotes(refs, at); } };
+    const op = new Operator(stuck, newGame(rng), rng, { decideReadTimeoutMs: 20 });
+    await op.openStep(T0);
+    await op.pollQuotes(new Date('2026-09-11T10:00:30Z'));
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.undecided).toBe(false);
+    expect(d.approved).toBe('left');
+    expect(op.decisions[0].undecidedReason).toBe(null);
+    expect(calls.filter(c => c.name === 'decideProposal' && c.args[1] === 'approve').map(c => c.args[0])).toEqual([op.decisions[0].proposals.left.id]);
+  });
+
+  it('with nothing polled and the decision read hung, the step is undecided and says no answer', async () => {
+    const { client } = fakeClient(upWins);
+    const stuck: TelarchyClient = { ...client, async readQuotes() { return hang(); } };
+    const op = new Operator(stuck, newGame(rng), rng, { decideReadTimeoutMs: 20 });
+    await op.openStep(T0);
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.undecided).toBe(true);
+    expect(op.decisions[0].undecidedReason).toMatch(/no answer/);
+  });
+
+  it('an undecided step records which action had no price and what was missing', async () => {
+    const reasons = (): Quotes => ({
+      forward: { m60: { approved: null, declined: null, reason: 'no pair on 2026-09-11T11:00' } },
+      left: { m60: { approved: 3, declined: null, reason: 'no consensus' } },
+      right: { m60: { approved: null, declined: null, reason: 'GET /proposals/p3 -> 500' } },
+    });
+    const { client } = fakeClient(reasons);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(T0);
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.undecided).toBe(true);
+    const r = op.decisions[0].undecidedReason!;
+    expect(r).toMatch(/forward.*no pair on 2026-09-11T11:00/);
+    expect(r).toMatch(/left.*no consensus/);
+    expect(r).toMatch(/right.*GET \/proposals\/p3 -> 500/);
+    expect(op.publicState(new Date('2026-09-11T10:00:59Z')).recentDecisions[0].undecidedReason).toBe(r);
+  });
+
+  it('a null price with no reason given still names the action', async () => {
+    const { client } = fakeClient(none);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(op.decisions[0].undecidedReason).toMatch(/forward/);
+    expect(op.decisions[0].undecidedReason).toMatch(/left/);
+    expect(op.decisions[0].undecidedReason).toMatch(/right/);
+  });
+
+  it('an approval Telarchy refuses is the reason, with its error', async () => {
+    const { client } = fakeClient(upWins);
+    const refusing: TelarchyClient = {
+      ...client,
+      async decideProposal(ref, verdict) {
+        if (verdict === 'approve') throw new Error('POST /proposals/p2/approve -> 400 Proposal is not pending');
+        return client.decideProposal(ref, verdict);
+      },
+    };
+    const op = new Operator(refusing, newGame(rng), rng);
+    await op.openStep(T0);
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.undecided).toBe(true);
+    expect(op.decisions[0].undecidedReason).toBe('approve of left failed: POST /proposals/p2/approve -> 400 Proposal is not pending');
+  });
+
+  it('a decided step carries no reason, and the reason survives a restart', async () => {
+    const { client } = fakeClient(upWins);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(op.decisions[0].undecidedReason).toBe(null);
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    const stuck: TelarchyClient = { ...client, async readQuotes() { return none(); } };
+    const op2 = new Operator(stuck, op.game, rng);
+    op2.open = op.open;
+    await op2.closeStep(new Date('2026-09-11T10:01:58Z'));
+    const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op2.toJSON())), rng);
+    expect(back.decisions[0].undecidedReason).toMatch(/forward/);
+  });
+
+  it('the decision\'s three declines after the approval run concurrently, so the decision lands inside the two seconds', async () => {
+    const { client } = fakeClient(upWins);
+    let inFlight = 0, maxInFlight = 0;
+    const slow: TelarchyClient = {
+      ...client,
+      async decideProposal(ref, verdict) {
+        inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise(r => setTimeout(r, 5));
+        inFlight--;
+        return client.decideProposal(ref, verdict);
+      },
+    };
+    const op = new Operator(slow, newGame(rng), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(maxInFlight).toBe(2);
   });
 });
