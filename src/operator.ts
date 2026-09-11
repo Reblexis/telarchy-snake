@@ -79,10 +79,18 @@ export class Operator {
     return new Operator(client, newGame(rng), rng, opts);
   }
 
-  /** Second 0: post the four proposals for the next step. */
+  /** A step needs at least ten seconds of trading before its deadline, the
+   *  top of the next minute; a process that starts later in the minute
+   *  waits for the next one instead of posting proposals already past due. */
+  canOpen(now: Date): boolean {
+    return 60 - now.getUTCSeconds() >= 10;
+  }
+
+  /** Second 0: post the three proposals for the next step. */
   async openStep(now: Date): Promise<OpenStep> {
     if (this.open) throw new Error(`step ${this.open.step} is already open`);
     if (this.game.complete) throw new Error('the game is complete');
+    if (!this.canOpen(now)) throw new Error('too close to the deadline to open a step');
     // Every step: make sure the three minute cells have their baseline books.
     // A failure here only costs this step's prices (the undecided path).
     try { await this.client.refreshBooks(); } catch { /* undecided path covers it */ }

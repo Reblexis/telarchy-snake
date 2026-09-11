@@ -73,7 +73,7 @@ async function loop() {
   if (busy) return;
   busy = true;
   try {
-    if (!op.open && lastTickMinute !== minute) {
+    if (!op.open && lastTickMinute !== minute && op.canOpen(now)) {
       lastTickMinute = minute;
       await op.openStep(now);
       save(op);

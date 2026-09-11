@@ -205,6 +205,15 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.find(c => c.name === 'readQuotes')!.args[1]).toBe('2026-09-11T10:00:00.700Z');
   });
 
+  it('a step never opens with under ten seconds to its deadline (a restart late in the minute waits for the next one)', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, newGame(rng), rng);
+    expect(op.canOpen(new Date('2026-09-11T10:00:51Z'))).toBe(false);
+    expect(op.canOpen(new Date('2026-09-11T10:00:49Z'))).toBe(true);
+    await expect(op.openStep(new Date('2026-09-11T10:00:55Z'))).rejects.toThrow(/deadline/);
+    expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
+  });
+
   it('a complete game posts its final reading and no more proposals', async () => {
     const { client, calls } = fakeClient(upWins);
     const g = { ...newGame(rng), complete: true, length: 144 };
