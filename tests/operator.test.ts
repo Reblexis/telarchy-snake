@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Operator, type TelarchyClient, type ProposalRef } from '../src/operator.js';
+import { Operator, type TelarchyClient, type ProposalRef, type MarketActivity, type LeaderRow } from '../src/operator.js';
 import { newGame } from '../src/engine.js';
 import type { Quotes } from '../src/decide.js';
 
 type Call = { name: string; args: unknown[] };
 
-function fakeClient(quotesFor: (step: number) => Quotes) {
+function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = []) {
   const calls: Call[] = [];
   let n = 0;
   const client: TelarchyClient = {
@@ -30,9 +30,31 @@ function fakeClient(quotesFor: (step: number) => Quotes) {
     async setRange(max) {
       calls.push({ name: 'setRange', args: [max] });
     },
+    async readActivity(marketIds) {
+      calls.push({ name: 'readActivity', args: [marketIds] });
+      const out: Record<string, MarketActivity> = {};
+      for (const id of marketIds) if (activity[id]) out[id] = activity[id];
+      return out;
+    },
+    async readLeaderboard(limit) {
+      calls.push({ name: 'readLeaderboard', args: [limit] });
+      return leaders.slice(0, limit);
+    },
   };
   return { client, calls };
 }
+
+/** Quotes that carry market ids, as the HTTP client returns them once the books exist. */
+const withIds = (): Quotes => {
+  const q = upWins();
+  for (const a of ['forward', 'left', 'right'] as const) for (const h of ['m1', 'm5', 'm60'] as const) {
+    q[a][h] = { ...q[a][h], approvedMarketId: `${a}-${h}-a`, declinedMarketId: `${a}-${h}-d` };
+  }
+  return q;
+};
+const trade = (id: string, handle: string, at: string, cost = 5, kind: 'buy' | 'sell' = 'buy') =>
+  ({ id, handle, direction: 'higher' as const, kind, shares: 2, cost, createdAt: at });
+const pos = (handle: string, cost = 5) => ({ handle, direction: 'higher' as const, shares: 2, cost, worth: 6 });
 
 const h = (a: number | null, d: number | null) => ({ m1: { approved: a, declined: d }, m5: { approved: a, declined: d }, m60: { approved: a, declined: d } });
 const allTen = (): Quotes => ({ forward: h(10, 10), left: h(10, 10), right: h(10, 10) });
@@ -349,5 +371,214 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(s.deathsToday).toBe(0);
     expect(s.workspaceId).toBe('ws-1');
     expect(s.metricId).toBe('m-1');
+  });
+});
+
+describe('activity on /state (docs/snake.md, "The board" and "The feed")', () => {
+  const T0 = new Date('2026-09-11T10:00:00Z');
+
+  async function opened(activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = []) {
+    const { client, calls } = fakeClient(withIds, activity, leaders);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(T0);
+    await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
+    return { op, calls, client };
+  }
+
+  it('next: before the decision it is the live leader with its compass direction and the seconds to the decision', async () => {
+    const { op } = await opened();
+    const s = op.publicState(new Date('2026-09-11T10:00:10Z'));
+    expect(s.next).toEqual({ action: 'left', direction: 'up', decided: false, seconds: 48 });
+  });
+
+  it('next: with no price readable it is forward, the default of the rule', async () => {
+    const { client } = fakeClient(none);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(T0);
+    await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:10Z')).next).toEqual({ action: 'forward', direction: 'right', decided: false, seconds: 48 });
+  });
+
+  it('next: after the decision it is the approved action, held until the move', async () => {
+    const { op } = await opened();
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:59Z')).next).toEqual({ action: 'left', direction: 'up', decided: true, seconds: 0 });
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:01:01Z')).next?.decided).toBe(false);
+  });
+
+  it('next is null while no step is open', () => {
+    const { client } = fakeClient(withIds);
+    const op = new Operator(client, newGame(rng), rng);
+    expect(op.publicState(T0).next).toBe(null);
+  });
+
+  it('pollActivity reads the six 60-move books of the open step, approved and declined per action', async () => {
+    const { op, calls } = await opened();
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    const reads = calls.filter(c => c.name === 'readActivity');
+    expect(reads.length).toBe(1);
+    expect((reads[0].args[0] as string[]).sort()).toEqual(['forward-m60-a', 'forward-m60-d', 'left-m60-a', 'left-m60-d', 'right-m60-a', 'right-m60-d']);
+  });
+
+  it('pollActivity reads nothing before the quotes have named the books, and nothing while no step is open', async () => {
+    const { client, calls } = fakeClient(withIds);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.pollActivity(T0);
+    await op.openStep(T0);
+    await op.pollActivity(new Date('2026-09-11T10:00:02Z'));
+    expect(calls.filter(c => c.name === 'readActivity').length).toBe(0);
+  });
+
+  it('the twelve 1-move and 5-move books are read once per step, late in the minute', async () => {
+    const { op, calls } = await opened();
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    await op.pollActivity(new Date('2026-09-11T10:00:46Z'));
+    await op.pollActivity(new Date('2026-09-11T10:00:56Z'));
+    const sizes = calls.filter(c => c.name === 'readActivity').map(c => (c.args[0] as string[]).length);
+    expect(sizes).toEqual([6, 18, 6]);
+  });
+
+  it('traders: every position in the polled books, with handle, action, horizon, branch, side, stake and worth; distinct count this step', async () => {
+    const { op } = await opened({
+      'left-m60-a': { consensus: 3, positions: [pos('ada'), pos('bob', 20)], trades: [] },
+      'forward-m60-d': { consensus: 2, positions: [pos('ada')], trades: [] },
+    });
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    const s = op.publicState(new Date('2026-09-11T10:00:11Z'));
+    expect(s.traders).toEqual(expect.arrayContaining([
+      { handle: 'ada', action: 'left', horizon: 'm60', branch: 'approved', side: 'higher', shares: 2, cost: 5, worth: 6 },
+      { handle: 'bob', action: 'left', horizon: 'm60', branch: 'approved', side: 'higher', shares: 2, cost: 20, worth: 6 },
+      { handle: 'ada', action: 'forward', horizon: 'm60', branch: 'declined', side: 'higher', shares: 2, cost: 5, worth: 6 },
+    ]));
+    expect(s.traders.length).toBe(3);
+    expect(s.tradersThisStep).toBe(2);
+  });
+
+  it('traders are the open step\'s only: they clear when the next step opens', async () => {
+    const { op, client } = await opened({ 'left-m60-a': { consensus: 3, positions: [pos('ada')], trades: [] } });
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:11Z')).tradersThisStep).toBe(1);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    void client;
+    expect(op.publicState(new Date('2026-09-11T10:01:01Z')).traders).toEqual([]);
+    expect(op.publicState(new Date('2026-09-11T10:01:01Z')).tradersThisStep).toBe(0);
+  });
+
+  it('recentTrades: trades across the books, newest first, with step, action, horizon, branch, side, kind, amount and the book price when first seen', async () => {
+    const { op } = await opened({
+      'left-m60-a': { consensus: 3.5, positions: [], trades: [trade('t1', 'ada', '2026-09-11T10:00:04Z', 5), trade('t2', 'bob', '2026-09-11T10:00:08Z', 10, 'sell')] },
+      'right-m60-d': { consensus: 2, positions: [], trades: [trade('t3', 'cy', '2026-09-11T10:00:06Z', 1)] },
+    });
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    const s = op.publicState(new Date('2026-09-11T10:00:11Z'));
+    expect(s.recentTrades.map(t => t.id)).toEqual(['t2', 't3', 't1']);
+    expect(s.recentTrades[0]).toEqual({ id: 't2', at: '2026-09-11T10:00:08Z', handle: 'bob', step: 1, action: 'left', horizon: 'm60', branch: 'approved', side: 'higher', kind: 'sell', shares: 2, cost: 10, marketId: 'left-m60-a', price: 3.5 });
+    expect(s.recentTrades[1].branch).toBe('declined');
+    expect(s.recentTrades[1].action).toBe('right');
+  });
+
+  it('recentTrades never repeats a trade seen on an earlier poll, and keeps the last 30 only', async () => {
+    const trades = Array.from({ length: 40 }, (_, i) => trade(`t${i}`, 'ada', `2026-09-11T10:00:${String(i % 60).padStart(2, '0')}.${String(i).padStart(3, '0')}Z`));
+    const activity = { 'left-m60-a': { consensus: 3, positions: [], trades: trades.slice(0, 20) } };
+    const { op } = await opened(activity);
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    await op.pollActivity(new Date('2026-09-11T10:00:20Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:21Z')).recentTrades.length).toBe(20);
+    activity['left-m60-a'].trades = trades;
+    await op.pollActivity(new Date('2026-09-11T10:00:30Z'));
+    const s = op.publicState(new Date('2026-09-11T10:00:31Z'));
+    expect(s.recentTrades.length).toBe(30);
+    expect(s.recentTrades[0].id).toBe('t39');
+    expect(new Set(s.recentTrades.map(t => t.id)).size).toBe(30);
+  });
+
+  it('tradersToday counts distinct handles that traded or hold a position since midnight UTC, and resets at midnight', async () => {
+    const activity: Record<string, MarketActivity> = {
+      'left-m60-a': { consensus: 3, positions: [pos('ada')], trades: [trade('t1', 'bob', '2026-09-11T10:00:04Z')] },
+    };
+    const { op } = await opened(activity);
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:11Z')).tradersToday).toBe(2);
+    activity['left-m60-a'] = { consensus: 3, positions: [], trades: [trade('t2', 'bob', '2026-09-11T10:00:12Z')] };
+    await op.pollActivity(new Date('2026-09-11T10:00:20Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:21Z')).tradersToday).toBe(2);
+    expect(op.publicState(new Date('2026-09-12T00:00:01Z')).tradersToday).toBe(0);
+  });
+
+  it('tradersToday and recentTrades survive a restart; traders and the leaderboard do not need to', async () => {
+    const { op, client } = await opened({ 'left-m60-a': { consensus: 3, positions: [pos('ada')], trades: [trade('t1', 'bob', '2026-09-11T10:00:04Z')] } });
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
+    const s = back.publicState(new Date('2026-09-11T10:00:12Z'));
+    expect(s.tradersToday).toBe(2);
+    expect(s.recentTrades.map(t => t.id)).toEqual(['t1']);
+    await back.pollActivity(new Date('2026-09-11T10:00:20Z'));
+    expect(back.publicState(new Date('2026-09-11T10:00:21Z')).recentTrades.length).toBe(1);
+  });
+
+  it('a state file from before the activity fields loads with empty activity', () => {
+    const { client } = fakeClient(withIds);
+    const op = Operator.fromJSON(client, { game: newGame(rng), open: null, decisions: [], pending: null, completedAt: null }, rng);
+    const s = op.publicState(T0);
+    expect(s.recentTrades).toEqual([]); expect(s.traders).toEqual([]); expect(s.tradersToday).toBe(0); expect(s.leaderboard).toEqual([]);
+    expect(s.bestLength).toBe(2);
+  });
+
+  it('the leaderboard is read once a minute, top five of this workspace by profit', async () => {
+    const leaders = [{ rank: 1, handle: 'ada', profit: 12.5, trades: 9 }, { rank: 2, handle: 'bob', profit: -1, trades: 2 }];
+    const { op, calls } = await opened({}, leaders);
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    await op.pollActivity(new Date('2026-09-11T10:00:20Z'));
+    await op.pollActivity(new Date('2026-09-11T10:01:11Z'));
+    const reads = calls.filter(c => c.name === 'readLeaderboard');
+    expect(reads.length).toBe(2);
+    expect(reads[0].args[0]).toBe(5);
+    expect(op.publicState(new Date('2026-09-11T10:01:12Z')).leaderboard).toEqual(leaders);
+  });
+
+  it('a failing activity read keeps the last activity and never throws into the loop', async () => {
+    const { op, client } = await opened({ 'left-m60-a': { consensus: 3, positions: [pos('ada')], trades: [] } });
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    client.readActivity = async () => { throw new Error('503'); };
+    client.readLeaderboard = async () => { throw new Error('503'); };
+    await expect(op.pollActivity(new Date('2026-09-11T10:00:20Z'))).resolves.toBeUndefined();
+    expect(op.publicState(new Date('2026-09-11T10:00:21Z')).traders.length).toBe(1);
+  });
+
+  it('activity polling never trades: only read calls are made', async () => {
+    const { op, calls } = await opened();
+    const before = calls.length;
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    await op.pollActivity(new Date('2026-09-11T10:00:46Z'));
+    const names = new Set(calls.slice(before).map(c => c.name));
+    expect([...names].sort()).toEqual(['readActivity', 'readLeaderboard']);
+  });
+
+  it('bestLength is the longest the snake has been this game, persists, and resets with a new game', async () => {
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, { ...newGame(rng), food: { x: 7, y: 6 } }, rng);
+    expect(op.publicState(T0).bestLength).toBe(2);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z')); // eats
+    expect(op.game.length).toBe(3);
+    expect(op.publicState(new Date('2026-09-11T10:01:01Z')).bestLength).toBe(3);
+    const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
+    expect(back.publicState(new Date('2026-09-11T10:01:02Z')).bestLength).toBe(3);
+    back.game = { ...back.game, complete: true };
+    back.completedAt = '2026-09-11T10:01:00Z';
+    await back.tick(new Date('2026-09-11T11:02:00Z'));
+    expect(back.game.gameNumber).toBe(2);
+    expect(back.publicState(new Date('2026-09-11T11:02:01Z')).bestLength).toBe(2);
+  });
+
+  it('/state carries a commentary line', async () => {
+    const { op } = await opened();
+    const s = op.publicState(new Date('2026-09-11T10:00:10Z'));
+    expect(typeof s.commentary).toBe('string');
+    expect(s.commentary.length).toBeGreaterThan(0);
+    expect(s.commentary.includes('\n')).toBe(false);
   });
 });

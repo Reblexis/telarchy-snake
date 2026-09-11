@@ -58,6 +58,9 @@ const GLYPHS: Record<string, number[]> = {
   '-': [0,0,0,0x1f,0,0,0], '+': [0,0x04,0x04,0x1f,0x04,0x04,0], '/': [0x01,0x02,0x02,0x04,0x08,0x08,0x10], '?': [0x0e,0x11,0x01,0x02,0x04,0,0x04],
   '#': [0x0a,0x0a,0x1f,0x0a,0x1f,0x0a,0x0a], '(': [0x02,0x04,0x08,0x08,0x08,0x04,0x02], ')': [0x08,0x04,0x02,0x02,0x02,0x04,0x08],
   '>': [0x08,0x04,0x02,0x01,0x02,0x04,0x08], '^': [0x04,0x0a,0x11,0,0,0,0], 'v': [0,0,0,0x11,0x0a,0x04,0], '<': [0x02,0x04,0x08,0x10,0x08,0x04,0x02],
+  '_': [0,0,0,0,0,0,0x1f], ',': [0,0,0,0,0x0c,0x04,0x08], '!': [0x04,0x04,0x04,0x04,0x04,0,0x04], '=': [0,0,0x1f,0,0x1f,0,0],
+  '*': [0,0x0a,0x04,0x1f,0x04,0x0a,0], "'": [0x04,0x04,0,0,0,0,0], '%': [0x18,0x19,0x02,0x04,0x08,0x13,0x03],
+  '@': [0x0e,0x11,0x17,0x15,0x17,0x10,0x0e],
 };
 
 export function measureText(s: string, scale: number): number {
@@ -106,51 +109,117 @@ export function renderFrame(s: any): Buffer {
     if (g.heading === 'right') fill(buf, h.x + h.w - 2 - t, h.y + 4, t, h.h - 8, LEAD);
   }
 
-  // right column
+  // right column: 556 px wide from X, every line at scale 2 or larger so it reads at 720p.
   const X = MARGIN + CELL * GRID + 40; // 724
-  let y = MARGIN + 8;
-  drawText(buf, X, y, `FUTARCHY SNAKE  GAME ${s.gameNumber ?? g.gameNumber ?? 1}  ${N}X${N}`, 4, FG); y += 40;
-  drawText(buf, X, y, 'THE MARKET PICKS EVERY MOVE', 2, MUTE); y += 36;
-  drawText(buf, X, y, `LENGTH ${g.length}`, 5, FG);
-  drawText(buf, X + 270, y + 2, `HEADING ${ARROW[g.heading]} ${String(g.heading).toUpperCase()}`, 3, LEAD);
-  drawText(buf, X + 270, y + 24, `DEATHS ${s.deathsToday ?? 0}   STEP ${g.step}`, 2, MUTE); y += 56;
+  const W = WIDTH - X - MARGIN; // 532
+  const clip = (t: string, scale: number, w: number = W) => {
+    const max = Math.floor((w + scale) / (6 * scale));
+    return t.length > max ? t.slice(0, Math.max(0, max - 1)) + '.' : t;
+  };
+  /** Word-wrap to at most `lines` lines of the column's width. */
+  const wrap = (t: string, scale: number, lines: number): string[] => {
+    const max = Math.floor((W + scale) / (6 * scale));
+    const out: string[] = [];
+    let line = '';
+    for (const w of t.split(' ')) {
+      if (line && (line + ' ' + w).length > max) { out.push(line); line = w; } else line = line ? line + ' ' + w : w;
+      if (out.length === lines) break;
+    }
+    if (out.length < lines && line) out.push(line);
+    return out.map(l => clip(l, scale));
+  };
+  const gameNo = s.gameNumber ?? g.gameNumber ?? 1;
+  let y = MARGIN;
+  drawText(buf, X, y, 'FUTARCHY SNAKE', 4, FG); y += 34;
+  drawText(buf, X, y, clip(`GAME ${gameNo}  ${N}X${N}  THE MARKET PICKS EVERY MOVE`, 2), 2, MUTE); y += 22;
+  drawText(buf, X, y, `LENGTH ${g.length}`, 4, FG);
+  drawText(buf, X + 250, y + 4, `HEADING ${ARROW[g.heading]} ${String(g.heading).toUpperCase()}`, 3, LEAD); y += 30;
+  drawText(buf, X, y, clip(`BEST ${s.bestLength ?? g.length}  DEATHS ${s.deathsToday ?? 0}  STEP ${g.step}  TRADERS TODAY ${s.tradersToday ?? 0}`, 2), 2, MUTE); y += 22;
+
+  // the next move, large and yellow (docs/snake.md, "The board")
+  const next = s.next ?? null;
+  if (next) {
+    const dir = String(next.direction).toUpperCase();
+    drawText(buf, X, y, clip(`NEXT: ${ACTION_TITLE[next.action as keyof typeof ACTION_TITLE]?.toUpperCase() ?? '?'} ${ARROW[next.direction] ?? ''} ${dir}`, 3, W - 130), 3, LEAD);
+    const secs = next.decided ? 'DECIDED' : `IN ${s.secondsToDecision ?? next.seconds}S`;
+    drawText(buf, X + W - measureText(secs, 3), y, secs, 3, next.decided ? LEAD : FG);
+    y += 26;
+  } else if (s.complete) {
+    drawText(buf, X, y, 'COMPLETE: THE SNAKE FILLED THE GRID', 3, LEAD); y += 26;
+  } else {
+    drawText(buf, X, y, 'WAITING FOR THE NEXT STEP', 3, MUTE); y += 26;
+  }
+  for (const line of wrap(String(s.commentary ?? '').toUpperCase(), 2, 2)) { drawText(buf, X, y, line, 2, FG); y += 20; }
+  if (!s.commentary) y += 20;
+  y += 2;
 
   if (s.open) {
-    const secs = s.secondsToDecision ?? Math.max(0, Math.round((Date.parse(s.open.decideAt) - Date.now()) / 1000));
-    drawText(buf, X, y, `STEP ${s.open.step}: WHICH WAY? DECIDES IN ${secs}S`, 2, FG); y += 28;
     let best: string | null = null, bp = -Infinity;
     for (const a of ACTIONS) {
       const p = impact60(s.open.quotes?.[a]);
       if (p !== null && p > bp) { bp = p; best = a; }
     }
-    const cw = 516, chh = 62;
+    const cw = W, chh = 50;
     ACTIONS.forEach((a, i) => {
-      const cx = X, cy = y + i * (chh + 10);
+      const cx = X, cy = y + i * (chh + 6);
       fill(buf, cx, cy, cw, chh, CARD);
       if (a === best) { fill(buf, cx, cy, 4, chh, LEAD); }
       const q = s.open.quotes?.[a] ?? {};
       const imp = impact60(q);
       const dir = s.open.directions?.[a];
-      drawText(buf, cx + 14, cy + 10, `${ACTION_TITLE[a].toUpperCase()}${dir ? `  ${ARROW[dir]} ${String(dir).toUpperCase()}` : ''}`, 2, a === best ? LEAD : FG);
-      drawText(buf, cx + 14, cy + 32, `IN 1: ${fmt(q.m1?.approved)}   IN 5: ${fmt(q.m5?.approved)}   IN 60: ${fmt(q.m60?.approved)}`, 1, MUTE);
-      drawText(buf, cx + cw - 130, cy + 14, imp === null ? '-' : `${imp >= 0 ? '+' : ''}${fmt(imp)}`, 5, FG);
+      drawText(buf, cx + 14, cy + 8, `${ACTION_TITLE[a].toUpperCase()}${dir ? `  ${ARROW[dir]} ${String(dir).toUpperCase()}` : ''}`, 2, a === best ? LEAD : FG);
+      drawText(buf, cx + 14, cy + 30, clip(`+1 ${fmt(q.m1?.approved)}  +5 ${fmt(q.m5?.approved)}  +60 ${fmt(q.m60?.approved)}/${fmt(q.m60?.declined)}`, 2, cw - 125), 2, MUTE);
+      const it = imp === null ? '-' : `${imp >= 0 ? '+' : ''}${fmt(imp)}`;
+      drawText(buf, cx + cw - 14 - measureText(it, 4), cy + 11, it, 4, a === best ? LEAD : FG);
     });
-    y += 3 * (chh + 10) + 8;
+    y += 3 * (chh + 6) + 6;
   } else if (s.complete) {
-    drawText(buf, X, y, 'COMPLETE: THE SNAKE FILLED THE GRID', 2, LEAD); y += 24;
     if (s.nextGameAt) { const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000)); drawText(buf, X, y, `NEXT GAME ON A ${N + 1}X${N + 1} GRID IN ${m} MIN`, 2, MUTE); }
     y += 24;
-  } else {
-    drawText(buf, X, y, 'WAITING FOR THE NEXT STEP', 2, MUTE); y += 40;
   }
 
-  drawText(buf, X, y, 'LAST MOVES         FWD  LEFT RIGHT  LEN', 2, MUTE); y += 22;
-  const fi = (q: any) => { const v = impact60(q); return (v === null ? '-' : fmt(v)).padStart(5); };
-  const ACT: Record<string, string> = { forward: 'FWD  ', left: 'LEFT ', right: 'RIGHT' };
-  for (const d of (s.recentDecisions ?? []).slice(0, 8)) {
-    const row = `${String(d.step).padStart(5)} ${ACT[d.action] ?? '?    '} ${ARROW[d.direction]}${d.undecided ? '?' : ' '} ${fi(d.quotes.forward)} ${fi(d.quotes.left)} ${fi(d.quotes.right)}  ${d.lengthBefore}>${d.lengthAfter ?? '..'}`;
-    drawText(buf, X, y, row, 2, FG); y += 20;
-    if (y > HEIGHT - 40) break;
+  const hm = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '--:--' : d.toISOString().slice(11, 16); };
+  const ACT: Record<string, string> = { forward: 'FWD', left: 'LEFT', right: 'RIGHT' };
+  const HZ: Record<string, string> = { m1: '1', m5: '5', m60: '60' };
+  const BR: Record<string, string> = { approved: 'A', declined: 'D' };
+  const SD: Record<string, string> = { higher: 'HIGHER', lower: 'LOWER' };
+  const SD2: Record<string, string> = { higher: 'HI', lower: 'LO' };
+  const handle = (h: unknown, n: number) => String(h).toUpperCase().slice(0, n).padEnd(n);
+
+  // current traders: up to three rows
+  const traders: any[] = Array.isArray(s.traders) ? s.traders : [];
+  const tn = s.tradersThisStep ?? new Set(traders.map(t => t.handle)).size;
+  drawText(buf, X, y, clip(`TRADERS THIS STEP: ${tn}`, 2), 2, MUTE); y += 20;
+  if (traders.length === 0) { drawText(buf, X, y, 'NO POSITIONS YET. YOURS COULD BE FIRST.', 2, FG); y += 20; }
+  for (const t of traders.slice(0, 3)) {
+    drawText(buf, X, y, clip(`${handle(t.handle, 12)} ${SD[t.side] ?? '?'} ${ACT[t.action] ?? '?'} ${HZ[t.horizon] ?? '?'} ${BR[t.branch] ?? '?'} ${fmt(t.cost)} CR${t.worth === null || t.worth === undefined ? '' : ` WORTH ${fmt(t.worth)}`}`, 2), 2, FG); y += 20;
+  }
+  y += 6;
+
+  // last trades: up to five rows, newest first
+  const trades: any[] = Array.isArray(s.recentTrades) ? s.recentTrades : [];
+  drawText(buf, X, y, clip('LAST TRADES  (A/D = APPROVED/DECLINED BOOK)', 2), 2, MUTE); y += 20;
+  if (trades.length === 0) { drawText(buf, X, y, 'NO TRADES YET', 2, FG); y += 20; }
+  for (const t of trades.slice(0, 5)) {
+    drawText(buf, X, y, clip(`${hm(t.at)} ${handle(t.handle, 9)} ${t.kind === 'sell' ? 'SELL' : 'BUY '} ${SD2[t.side] ?? '?'} ${ACT[t.action] ?? '?'} ${HZ[t.horizon] ?? '?'} ${BR[t.branch] ?? '?'} ${fmt(t.cost)}${t.price === null || t.price === undefined ? '' : ` @${fmt(t.price)}`}`, 2), 2, FG); y += 20;
+  }
+  y += 6;
+
+  // leaderboard, top three, and the last decisions side by side
+  const leaders: any[] = Array.isArray(s.leaderboard) ? s.leaderboard : [];
+  const half = Math.floor(W / 2) - 8;
+  drawText(buf, X, y, 'TOP TRADERS', 2, MUTE);
+  drawText(buf, X + half + 16, y, 'LAST MOVES', 2, MUTE); y += 20;
+  const fi = (q: any) => { const v = impact60(q); return v === null ? '-' : `${v >= 0 ? '+' : ''}${fmt(v)}`; };
+  const decisions: any[] = (s.recentDecisions ?? []).slice(0, 3);
+  for (let i = 0; i < 3; i++) {
+    if (y > HEIGHT - MARGIN - 40) break;
+    const l = leaders[i];
+    if (l) drawText(buf, X, y, clip(`${l.rank}. ${String(l.handle).toUpperCase().padEnd(12).slice(0, 12)} ${l.profit >= 0 ? '+' : ''}${fmt(l.profit)}`, 2, half), 2, FG);
+    else if (i === 0) drawText(buf, X, y, 'NOBODY YET', 2, FG);
+    const d = decisions[i];
+    if (d) drawText(buf, X + half + 16, y, clip(`${d.step} ${ACT[d.action] ?? '?'} ${ARROW[d.direction] ?? ''}${d.undecided ? '?' : ''} ${fi(d.quotes?.[d.action])} ${d.lengthBefore}>${d.lengthAfter ?? '..'}`, 2, half), 2, FG);
+    y += 20;
   }
   drawText(buf, X, HEIGHT - MARGIN - 14, 'TRADE YOUR MOVE AT TELARCHY.COM/SNAKE', 2, MUTE);
   return buf;

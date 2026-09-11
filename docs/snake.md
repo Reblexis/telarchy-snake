@@ -129,30 +129,52 @@ rule. The operator account never trades.
 
 ## The board
 
-The service serves one page, the board, at `/`. It carries:
+The service serves one page, the board, at `/`. It is meant to be fun to
+watch and to tell a visitor, at a glance, what the market is doing to the
+snake right now. It polls the service's own `/state` JSON every two
+seconds and shows nothing that is not in it.
 
-- the grid, the snake and the food, drawn large enough to read on a
+What the board shows, top to bottom, and where each element comes from:
+
+- **The grid**, the snake and the food, drawn large enough to read on a
   stream at 1280 by 720, with the snake's heading marked on its head and
-  named in words,
-- the current length, deaths today, the step number, seconds to the
-  decision,
-- three cards, one per action, each naming the compass direction it
+  named in words. Source: `game` on `/state`.
+- **Counters**: the game number and grid size, the current length, the
+  best length reached in this game, deaths today, the step number, seconds
+  to the decision. Source: `game`, `bestLength`, `deathsToday`,
+  `secondsToDecision`.
+- **Next move**, one big line, `NEXT: TURN LEFT ↑ UP`, with the seconds
+  to the decision. Before the decision it is the current leader, the
+  action with the highest live 60-move impact (forward when no price is
+  readable, per the rule); after the decision it is the approved action,
+  held until the move happens at the top of the minute. Source: `next` on
+  `/state` (`action`, `direction`, `decided`, `seconds`).
+- **Commentary**, one left-aligned line written by a fixed rule set from
+  the state alone, no model: where the food is relative to the head and
+  which way the market leans, a death in the last two steps, a new record
+  length, a leader that runs into a wall or the body next move, a step
+  nobody has traded yet, a completed game. Source: `commentary`.
+- **Three cards**, one per action, each naming the compass direction it
   would take, with the live 60-move impact large and the 1-move and
   5-move prices small, the leader marked, each card linking to that
-  proposal on telarchy.com,
-- the last ten decisions (action and direction, the three impacts at
-  decision, what it did to the length),
-- one line saying what this is and where to trade, with the workspace
+  proposal on telarchy.com. Source: `open.quotes`, `open.directions`,
+  `open.proposals`.
+- **The trades ticker**, a strip scrolling the last 30 trades across the
+  snake's books, newest first: time, handle, action, horizon, branch
+  (approved or declined), side (higher or lower), buy or sell, amount in
+  credits, and the book's price when the trade was first seen. Source:
+  `recentTrades`.
+- **Current traders**: who holds a position in this step's books right
+  now, one row per position: handle, action, horizon, branch, side, stake
+  and current worth; with the count of distinct traders this step and
+  today. Source: `traders`, `tradersThisStep`, `tradersToday`.
+- **Leaderboard**: the top five traders of this workspace by profit, from
+  Telarchy's public per-workspace leaderboard, with their trade counts.
+  Source: `leaderboard`.
+- **The last ten decisions** (action and direction, the three impacts at
+  decision, what it did to the length). Source: `recentDecisions`.
+- One line saying what this is and where to trade, with the workspace
   link.
-
-It polls the service's own `/state` JSON every two seconds. `/state` is
-public and is the whole of the board's data and a bot's feed: the game
-state, the workspace and metric ids, the open step with its four
-proposals, and for each action and cell the approved and declined
-market ids and their live prices, the cell keys, the decide instant and
-the next step instant, the decision rule in words, recent decisions and
-counters. A bot needs one read of `/state` per step to know what to
-trade.
 
 Body text on the board is left-aligned; only titles and single numbers
 may be centred.
@@ -160,15 +182,62 @@ may be centred.
 The board also renders inside Telarchy: the workspace's live-view setting
 points at the board's embed form (`/?embed=1`, the same page without its
 own heading and footer, sized for a 16:9 frame), and the public floor
-shows it above the owner's text. A visitor of telarchy.com/snake sees the
-game without leaving the floor.
+shows it above the owner's text. The embed is compact: it shows the grid,
+the counters, the next move, the commentary, the three cards and the
+ticker, and hides the traders list, the leaderboard and the decisions
+table. A visitor of telarchy.com/snake sees the game without leaving the
+floor.
+
+### The feed
+
+`/state` is public and is the whole of the board's data and a bot's feed:
+the game state, the workspace and metric ids, the open step with its
+three proposals, and for each action and cell the approved and declined
+market ids and their live prices, the cell keys, the decide instant and
+the next step instant, the decision rule in words, recent decisions and
+counters. A bot needs one read of `/state` per step to know what to
+trade.
+
+The activity fields on `/state`, all read from Telarchy's public
+workspace endpoints, never from the operator's own books:
+
+- `next`: `{ action, direction, decided, seconds }`, the next move as
+  defined above.
+- `commentary`: the one-line commentary.
+- `bestLength`: the longest the snake has been in this game.
+- `traders`: the positions in the open step's books, each
+  `{ handle, action, horizon, branch, side, shares, cost, worth }`;
+  `tradersThisStep` the number of distinct handles in it; `tradersToday`
+  the number of distinct handles seen trading or holding a position in any
+  snake book since midnight UTC (a counter that survives a restart).
+- `recentTrades`: the last 30 trades across the snake's books, newest
+  first, each `{ id, at, handle, step, action, horizon, branch, side, kind,
+  shares, cost, marketId, price }` where `price` is the book's consensus
+  when the trade was first seen, or null.
+- `leaderboard`: the top five `{ rank, handle, profit, trades }` of this
+  workspace, or an empty list when Telarchy reports nobody.
+- `activityAt`: when the activity was last read.
+
+The operator reads activity on its own timer, apart from the quotes: the
+six 60-move books of the open step (approved and declined per action)
+every ten seconds, the twelve 1-move and 5-move books once per step, and
+the workspace leaderboard once a minute. That is about fifty public reads
+a minute on top of the step's own calls; it never walks a book's history.
+The operator account still never trades.
 
 ## The stream
 
-The board rendered by a headless browser and pushed to Twitch as a
-continuous stream, from the fleet box. A stream key lives in the keyring.
-The stream is an embed on the board and a link; it is not expected to
-find viewers on its own.
+The board rendered as a 1280 by 720 frame in-process and pushed to Twitch
+as a continuous stream, from the fleet box. A stream key lives in the
+keyring. The stream is an embed on the board and a link; it is not
+expected to find viewers on its own.
+
+The frame carries the grid on the left and, in the right column: the
+title, the counters, the next move in large yellow type, the commentary,
+the three cards, the current traders (up to three rows), the last trades
+(up to five rows, newest first), the last decisions, and the trade line.
+Every line is readable at 720p: nothing below the cards is drawn smaller
+than the decisions rows.
 
 ## Operation
 

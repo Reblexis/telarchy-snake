@@ -97,3 +97,57 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
     expect(f.length).toBe(WIDTH * HEIGHT * 3);
   });
 });
+
+describe('the stream frame: activity (docs/snake.md, "The stream")', () => {
+  const rich = {
+    ...state,
+    bestLength: 5,
+    next: { action: 'left', direction: 'up', decided: false, seconds: 30 },
+    commentary: 'Food is 6 cells up and 7 cells left: the market leans turn left (up).',
+    traders: [{ handle: 'ada_bot', action: 'left', horizon: 'm60', branch: 'approved', side: 'higher', shares: 2, cost: 5, worth: 6 }],
+    tradersThisStep: 1, tradersToday: 3,
+    recentTrades: [{ id: 't1', at: '2026-09-11T10:00:08Z', handle: 'ada_bot', step: 13, action: 'left', horizon: 'm60', branch: 'approved', side: 'higher', kind: 'buy', shares: 2, cost: 5, marketId: 'x', price: 3.5 }],
+    leaderboard: [{ rank: 1, handle: 'ada_bot', profit: 12.5, trades: 9 }],
+    recentDecisions: [{ step: 12, action: 'forward', direction: 'right', undecided: false, quotes: state.open.quotes, lengthBefore: 3, lengthAfter: 3 }],
+  };
+
+  it('every text line stays inside the frame: the title fits the right column at its scale', () => {
+    // 1280 - 724 = 556 px of column; the widest title is a two-digit game on a two-digit grid.
+    expect(measureText('FUTARCHY SNAKE', 4)).toBeLessThanOrEqual(556);
+    expect(measureText('GAME 12  15X15  THE MARKET PICKS EVERY MOVE', 2)).toBeLessThanOrEqual(556);
+  });
+
+  it('draws the next move: a frame with a left leader differs from one with a right leader, cards aside', () => {
+    const a = renderFrame({ ...rich, open: null, secondsToDecision: null } as any);
+    const b = renderFrame({ ...rich, open: null, secondsToDecision: null, next: { action: 'right', direction: 'down', decided: false, seconds: 30 } } as any);
+    expect(Buffer.compare(a, b)).not.toBe(0);
+  });
+
+  it('draws the commentary, the traders, the trades and the leaderboard: each changes the frame', () => {
+    const f = renderFrame(rich as any);
+    for (const [k, v] of [['commentary', ''], ['traders', []], ['recentTrades', []], ['leaderboard', []]] as const) {
+      const g = renderFrame({ ...rich, [k]: v } as any);
+      expect(Buffer.compare(f, g), k).not.toBe(0);
+    }
+  });
+
+  it('renders with the activity fields missing (an old /state) and with long handles without crashing', () => {
+    expect(renderFrame(state as any).length).toBe(WIDTH * HEIGHT * 3);
+    const long = { ...rich, traders: Array.from({ length: 40 }, (_, i) => ({ ...rich.traders[0], handle: 'a-very-long-handle-name-indeed-' + i })), recentTrades: Array.from({ length: 30 }, (_, i) => ({ ...rich.recentTrades[0], id: 't' + i, handle: 'another_quite_long_handle_' + i })) };
+    expect(renderFrame(long as any).length).toBe(WIDTH * HEIGHT * 3);
+  });
+
+  it('underscore and comma have glyphs, so a handle never renders as question marks', () => {
+    for (const ch of ['_', ',', '!']) {
+      const a = Buffer.alloc(WIDTH * HEIGHT * 3); drawText(a, 0, 0, ch, 2, [255, 255, 255]);
+      const b = Buffer.alloc(WIDTH * HEIGHT * 3); drawText(b, 0, 0, '?', 2, [255, 255, 255]);
+      expect(Buffer.compare(a, b), ch).not.toBe(0);
+    }
+  });
+
+  it('nothing is drawn below the frame: the last row of pixels is background only', () => {
+    const f = renderFrame(rich as any);
+    const y = HEIGHT - 1;
+    for (let x = 0; x < WIDTH; x += 7) { const [r, g, b] = px(f, x, y); expect(Math.max(r, g, b)).toBeLessThan(20); }
+  });
+});

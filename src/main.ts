@@ -66,6 +66,9 @@ let busy = false;
 let lastTickMinute = -1;
 let lastCloseMinute = -1;
 let lastPoll = 0;
+let lastActivity = 0;
+/** docs/snake.md "The feed": the activity reads run on their own timer, every ten seconds. */
+const ACTIVITY_EVERY_MS = 10_000;
 async function loop() {
   const now = new Date();
   const minute = Math.floor(now.getTime() / 60_000);
@@ -90,6 +93,9 @@ async function loop() {
       save(op);
       const d = op.decisions[op.decisions.length - 1];
       console.log(`step ${d.step} ${d.direction}${d.undecided ? ' (undecided)' : ''} length ${d.lengthBefore} -> ${d.lengthAfter}`);
+    } else if (now.getTime() - lastActivity >= ACTIVITY_EVERY_MS) {
+      lastActivity = now.getTime();
+      await op.pollActivity(now);
     }
   } catch (e) {
     console.error('loop error', (e as Error).message);

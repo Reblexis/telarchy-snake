@@ -29,10 +29,25 @@
   .foot { color:var(--mute); font-size:13px; margin-top:12px; }
   a { color:#93c5fd; }
   .count { font-variant-numeric: tabular-nums; }
+  .next { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0 0 10px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .next b { font-size:28px; font-weight:700; color:var(--lead); line-height:1.1; }
+  .next span { color:var(--mute); font-size:13px; }
+  .next.decided b { color:var(--snake); }
+  .comment { margin:0 0 10px; color:var(--fg); }
+  .ticker { margin-top:10px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); overflow:hidden; white-space:nowrap; font-size:13px; line-height:2; }
+  .ticker .track { display:inline-block; animation: tick 60s linear infinite; }
+  .ticker .track:hover { animation-play-state: paused; }
+  .ticker .t { margin-right:32px; }
+  .ticker .h { color:var(--lead); }
+  .ticker .buy { color:var(--snake); } .ticker .sell { color:var(--food); }
+  @keyframes tick { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  h2 { font-size:14px; font-weight:600; margin:16px 0 4px; }
+  .muted { color:var(--mute); }
   /* Embedded on the Telarchy floor (?embed=1): a 16:9 frame, no heading or footer of its own. */
   .embed body { padding-block:8px; padding-inline:8px; }
   .embed .wrap { grid-template-columns: minmax(0, 46%) minmax(0, 1fr); gap:12px; max-width:none; }
-  .embed h1.title, .embed p.lead, .embed .foot, .embed .tscroll { display:none; }
+  .embed h1.title, .embed p.lead, .embed .foot, .embed .tscroll, .embed #traders, .embed #leaderboard, .embed h2, .embed p.sub.cardsub { display:none; }
+  .embed .next b { font-size:22px; }
   .embed .stat b { font-size:20px; }
   .embed .card .px { font-size:18px; }
   .embed .card .vs { font-size:11px; }
@@ -42,21 +57,35 @@
 <div class="wrap">
   <div>
     <h1 class="title">Futarchy snake</h1>
-    <p class="sub lead">Every minute the market picks the snake's next move: four proposals, one per direction, priced on the snake's length. The highest is approved.</p>
+    <p class="sub lead">Every minute the market picks the snake's next move: three proposals, turn left, turn right and continue forward, each priced on the snake's length. The highest 60-move impact is approved.</p>
     <canvas id="c" width="720" height="720"></canvas>
     <div class="stats">
-      <div class="stat"><b id="gametitle" style="font-size:16px">–</b><span>game</span></div>
-      <div class="stat"><b id="len">–</b><span>length</span></div>
-      <div class="stat"><b id="heading">–</b><span>heading</span></div>
-      <div class="stat"><b id="deaths">–</b><span>deaths today</span></div>
-      <div class="stat"><b id="step">–</b><span>step</span></div>
-      <div class="stat"><b id="clock" class="count">–</b><span>seconds to decision</span></div>
+      <div class="stat"><b id="gametitle" style="font-size:16px">-</b><span>game</span></div>
+      <div class="stat"><b id="len">-</b><span>length</span></div>
+      <div class="stat"><b id="best">-</b><span>best this game</span></div>
+      <div class="stat"><b id="heading">-</b><span>heading</span></div>
+      <div class="stat"><b id="deaths">-</b><span>deaths today</span></div>
+      <div class="stat"><b id="step">-</b><span>step</span></div>
+      <div class="stat"><b id="clock" class="count">-</b><span>seconds to decision</span></div>
+      <div class="stat"><b id="tradersToday">-</b><span>traders today</span></div>
     </div>
   </div>
   <div>
-    <h1 style="font-size:16px">Step <span id="openstep">–</span>: which way?</h1>
-    <p class="sub">Each card is the market's predicted impact of that move on the length in 60 moves (approved minus declined). The highest is approved at :55. Click a card to trade it.</p>
+    <div class="next" id="next"><b>-</b><span>waiting for the next step</span></div>
+    <p class="comment" id="commentary"></p>
+    <h1 style="font-size:16px">Step <span id="openstep">-</span>: which way?</h1>
+    <p class="sub cardsub">Each card is the market's predicted impact of that move on the length in 60 moves (approved minus declined). The highest is approved at :58. Click a card to trade it.</p>
     <div class="cards" id="cards"></div>
+    <div class="ticker" id="ticker"><div class="track"><span class="t muted">No trades yet. Yours could be the first.</span></div></div>
+    <div id="traders">
+      <h2>Traders this step <span class="muted" id="tradersCount"></span></h2>
+      <div class="tscroll"><table><thead><tr><th>trader</th><th>side</th><th>action</th><th>horizon</th><th>book</th><th>stake</th><th>worth</th></tr></thead><tbody id="tradersBody"></tbody></table></div>
+    </div>
+    <div id="leaderboard">
+      <h2>Top traders in this workspace</h2>
+      <div class="tscroll"><table><thead><tr><th>#</th><th>trader</th><th>profit</th><th>trades</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
+    </div>
+    <h2>Last decisions</h2>
     <div class="tscroll">
     <table>
       <thead><tr><th>step</th><th>action</th><th>moved</th><th>forward</th><th>left</th><th>right</th><th>length</th></tr></thead>
@@ -64,7 +93,7 @@
       <tbody id="log"></tbody>
     </table>
     </div>
-    <p class="foot">This is a Telarchy workspace steered by its own market. Trade at <a id="wslink" href="#">telarchy.com</a>. Data: <a href="/state">/state</a>.</p>
+    <p class="foot">This is a Telarchy workspace steered by its own market. Trade at <a id="wslink" href="https://telarchy.com/snake">telarchy.com/snake</a>. Data: <a href="/state">/state</a>.</p>
   </div>
 </div>
 <script>
@@ -74,7 +103,7 @@ const acts = ['forward','left','right'];
 const actTitle = { forward: 'Continue forward', left: 'Turn left', right: 'Turn right' };
 const arrows = { up:'↑', right:'→', down:'↓', left:'←' };
 let last = null;
-function fmt(v){ return v == null ? '–' : (Math.round(v*10)/10).toString(); }
+function fmt(v){ return v == null ? '-' : (Math.round(v*10)/10).toString(); }
 function draw(g){
   const cell = cv.width / GRID;
   ctx.fillStyle = '#101318'; ctx.fillRect(0,0,cv.width,cv.height);
@@ -91,6 +120,10 @@ function draw(g){
 }
 const embed = new URLSearchParams(location.search).get('embed') === '1';
 if (embed) document.documentElement.classList.add('embed');
+const hz = { m1: '1 move', m5: '5 moves', m60: '60 moves' };
+const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toISOString().slice(11,16); };
+let tickerKey = '';
 function impact(q){ const m = q && q.m60; if (!m || m.approved == null || m.declined == null) return null; return m.approved - m.declined; }
 function render(s){
   last = s;
@@ -101,25 +134,45 @@ function render(s){
   document.getElementById('heading').textContent = arrows[s.game.heading] + ' ' + s.game.heading;
   document.getElementById('deaths').textContent = s.deathsToday;
   document.getElementById('step').textContent = s.game.step;
-  document.getElementById('openstep').textContent = s.open ? s.open.step : '–';
+  document.getElementById('openstep').textContent = s.open ? s.open.step : '-';
+  document.getElementById('best').textContent = s.bestLength ?? s.game.length;
+  document.getElementById('tradersToday').textContent = s.tradersToday ?? 0;
+  const nx = document.getElementById('next');
+  if (s.next) {
+    nx.className = 'next' + (s.next.decided ? ' decided' : '');
+    nx.innerHTML = `<b>NEXT: ${esc(actTitle[s.next.action]).toUpperCase()} ${arrows[s.next.direction]} ${esc(s.next.direction).toUpperCase()}</b><span>${s.next.decided ? 'decided, moves at the top of the minute' : 'the market leans this way, decides in <span id="nextclock">' + s.next.seconds + '</span> s'}</span>`;
+  } else { nx.className = 'next'; nx.innerHTML = `<b>-</b><span>${s.complete ? 'game complete' : 'waiting for the next step'}</span>`; }
+  document.getElementById('commentary').textContent = s.commentary || '';
+  const trades = s.recentTrades || [];
+  const key = trades.map(t => t.id).join(',');
+  if (key !== tickerKey) {
+    tickerKey = key;
+    const items = trades.length ? trades.map(t => `<span class="t">${hhmm(t.at)} <span class="h">${esc(t.handle)}</span> <span class="${t.kind}">${t.kind === 'sell' ? 'sold' : 'bought'} ${esc(t.side)}</span> on ${esc(actTitle[t.action] || t.action).toLowerCase()} in ${hz[t.horizon] || t.horizon}, ${t.branch} book, ${fmt(t.cost)} cr${t.price == null ? '' : ' at ' + fmt(t.price)}</span>`).join('') : '<span class="t muted">No trades yet. Yours could be the first.</span>';
+    document.getElementById('ticker').innerHTML = `<div class="track">${items}${items}</div>`;
+  }
+  const tr = s.traders || [];
+  document.getElementById('tradersCount').textContent = tr.length ? `(${s.tradersThisStep} distinct)` : '';
+  document.getElementById('tradersBody').innerHTML = tr.length ? tr.map(t => `<tr><td>${esc(t.handle)}</td><td>${esc(t.side)}</td><td>${esc(actTitle[t.action] || t.action)}</td><td>${hz[t.horizon] || t.horizon}</td><td>${t.branch}</td><td>${fmt(t.cost)} cr</td><td>${t.worth == null ? '-' : fmt(t.worth)}</td></tr>`).join('') : '<tr><td colspan="7" class="muted">Nobody holds a position in this step\'s books yet.</td></tr>';
+  const lb = s.leaderboard || [];
+  document.getElementById('leaderboardBody').innerHTML = lb.length ? lb.map(l => `<tr><td>${l.rank}</td><td>${esc(l.handle)}</td><td>${l.profit >= 0 ? '+' : ''}${fmt(l.profit)}</td><td>${l.trades}</td></tr>`).join('') : '<tr><td colspan="4" class="muted">Nobody has traded here yet.</td></tr>';
   const cards = document.getElementById('cards');
   if (s.open) {
     let best = null, bp = -Infinity;
     for (const a of acts) { const p = impact(s.open.quotes[a]); if (p != null && p > bp) { bp = p; best = a; } }
     cards.innerHTML = acts.map(a => {
       const q = s.open.quotes[a]; const p = s.open.proposals[a]; const imp = impact(q); const d = s.open.directions ? s.open.directions[a] : null;
-      return `<a class="card ${a===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${actTitle[a]}${d ? ' ' + arrows[d] + ' ' + d : ''}</div><div class="px">${imp == null ? '–' : (imp >= 0 ? '+' : '') + fmt(imp)}</div><div class="vs">impact on length in 60 moves. In 1: ${fmt(q.m1.approved)}, in 5: ${fmt(q.m5.approved)}, in 60: ${fmt(q.m60.approved)}</div></a>`;
+      return `<a class="card ${a===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${actTitle[a]}${d ? ' ' + arrows[d] + ' ' + d : ''}</div><div class="px">${imp == null ? '-' : (imp >= 0 ? '+' : '') + fmt(imp)}</div><div class="vs">impact on length in 60 moves. In 1: ${fmt(q.m1.approved)}, in 5: ${fmt(q.m5.approved)}, in 60: ${fmt(q.m60.approved)}</div></a>`;
     }).join('');
     document.getElementById('wslink').href = s.open.proposals.forward.url.replace(/\/p\/.*$/, '');
   } else cards.innerHTML = s.complete ? '<div class="card lead"><div class="dir">Complete</div><div class="vs">The snake filled the grid. The next game starts on a ' + (GRID+1) + ' by ' + (GRID+1) + ' grid ' + (s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'after an hour') + '.</div></div>' : '';
   document.getElementById('log').innerHTML = s.recentDecisions.map(d =>
-    `<tr><td>${d.step}</td><td>${actTitle[d.action] || '–'}${d.undecided?' (undecided)':''}</td><td>${arrows[d.direction]} ${d.direction}</td>` +
-    acts.map(x => { const v = impact(d.quotes[x]); return `<td>${v == null ? '–' : fmt(v)}</td>`; }).join('') +
+    `<tr><td>${d.step}</td><td>${actTitle[d.action] || '-'}${d.undecided?' (undecided)':''}</td><td>${arrows[d.direction]} ${d.direction}</td>` +
+    acts.map(x => { const v = impact(d.quotes[x]); return `<td>${v == null ? '-' : fmt(v)}</td>`; }).join('') +
     `<td>${d.lengthBefore} → ${d.lengthAfter ?? '…'}</td></tr>`).join('');
 }
 async function poll(){ try { const r = await fetch('/state', {cache:'no-store'}); render(await r.json()); } catch(e){} }
 setInterval(poll, 2000); poll();
-setInterval(()=>{ if(!last||!last.open) return; const s = Math.max(0, Math.round((Date.parse(last.open.decideAt)-Date.now())/1000)); document.getElementById('clock').textContent = s; }, 250);
+setInterval(()=>{ if(!last||!last.open) return; const s = Math.max(0, Math.round((Date.parse(last.open.decideAt)-Date.now())/1000)); document.getElementById('clock').textContent = s; const n = document.getElementById('nextclock'); if (n) n.textContent = s; }, 250);
 </script>
 </body>
 </html>

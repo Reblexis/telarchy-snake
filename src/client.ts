@@ -1,6 +1,6 @@
 // The Telarchy client the operator uses. Deliberately has no trade method:
 // docs/snake.md, "The operator account never trades."
-import type { ProposalRef, TelarchyClient, Verdict } from './operator.js';
+import type { LeaderRow, MarketActivity, ProposalRef, TelarchyClient, Verdict } from './operator.js';
 import { emptyDirectionQuotes, TITLE_ACTION, type Quotes, type Horizon } from './decide.js';
 
 export interface SessionAuth {
@@ -145,6 +145,54 @@ export class HttpTelarchyClient implements TelarchyClient {
 
   async refreshBooks(): Promise<void> {
     await this.call('POST', '/predictions/markets/refresh', { force: true });
+  }
+
+  /** The workspace slug, the last segment of its public url (telarchy.com/snake). */
+  private slug(): string {
+    return new URL(this.o.workspaceUrl).pathname.split('/').filter(Boolean).pop() ?? '';
+  }
+
+  private async publicGet(path: string): Promise<any> {
+    const res = await this.fetchImpl(`${this.o.baseUrl}${path}`, { method: 'GET', headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+    return res.json();
+  }
+
+  /** docs/snake.md "The feed": the public market-activity read, one call per book. */
+  async readActivity(marketIds: string[]): Promise<Record<string, MarketActivity>> {
+    const out: Record<string, MarketActivity> = {};
+    const slug = encodeURIComponent(this.slug());
+    await Promise.all(marketIds.map(async id => {
+      try {
+        const r = await this.publicGet(`/marketplace/${slug}/market-activity?marketId=${encodeURIComponent(id)}`);
+        out[id] = {
+          consensus: num(r?.consensus),
+          positions: (Array.isArray(r?.positions) ? r.positions : []).map((p: any) => ({
+            handle: String(p.handle ?? p.id ?? '?'), direction: p.direction === 'lower' ? 'lower' : 'higher',
+            shares: Number(p.shares) || 0, cost: Number(p.cost) || 0, worth: num(p.worth),
+          })),
+          trades: (Array.isArray(r?.trades) ? r.trades : []).map((t: any) => ({
+            id: String(t.id), handle: String(t.handle ?? '?'), direction: t.direction === 'lower' ? 'lower' : 'higher',
+            kind: t.kind === 'sell' ? 'sell' : 'buy', shares: Number(t.shares) || 0, cost: Number(t.cost) || 0, createdAt: String(t.createdAt),
+          })),
+        };
+      } catch {
+        // left out: the operator keeps the last activity of that book
+      }
+    }));
+    return out;
+  }
+
+  /** docs/snake.md "The feed": the public leaderboard scoped to this workspace. */
+  async readLeaderboard(limit: number): Promise<LeaderRow[]> {
+    const r = await this.publicGet(`/leaderboard?workspaceId=${encodeURIComponent(this.o.workspaceId)}&limit=${limit}`);
+    const rows: any[] = Array.isArray(r?.participants) ? r.participants : [];
+    return rows.map((p, i) => ({
+      rank: Number(p.rank) || i + 1,
+      handle: String(p.nickname ?? p.handle ?? p.id ?? '?'),
+      profit: Number(p.totalEarnings) || 0,
+      trades: Number(p.totalTrades) || 0,
+    }));
   }
 
   async postReading(value: number, at: Date, _final: boolean): Promise<void> {

@@ -178,3 +178,52 @@ describe('session auth for the beta store (docs/snake.md, "Operation")', () => {
     expect(reqs[reqs.length - 1].headers['Cookie']).toBe('s=v3');
   });
 });
+
+describe('the activity reads (docs/snake.md, "The feed")', () => {
+  it('readActivity asks the public market-activity endpoint of the workspace slug once per book and maps positions and trades', async () => {
+    const { reqs, fetchImpl } = fakeFetch(r => {
+      const id = new URL(r.url).searchParams.get('marketId');
+      return { json: { consensus: id === 'a' ? 3.5 : null, positions: [{ handle: 'ada', id: 'x', direction: 'higher', shares: 2, cost: 5, worth: 6 }], trades: [{ id: 't1', handle: 'ada', direction: 'lower', kind: 'sell', shares: 1, cost: 0.5, createdAt: '2026-09-11T10:00:04.000Z' }], pool: [] } };
+    });
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const out = await c.readActivity(['a', 'b']);
+    expect(reqs.map(r => r.url).sort()).toEqual([
+      'https://telarchy.com/api/marketplace/snake/market-activity?marketId=a',
+      'https://telarchy.com/api/marketplace/snake/market-activity?marketId=b',
+    ]);
+    expect(reqs.every(r => r.method === 'GET')).toBe(true);
+    expect(out.a).toEqual({ consensus: 3.5, positions: [{ handle: 'ada', direction: 'higher', shares: 2, cost: 5, worth: 6 }], trades: [{ id: 't1', handle: 'ada', direction: 'lower', kind: 'sell', shares: 1, cost: 0.5, createdAt: '2026-09-11T10:00:04.000Z' }] });
+    expect(out.b.consensus).toBe(null);
+  });
+
+  it('readActivity drops a book whose read fails and keeps the others', async () => {
+    const { fetchImpl } = fakeFetch(r => (r.url.endsWith('=bad') ? { status: 500, json: { error: 'x' } } : { json: { consensus: 1, positions: [], trades: [], pool: [] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const out = await c.readActivity(['ok', 'bad']);
+    expect(Object.keys(out)).toEqual(['ok']);
+  });
+
+  it('readActivity with no ids makes no request', async () => {
+    const { reqs, fetchImpl } = fakeFetch(() => ({ json: {} }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    expect(await c.readActivity([])).toEqual({});
+    expect(reqs.length).toBe(0);
+  });
+
+  it('readLeaderboard asks the public leaderboard scoped to this workspace and maps rank, handle, profit and trades', async () => {
+    const { reqs, fetchImpl } = fakeFetch(() => ({ json: { participants: [
+      { rank: 1, id: 'a1', nickname: 'ada', totalEarnings: 12.5, totalTrades: 9 },
+      { rank: 2, id: 'b2', nickname: null, totalEarnings: -1, totalTrades: 2 },
+    ] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const rows = await c.readLeaderboard(5);
+    expect(reqs[0].url).toBe('https://telarchy.com/api/leaderboard?workspaceId=ws1&limit=5');
+    expect(rows).toEqual([{ rank: 1, handle: 'ada', profit: 12.5, trades: 9 }, { rank: 2, handle: 'b2', profit: -1, trades: 2 }]);
+  });
+
+  it('the client still has no trade call', () => {
+    const c = new HttpTelarchyClient(opts, (async () => new Response('{}')) as any);
+    const names = Object.getOwnPropertyNames(Object.getPrototypeOf(c));
+    expect(names.some(n => /trade|order/i.test(n))).toBe(false);
+  });
+});

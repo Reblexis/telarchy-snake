@@ -1,11 +1,33 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
 import { GRID, newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
-import { decide, ACTIONS, ACTION_TITLE, directionsFrom, emptyQuotes, type Action, type Decision, type Quotes, type Horizon } from './decide.js';
+import { decide, ACTIONS, ACTION_TITLE, HORIZONS, directionsFrom, emptyQuotes, type Action, type Decision, type Quotes, type Horizon } from './decide.js';
 import { minuteCells } from './client.js';
+import { commentary } from './commentary.js';
 
 export interface ProposalRef { id: string; title: string; url: string }
 export type Verdict = 'approve' | 'decline';
+export type Side = 'higher' | 'lower';
+export type Branch = 'approved' | 'declined';
+
+/** One book's public activity, as Telarchy's market-activity endpoint reports it. */
+export interface ActivityPosition { handle: string; direction: Side; shares: number; cost: number; worth: number | null }
+export interface ActivityTrade { id: string; handle: string; direction: Side; kind: 'buy' | 'sell'; shares: number; cost: number; createdAt: string }
+export interface MarketActivity { consensus: number | null; positions: ActivityPosition[]; trades: ActivityTrade[] }
+/** One row of the workspace's public leaderboard. */
+export interface LeaderRow { rank: number; handle: string; profit: number; trades: number }
+
+/** A position in the open step's books, docs/snake.md "The feed". */
+export interface TraderRow { handle: string; action: Action; horizon: Horizon; branch: Branch; side: Side; shares: number; cost: number; worth: number | null }
+/** A trade in the rolling log, docs/snake.md "The feed". */
+export interface TradeRecord {
+  id: string; at: string; handle: string; step: number; action: Action; horizon: Horizon; branch: Branch; side: Side;
+  kind: 'buy' | 'sell'; shares: number; cost: number; marketId: string;
+  /** The book's consensus when the trade was first seen, or null. */
+  price: number | null;
+}
+/** The next move, docs/snake.md "The board". */
+export interface NextMove { action: Action; direction: Direction; decided: boolean; seconds: number }
 
 export interface TelarchyClient {
   /** Post one proposal with an explicit deadline (docs/snake.md, "The step"). */
@@ -22,6 +44,11 @@ export interface TelarchyClient {
   /** Raise the metric's market range to `max` (the new full grid). Throws when
    *  Telarchy refuses (an open traded book), so the caller retries later. */
   setRange(max: number): Promise<void>;
+  /** Public activity (positions and newest trades) of the given books, keyed
+   *  by market id; a book that cannot be read is left out. Read-only. */
+  readActivity(marketIds: string[]): Promise<Record<string, MarketActivity>>;
+  /** The workspace's public leaderboard, top `limit` by profit. Read-only. */
+  readLeaderboard(limit: number): Promise<LeaderRow[]>;
 }
 
 export interface OpenStep {
@@ -64,6 +91,12 @@ export interface DecisionRecord {
 }
 
 const DECIDE_SECOND = 58;
+/** docs/snake.md, "The feed": the rolling trades log keeps this many. */
+const TRADES_KEPT = 30;
+const LEADERBOARD_SIZE = 5;
+const LEADERBOARD_EVERY_MS = 60_000;
+/** The 1-move and 5-move books are read once per step, from this second on. */
+const NEAR_BOOKS_SECOND = 45;
 /** docs/snake.md, "The game": the pause between a completed game and the next. */
 const COOLDOWN_MS = 60 * 60_000;
 
@@ -76,10 +109,25 @@ export class Operator {
   decisions: DecisionRecord[] = [];
   /** When the current game completed; null while a game is running. */
   completedAt: string | null = null;
+  /** The longest the snake has been in this game (docs/snake.md, "The board"). */
+  bestLength: number;
+  /** The rolling trades log, newest first (persisted). */
+  recentTrades: TradeRecord[] = [];
+  /** Distinct handles seen trading or holding a position today (persisted). */
+  tradersToday: { day: string; handles: string[] } = { day: '', handles: [] };
+  /** The workspace leaderboard as last read (not persisted). */
+  leaderboard: LeaderRow[] = [];
+  activityAt: string | null = null;
   private pending: Direction | null = null; // decided, waiting for the top of minute
+  /** Positions per book of the open step, keyed by market id, for this step only. */
+  private positions: Map<string, TraderRow[]> = new Map();
+  private positionsStep = 0;
+  private nearPolledStep = 0;
+  private leaderboardAt = 0;
 
   constructor(private client: TelarchyClient, game: GameState, private rng: Rng, private opts: OperatorOptions = {}) {
     this.game = game;
+    this.bestLength = game.length;
   }
 
   static fresh(client: TelarchyClient, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
@@ -205,6 +253,7 @@ export class Operator {
           return; // a traded open book: try again next minute
         }
         this.game = newGame(this.rng, size, (this.game.gameNumber ?? 1) + 1);
+        this.bestLength = this.game.length;
         this.completedAt = null;
         this.pending = null;
         this.open = null;
@@ -219,6 +268,7 @@ export class Operator {
     const dir = this.pending ?? this.game.heading;
     const before = this.game;
     this.game = applyStep(before, dir, this.rng);
+    this.bestLength = Math.max(this.bestLength, this.game.length);
     const rec = this.decisions[this.decisions.length - 1];
     if (rec && rec.lengthAfter === null) rec.lengthAfter = this.game.length;
     this.pending = null;
@@ -230,6 +280,91 @@ export class Operator {
     await this.client.postReading(this.game.length, now, final);
     if (this.game.complete) { this.completedAt = now.toISOString(); return; } // the cooldown begins
     await this.openStep(now);
+  }
+
+  /** The books of the open step, by market id: which action, horizon and branch each is. */
+  private books(horizons: Horizon[]): Map<string, { action: Action; horizon: Horizon; branch: Branch }> {
+    const out = new Map<string, { action: Action; horizon: Horizon; branch: Branch }>();
+    const q = this.open?.quotes;
+    if (!q) return out;
+    for (const a of ACTIONS) for (const h of horizons) {
+      const x = q[a]?.[h];
+      if (!x) continue;
+      if (x.approvedMarketId) out.set(x.approvedMarketId, { action: a, horizon: h, branch: 'approved' });
+      if (x.declinedMarketId) out.set(x.declinedMarketId, { action: a, horizon: h, branch: 'declined' });
+    }
+    return out;
+  }
+
+  private noteTraderToday(handle: string, day: string) {
+    if (this.tradersToday.day !== day) this.tradersToday = { day, handles: [] };
+    if (!this.tradersToday.handles.includes(handle)) this.tradersToday.handles.push(handle);
+  }
+
+  /** On its own timer, apart from the quotes (docs/snake.md, "The feed"):
+   *  the six 60-move books of the open step every call, the twelve near
+   *  books once per step late in the minute, the leaderboard once a minute.
+   *  Reads only; nothing here can trade. Failures keep the last activity. */
+  async pollActivity(now: Date): Promise<void> {
+    const open = this.open;
+    if (open && open.quotes) {
+      if (this.positionsStep !== open.step) { this.positions = new Map(); this.positionsStep = open.step; }
+      const near = now.getUTCSeconds() >= NEAR_BOOKS_SECOND && this.nearPolledStep !== open.step;
+      const books = this.books(near ? HORIZONS : ['m60']);
+      if (books.size > 0) {
+        try {
+          const activity = await this.client.readActivity([...books.keys()]);
+          if (near) this.nearPolledStep = open.step;
+          const day = utcDay(now);
+          const seen = new Set(this.recentTrades.map(t => t.id));
+          for (const [marketId, meta] of books) {
+            const a = activity[marketId];
+            if (!a) continue;
+            this.positions.set(marketId, a.positions.map(p => ({
+              handle: p.handle, action: meta.action, horizon: meta.horizon, branch: meta.branch,
+              side: p.direction, shares: p.shares, cost: p.cost, worth: p.worth ?? null,
+            })));
+            for (const p of a.positions) this.noteTraderToday(p.handle, day);
+            for (const t of a.trades) {
+              if (t.createdAt.slice(0, 10) === day) this.noteTraderToday(t.handle, day);
+              if (seen.has(t.id)) continue;
+              seen.add(t.id);
+              this.recentTrades.push({
+                id: t.id, at: t.createdAt, handle: t.handle, step: open.step, action: meta.action, horizon: meta.horizon,
+                branch: meta.branch, side: t.direction, kind: t.kind, shares: t.shares, cost: t.cost, marketId, price: a.consensus ?? null,
+              });
+            }
+          }
+          this.recentTrades.sort((x, y) => Date.parse(y.at) - Date.parse(x.at));
+          this.recentTrades = this.recentTrades.slice(0, TRADES_KEPT);
+          this.activityAt = now.toISOString();
+        } catch {
+          // keep the last activity
+        }
+      }
+    }
+    if (now.getTime() - this.leaderboardAt >= LEADERBOARD_EVERY_MS) {
+      this.leaderboardAt = now.getTime();
+      try { this.leaderboard = await this.client.readLeaderboard(LEADERBOARD_SIZE); } catch { /* keep the last */ }
+    }
+  }
+
+  /** The open step's positions, one row each (docs/snake.md, "The feed"). */
+  traders(): TraderRow[] {
+    if (!this.open || this.positionsStep !== this.open.step) return [];
+    return [...this.positions.values()].flat();
+  }
+
+  /** The next move: the live leader before the decision, the approved action after it. */
+  next(now: Date): NextMove | null {
+    const open = this.open;
+    if (!open || this.game.complete) return null;
+    if (open.decision) {
+      return { action: open.decision.approved ?? 'forward', direction: open.decision.direction, decided: true, seconds: 0 };
+    }
+    const lead = decide(open.quotes ?? emptyQuotes(), this.game.heading);
+    const seconds = Math.max(0, Math.round((Date.parse(open.decideAt) - now.getTime()) / 1000));
+    return { action: lead.approved ?? 'forward', direction: lead.direction, decided: false, seconds };
   }
 
   recentDecisions(): DecisionRecord[] {
@@ -244,7 +379,7 @@ export class Operator {
   publicState(now: Date) {
     const open = this.open;
     const nextStepAt = open ? open.deadline : new Date(isoMinute(now).getTime() + 60_000).toISOString();
-    return {
+    const base = {
       game: this.game,
       grid: this.game.size ?? GRID,
       gameNumber: this.game.gameNumber ?? 1,
@@ -273,10 +408,25 @@ export class Operator {
       complete: this.game.complete,
       now: now.toISOString(),
     };
+    const traders = this.traders();
+    const activity = {
+      next: this.next(now),
+      bestLength: this.bestLength,
+      traders,
+      tradersThisStep: new Set(traders.map(t => t.handle)).size,
+      tradersToday: this.tradersToday.day === utcDay(now) ? this.tradersToday.handles.length : 0,
+      recentTrades: this.recentTrades,
+      leaderboard: this.leaderboard,
+      activityAt: this.activityAt,
+    };
+    return { ...base, ...activity, commentary: commentary({ ...base, ...activity }, now) };
   }
 
   toJSON() {
-    return { game: this.game, open: this.open, decisions: this.decisions, pending: this.pending, completedAt: this.completedAt };
+    return {
+      game: this.game, open: this.open, decisions: this.decisions, pending: this.pending, completedAt: this.completedAt,
+      bestLength: this.bestLength, recentTrades: this.recentTrades, tradersToday: this.tradersToday,
+    };
   }
 
   static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
@@ -287,6 +437,9 @@ export class Operator {
     op.completedAt = raw.completedAt ?? null;
     if (op.game.complete === undefined) op.game = { ...op.game, complete: false };
     if (op.game.size === undefined) op.game = { ...op.game, size: GRID, gameNumber: 1 };
+    op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;
+    op.recentTrades = Array.isArray(raw.recentTrades) ? raw.recentTrades : [];
+    op.tradersToday = raw.tradersToday && Array.isArray(raw.tradersToday.handles) ? raw.tradersToday : { day: '', handles: [] };
     return op;
   }
 }
