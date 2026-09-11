@@ -86,23 +86,27 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(3);
   });
 
-  it('the description names the step, the state, the record, the one cell, the rule and the board, in one line', async () => {
+  it('the description is the proposal in the snake\'s first person, one line per action, with the state, the cell and the rule', async () => {
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, newGame(rng), rng, { boardUrl: 'https://snake.telarchy.com' });
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    const desc = String(calls.find(c => c.name === 'postProposal')!.args[1]);
-    expect(desc).toMatch(/step 1\b/i);
-    expect(desc).toMatch(/length 2\b/);
-    expect(desc).toMatch(/heading right/);
-    expect(desc).toMatch(/left.*up|up.*left/i); // turning left from right goes up
-    expect(desc).not.toContain('10:01');
-    expect(desc).not.toContain('10:05');
-    expect(desc).toContain('11:00');
-    expect(desc).toMatch(/attempt 1\b/);
+    const posts = calls.filter(c => c.name === 'postProposal');
+    const byTitle = Object.fromEntries(posts.map(c => [String(c.args[0]).split(': ')[1], String(c.args[1])]));
+    // Heading right at the start: left is up, right is down, forward is right.
+    expect(byTitle['Turn right']).toMatch(/^I will turn right at move 1 of attempt 1, game 1: from \(\d+,\d+\) heading right, that is down\./);
+    expect(byTitle['Turn left']).toMatch(/^I will turn left at move 1 of attempt 1, game 1: .* that is up\./);
+    expect(byTitle['Continue forward']).toMatch(/^I will continue forward at move 1 of attempt 1, game 1: .* that is right\./);
+    const desc = byTitle['Turn right'];
+    expect(desc).toMatch(/length 2\b/i);
     expect(desc).toMatch(/record 2\b/i);
-    expect(desc).toMatch(/reached|attempt/i);
-    expect(desc).not.toMatch(/1, 5 and 60|max length/i);
-    expect(desc).toContain('https://snake.telarchy.com');
+    expect(desc).toMatch(/food at \(\d+,\d+\)/);
+    expect(desc).toContain('11:00');
+    expect(desc).not.toContain('10:01');
+    expect(desc).toMatch(/highest impact at :58/);
+    expect(desc).toMatch(/ties continue forward/);
+    // No board address: the game is on the floor (docs/snake.md, "The step").
+    expect(desc).not.toContain('snake.telarchy.com');
+    expect(desc).not.toMatch(/^Step \d+:/);
     expect(desc.includes('\n')).toBe(false);
     expect(desc.length).toBeLessThan(600);
   });

@@ -128,10 +128,15 @@ tell one minute's `Turn left` from the thousand others. The action is the
 part after the colon, exactly one of the three. Each
 carries the same deadline, the top of the next minute, so the books
 close together and the deadline a trader sees is the real one. The
-description names the step, the state including the current heading,
-the current length and record, and the compass direction each action
-would take, the cell the proposal is priced on (as a clock minute, UTC),
-the rule, and the board's address, in one line.
+description is the proposal in the snake's own first person, one line
+per action (Viktor, 2026-09-11: it "is supposed to say something like
+'I will move right at move X'"): "I will turn right at move 2 of attempt
+55, game 1: from (9,6) heading right, that is down." Then the state a
+trader prices on (length, record, food), the cell the proposal is priced
+on (the length this attempt reaches by a clock minute, UTC), and the rule
+in one clause (the highest impact at :58 is approved, the rest declined
+with refund, ties continue forward). No board address: the game is on
+the floor itself.
 
 During the minute the operator re-reads the proposals' pairs every five
 seconds and publishes them on `/state`, so the board and any bot see the
