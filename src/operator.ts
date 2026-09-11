@@ -271,14 +271,21 @@ export class Operator {
     const cells: Record<Horizon, string> = { m60: this.cell ?? minuteCells(now).m60 };
     const directions = directionsFrom(g.heading);
     const hhmm = (c: string) => c.slice(11);
-    const board = this.opts.boardUrl ? ` Board: ${this.opts.boardUrl}.` : '';
-    const description =
-      `Step ${stepNo}: snake length ${g.length}, record ${this.bestLength}, heading ${g.heading} (forward = ${directions.forward}, turn left = ${directions.left}, ` +
-      `turn right = ${directions.right}), head at (${g.snake[0].x},${g.snake[0].y}), food at (${g.food.x},${g.food.y}), ` +
-      `${g.deaths} deaths so far. Priced on the length attempt ${g.deaths + 1} will have reached at ${hhmm(cells.m60)} UTC, the attempt's one book; when the attempt ends every open book settles at the length it reached. ` +
-      `The highest impact is approved at :58, the others are declined with refund; ties continue forward; the snake moves at :00.${board}`;
+    // The proposal in the snake's own first person, one per action
+    // (docs/snake.md, "The step"): the move, then the state a trader prices
+    // on, the cell, and the rule in one clause. No board address: the game
+    // is on the floor itself.
+    const verb: Record<Action, string> = { forward: 'continue forward', left: 'turn left', right: 'turn right' };
+    const attempt = g.deaths + 1;
+    const move = (g.attemptStep ?? 0) + 1;
+    const gameNo = g.gameNumber ?? 1;
+    const describe = (a: Action) =>
+      `I will ${verb[a]} at move ${move} of attempt ${attempt}, game ${gameNo}: from (${g.snake[0].x},${g.snake[0].y}) heading ${g.heading}, that is ${directions[a]}. ` +
+      `Length ${g.length}, record ${this.bestLength}, food at (${g.food.x},${g.food.y}). ` +
+      `Priced on the length this attempt reaches by ${hhmm(cells.m60)} UTC; when the attempt ends every open book settles at the length it reached. ` +
+      `Of the three moves the one with the highest impact at :58 is approved, the rest are declined with refund; ties continue forward; the snake moves at :00.`;
     // All three at once, so they land in the same second and share the deadline.
-    const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(proposalTitle(a, g.gameNumber ?? 1, g.deaths + 1, (g.attemptStep ?? 0) + 1), description, deadline)));
+    const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(proposalTitle(a, gameNo, attempt, move), describe(a), deadline)));
     const proposals = {} as Record<Action, ProposalRef>;
     ACTIONS.forEach((a, i) => { proposals[a] = refs[i]; });
     this.open = {
