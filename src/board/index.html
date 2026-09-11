@@ -254,15 +254,15 @@ if (location.hash === '#replay') { showTab('replay'); requestAnimationFrame(() =
 // the newest move and every new move advances the frame.
 const rp = { game: null, games: [], size: 12, complete: false, moves: [], frames: [], start: null, follow: true, idx: -1, playing: false, timer: null };
 const DELTA = { up:[0,-1], right:[1,0], down:[0,1], left:[-1,0] };
-function startFrame(){ return { snake: rp.start.snake, heading: rp.start.heading, food: rp.start.food, deaths: rp.start.deaths, length: rp.start.snake.length }; }
+function startFrame(){ return { snake: rp.start.snake, heading: rp.start.heading, food: rp.start.food, deaths: rp.start.deaths, length: rp.start.snake.length, attemptStep: rp.start.attemptStep || 0 }; }
 function applyMove(f, m){
   const size = rp.size, c = Math.floor(size/2);
-  if (m.died) { const snake = [{x:c,y:c},{x:c-1,y:c}]; return { snake, heading: 'right', food: m.food || f.food, deaths: f.deaths + 1, length: 2 }; }
+  if (m.died) { const snake = [{x:c,y:c},{x:c-1,y:c}]; return { snake, heading: 'right', food: m.food || f.food, deaths: f.deaths + 1, length: 2, attemptStep: 0 }; }
   const [dx, dy] = DELTA[m.direction] || [0,0];
   const next = { x: f.snake[0].x + dx, y: f.snake[0].y + dy };
   const ate = !!m.food;
   const snake = [next, ...(ate ? f.snake : f.snake.slice(0, -1))];
-  return { snake, heading: m.direction, food: ate ? m.food : f.food, deaths: f.deaths, length: snake.length };
+  return { snake, heading: m.direction, food: ate ? m.food : f.food, deaths: f.deaths, length: snake.length, attemptStep: f.attemptStep + 1 };
 }
 function frameAt(i){ return i < 0 ? startFrame() : rp.frames[i]; }
 function resetReplay(r){
@@ -293,8 +293,11 @@ function renderReplay(){
   const f = frameAt(rp.idx);
   draw(f, document.getElementById('rc'), rp.size);
   const m = rp.idx >= 0 ? rp.moves[rp.idx] : null;
-  const last = rp.moves.length ? rp.moves[rp.moves.length-1].step : rp.start.step;
-  const what = m ? `move ${m.step} of ${last} · ${m.undecided ? 'undecided' : actTitle[m.action] || m.action} ${arrows[m.direction] || ''}` : `start at move ${rp.start.step}`;
+  // A death's frame is the respawn: it belongs to the attempt that ended, as its last move.
+  const before = rp.idx > 0 ? rp.frames[rp.idx-1] : startFrame();
+  const attempt = m && m.died ? before.deaths + 1 : f.deaths + 1;
+  const move = m && m.died ? before.attemptStep + 1 : f.attemptStep;
+  const what = m ? `attempt ${attempt}, move ${move} · ${m.undecided ? 'undecided' : actTitle[m.action] || m.action} ${arrows[m.direction] || ''}${m.died ? ' · died' : ''}` : `attempt ${attempt}, before move ${move + 1}`;
   document.getElementById('caption').textContent = `Game ${rp.game} · ${what} · length ${f.length}${rp.complete && rp.follow ? ' · complete' : ''}`;
   const gs = document.getElementById('games');
   gs.hidden = rp.games.length < 2;

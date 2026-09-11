@@ -38,17 +38,18 @@ async function playSteps(op: Operator, n: number, start = Date.parse('2026-09-11
 }
 
 describe('proposal titles (docs/snake.md, "The step")', () => {
-  it('a title names the game and the move, then the action: Game 1, move 171: Turn left', () => {
-    expect(proposalTitle('left', 1, 171)).toBe('Game 1, move 171: Turn left');
-    expect(proposalTitle('forward', 3, 1)).toBe('Game 3, move 1: Continue forward');
-    expect(proposalTitle('right', 12, 9999)).toBe('Game 12, move 9999: Turn right');
+  it('a title names the game, the attempt and the move within it, then the action: Game 1, attempt 30, move 3: Turn left', () => {
+    expect(proposalTitle('left', 1, 30, 3)).toBe('Game 1, attempt 30, move 3: Turn left');
+    expect(proposalTitle('forward', 3, 1, 1)).toBe('Game 3, attempt 1, move 1: Continue forward');
+    expect(proposalTitle('right', 12, 2, 9999)).toBe('Game 12, attempt 2, move 9999: Turn right');
   });
 
   it('every title stays under the 80 characters Telarchy accepts', () => {
-    expect(proposalTitle('forward', 999999, 99999999).length).toBeLessThan(80);
+    expect(proposalTitle('forward', 999999, 999999, 99999999).length).toBeLessThan(80);
   });
 
   it('the action is read back from a titled proposal, and from a bare title too', () => {
+    expect(actionOfTitle('Game 1, attempt 30, move 3: Turn left')).toBe('left');
     expect(actionOfTitle('Game 1, move 171: Turn left')).toBe('left');
     expect(actionOfTitle('Game 2, move 3: Continue forward')).toBe('forward');
     expect(actionOfTitle('Game 2, move 3: Turn right')).toBe('right');
@@ -62,17 +63,44 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const titles = () => calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]));
-    expect(titles().sort()).toEqual(['Game 1, move 1: Continue forward', 'Game 1, move 1: Turn left', 'Game 1, move 1: Turn right']);
+    expect(titles().sort()).toEqual(['Game 1, attempt 1, move 1: Continue forward', 'Game 1, attempt 1, move 1: Turn left', 'Game 1, attempt 1, move 1: Turn right']);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
-    expect(titles().slice(3).sort()).toEqual(['Game 1, move 2: Continue forward', 'Game 1, move 2: Turn left', 'Game 1, move 2: Turn right']);
+    expect(titles().slice(3).sort()).toEqual(['Game 1, attempt 1, move 2: Continue forward', 'Game 1, attempt 1, move 2: Turn left', 'Game 1, attempt 1, move 2: Turn right']);
   });
 
-  it('a later game numbers its titles by that game, from move 1 again', async () => {
+  it('a death starts the next attempt and its moves count from 1 again', async () => {
+    const { client, calls } = fakeClient(allTen); // ties continue forward: into the right wall at step 6
+    const op = new Operator(client, newGame(rng), rng);
+    await playSteps(op, 6);
+    const titles = calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]));
+    expect(titles[15]).toBe('Game 1, attempt 1, move 6: Continue forward');
+    expect(op.game.deaths).toBe(1);
+    expect(titles[18]).toBe('Game 1, attempt 2, move 1: Continue forward');
+    await playSteps(op, 1, Date.parse('2026-09-11T10:06:00Z'));
+    expect(calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]))[21]).toBe('Game 1, attempt 2, move 2: Continue forward');
+  });
+
+  it('a later game numbers its titles by that game, from attempt 1, move 1 again', async () => {
     const { client, calls } = fakeClient(upWins);
-    const op = new Operator(client, { ...newGame(rng, 12, 2), step: 40 }, rng);
-    await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    expect(calls.filter(c => c.name === 'postProposal').map(c => c.args[0])).toContain('Game 2, move 41: Turn left');
+    const g = { ...newGame(rng), complete: true, length: 144, deaths: 5 };
+    const op = new Operator(client, g as any, rng);
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    await op.tick(new Date('2026-09-11T11:01:00Z'));
+    expect(calls.filter(c => c.name === 'postProposal').map(c => c.args[0])).toContain('Game 2, attempt 1, move 1: Turn left');
+  });
+
+  it('a state file from before attempts were counted derives the attempt move from the decision log', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, newGame(rng), rng);
+    await playSteps(op, 8); // death at step 6, then two moves of attempt 2
+    const raw = JSON.parse(JSON.stringify(op.toJSON()));
+    delete raw.game.attemptStep;
+    const back = Operator.fromJSON(client, raw, rng);
+    expect(back.game.attemptStep).toBe(2);
+    await back.closeStep(new Date('2026-09-11T10:08:58Z'));
+    await back.tick(new Date('2026-09-11T10:09:00Z'));
+    expect(calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0])).pop()).toBe('Game 1, attempt 2, move 4: Turn right');
   });
 });
 
@@ -84,7 +112,7 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
     expect(r!.games).toEqual([1]);
     expect(r!.gameNumber).toBe(1);
     expect(r!.size).toBe(12);
-    expect(r!.start).toEqual({ step: 0, snake: [{ x: 6, y: 6 }, { x: 5, y: 6 }], heading: 'right', food: { x: 0, y: 0 }, deaths: 0 });
+    expect(r!.start).toEqual({ step: 0, snake: [{ x: 6, y: 6 }, { x: 5, y: 6 }], heading: 'right', food: { x: 0, y: 0 }, deaths: 0, attemptStep: 0 });
     expect(r!.moves).toEqual([]);
   });
 
@@ -178,7 +206,7 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
 
     const old = Operator.fromJSON(client, { game: { ...op.game }, open: null, decisions: [], pending: null, completedAt: null }, rng);
     const r = old.replay()!;
-    expect(r.start).toEqual({ step: 3, snake: op.game.snake, heading: op.game.heading, food: op.game.food, deaths: op.game.deaths });
+    expect(r.start).toEqual({ step: 3, snake: op.game.snake, heading: op.game.heading, food: op.game.food, deaths: op.game.deaths, attemptStep: 3 });
     expect(r.moves).toEqual([]);
   });
 });

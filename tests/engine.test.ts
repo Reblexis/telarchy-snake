@@ -146,4 +146,16 @@ describe('the game (docs/snake.md, "The game")', () => {
     const g3 = step(g2, 'up');
     expect(g3).toEqual(g2);
   });
+
+  it('attemptStep counts the moves of the current attempt: up from 0 at a start, back to 0 on a death', () => {
+    let g = newGame(() => 0);
+    expect(g.attemptStep).toBe(0);
+    g = step(g, 'right', () => 0); g = step(g, 'right', () => 0);
+    expect(g.attemptStep).toBe(2);
+    while (!(g.deaths > 0)) g = step(g, 'right', () => 0);
+    expect(g.attemptStep).toBe(0);
+    g = step(g, 'down', () => 0);
+    expect(g.attemptStep).toBe(1);
+    expect(g.step).toBeGreaterThan(g.attemptStep);
+  });
 });

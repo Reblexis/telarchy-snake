@@ -17,6 +17,8 @@ export interface GameState {
   size: number;
   /** 1 for the first game, counting up as games complete. */
   gameNumber: number;
+  /** Moves made in the current attempt: 0 at a start or respawn (docs/snake.md, "The step"). */
+  attemptStep: number;
 }
 
 export type Rng = () => number; // returns a non-negative integer or a float in [0,1)
@@ -56,7 +58,7 @@ export function spawnFood(snake: Cell[], rng: Rng, size: number = GRID): Cell {
 
 export function newGame(rng: Rng, size: number = GRID, gameNumber: number = 1): GameState {
   const snake = startSnake(size);
-  return { snake, heading: 'right', food: spawnFood(snake, rng, size), length: 2, step: 0, deaths: 0, complete: false, size, gameNumber };
+  return { snake, heading: 'right', food: spawnFood(snake, rng, size), length: 2, step: 0, deaths: 0, complete: false, size, gameNumber, attemptStep: 0 };
 }
 
 export function step(g: GameState, dir: Direction, rng: Rng = Math.random): GameState {
@@ -72,10 +74,10 @@ export function step(g: GameState, dir: Direction, rng: Rng = Math.random): Game
   const hitsSelf = occupied(body, next);
   if (hitsWall || hitsSelf) {
     const snake = startSnake(size);
-    return { snake, heading: 'right', food: spawnFood(snake, rng, size), length: 2, step: g.step + 1, deaths: g.deaths + 1, complete: false, size, gameNumber: g.gameNumber ?? 1 };
+    return { snake, heading: 'right', food: spawnFood(snake, rng, size), length: 2, step: g.step + 1, deaths: g.deaths + 1, complete: false, size, gameNumber: g.gameNumber ?? 1, attemptStep: 0 };
   }
   const snake = [next, ...body];
   const complete = snake.length >= size * size;
   const food = complete ? g.food : eats ? spawnFood(snake, rng, size) : g.food;
-  return { snake, heading: dir, food, length: snake.length, step: g.step + 1, deaths: g.deaths, complete, size, gameNumber: g.gameNumber ?? 1 };
+  return { snake, heading: dir, food, length: snake.length, step: g.step + 1, deaths: g.deaths, complete, size, gameNumber: g.gameNumber ?? 1, attemptStep: (g.attemptStep ?? 0) + 1 };
 }
