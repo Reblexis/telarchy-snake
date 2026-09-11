@@ -82,7 +82,7 @@ function draw(g){
   ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc((g.food.x+0.5)*cell,(g.food.y+0.5)*cell,cell*0.32,0,Math.PI*2); ctx.fill();
   g.snake.forEach((s,i)=>{ ctx.fillStyle = i===0 ? '#bbf7d0' : '#4ade80'; ctx.fillRect(s.x*cell+2, s.y*cell+2, cell-4, cell-4); });
   // heading marker: a dark bar on the edge of the head the snake moves towards
-  const h = g.snake[0], t = Math.max(3, cell/6); ctx.fillStyle = '#101318';
+  const h = g.snake[0], t = Math.max(3, cell/6); ctx.fillStyle = '#facc15';
   if (g.heading==='up') ctx.fillRect(h.x*cell+4, h.y*cell+2, cell-8, t);
   if (g.heading==='down') ctx.fillRect(h.x*cell+4, (h.y+1)*cell-2-t, cell-8, t);
   if (g.heading==='left') ctx.fillRect(h.x*cell+2, h.y*cell+4, t, cell-8);

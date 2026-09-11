@@ -98,10 +98,10 @@ export function renderFrame(s: any): Buffer {
   {
     const h = cellRect(g.snake[0].x, g.snake[0].y);
     const t = Math.max(3, Math.floor(h.w / 6));
-    if (g.heading === 'up') fill(buf, h.x + 4, h.y + 2, h.w - 8, t, BG);
-    if (g.heading === 'down') fill(buf, h.x + 4, h.y + h.h - 2 - t, h.w - 8, t, BG);
-    if (g.heading === 'left') fill(buf, h.x + 2, h.y + 4, t, h.h - 8, BG);
-    if (g.heading === 'right') fill(buf, h.x + h.w - 2 - t, h.y + 4, t, h.h - 8, BG);
+    if (g.heading === 'up') fill(buf, h.x + 4, h.y + 2, h.w - 8, t, LEAD);
+    if (g.heading === 'down') fill(buf, h.x + 4, h.y + h.h - 2 - t, h.w - 8, t, LEAD);
+    if (g.heading === 'left') fill(buf, h.x + 2, h.y + 4, t, h.h - 8, LEAD);
+    if (g.heading === 'right') fill(buf, h.x + h.w - 2 - t, h.y + 4, t, h.h - 8, LEAD);
   }
 
   // right column
@@ -110,8 +110,8 @@ export function renderFrame(s: any): Buffer {
   drawText(buf, X, y, 'FUTARCHY SNAKE', 4, FG); y += 40;
   drawText(buf, X, y, 'THE MARKET PICKS EVERY MOVE', 2, MUTE); y += 36;
   drawText(buf, X, y, `LENGTH ${g.length}`, 5, FG);
-  drawText(buf, X + 300, y, `HEADING ${ARROW[g.heading]} ${String(g.heading).toUpperCase()}`, 3, FG);
-  drawText(buf, X + 300, y + 22, `DEATHS ${s.deathsToday ?? 0}  STEP ${g.step}`, 3, MUTE); y += 56;
+  drawText(buf, X + 270, y + 2, `HEADING ${ARROW[g.heading]} ${String(g.heading).toUpperCase()}`, 3, LEAD);
+  drawText(buf, X + 270, y + 24, `DEATHS ${s.deathsToday ?? 0}   STEP ${g.step}`, 2, MUTE); y += 56;
 
   if (s.open) {
     const secs = s.secondsToDecision ?? Math.max(0, Math.round((Date.parse(s.open.decideAt) - Date.now()) / 1000));
@@ -140,7 +140,7 @@ export function renderFrame(s: any): Buffer {
     drawText(buf, X, y, 'WAITING FOR THE NEXT STEP', 2, MUTE); y += 40;
   }
 
-  drawText(buf, X, y, 'LAST MOVES        IMPACT FWD  LEFT RIGHT  LENGTH', 2, MUTE); y += 22;
+  drawText(buf, X, y, 'LAST MOVES         FWD  LEFT RIGHT  LEN', 2, MUTE); y += 22;
   const fi = (q: any) => { const v = impact60(q); return (v === null ? '-' : fmt(v)).padStart(5); };
   const ACT: Record<string, string> = { forward: 'FWD  ', left: 'LEFT ', right: 'RIGHT' };
   for (const d of (s.recentDecisions ?? []).slice(0, 8)) {
