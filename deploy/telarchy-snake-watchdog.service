@@ -1,0 +1,7 @@
+[Unit]
+Description=telarchy-snake: watchdog, keeps the game playable
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/src/telarchy-snake
+ExecStart=%h/src/telarchy-snake/scripts/watchdog.sh
