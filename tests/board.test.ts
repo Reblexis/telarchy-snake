@@ -43,6 +43,7 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(html).toMatch(/died/);
     expect(html).toContain('m.food');
     expect(html).toMatch(/follow/);
+    expect(html).toMatch(/attempt \$\{/);
     expect(html).toMatch(/10 moves a second|100\b/);
   });
 

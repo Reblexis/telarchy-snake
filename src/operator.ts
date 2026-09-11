@@ -91,7 +91,7 @@ export interface GameRecord {
   gameNumber: number;
   size: number;
   complete: boolean;
-  start: { step: number; snake: { x: number; y: number }[]; heading: Direction; food: { x: number; y: number }; deaths: number };
+  start: { step: number; snake: { x: number; y: number }[]; heading: Direction; food: { x: number; y: number }; deaths: number; attemptStep: number };
   moves: ReplayMove[];
 }
 
@@ -124,7 +124,7 @@ function startRecord(g: GameState): GameRecord {
     gameNumber: g.gameNumber ?? 1,
     size: g.size ?? GRID,
     complete: !!g.complete,
-    start: { step: g.step, snake: g.snake.map(c => ({ x: c.x, y: c.y })), heading: g.heading, food: { x: g.food.x, y: g.food.y }, deaths: g.deaths },
+    start: { step: g.step, snake: g.snake.map(c => ({ x: c.x, y: c.y })), heading: g.heading, food: { x: g.food.x, y: g.food.y }, deaths: g.deaths, attemptStep: g.attemptStep ?? 0 },
     moves: [],
   };
 }
@@ -195,7 +195,7 @@ export class Operator {
       `${g.deaths} deaths so far. Priced on the max length achieved this game in 60 moves (${hhmm(cells.m60)} UTC). ` +
       `The highest impact is approved at :58, the others are declined with refund; ties continue forward; the snake moves at :00.${board}`;
     // All three at once, so they land in the same second and share the deadline.
-    const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(proposalTitle(a, g.gameNumber ?? 1, stepNo), description, deadline)));
+    const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(proposalTitle(a, g.gameNumber ?? 1, g.deaths + 1, (g.attemptStep ?? 0) + 1), description, deadline)));
     const proposals = {} as Record<Action, ProposalRef>;
     ACTIONS.forEach((a, i) => { proposals[a] = refs[i]; });
     this.open = {
@@ -505,6 +505,20 @@ export class Operator {
     op.completedAt = raw.completedAt ?? null;
     if (op.game.complete === undefined) op.game = { ...op.game, complete: false };
     if (op.game.size === undefined) op.game = { ...op.game, size: GRID, gameNumber: 1 };
+    if (op.game.attemptStep === undefined) {
+      // A state file from before attempts were counted: the attempt's moves
+      // are the decisions since the last death in this game.
+      // A record's move killed the snake when the next record (or the game
+      // now) counts one more death than it did.
+      let n = 0;
+      const ds = op.decisions;
+      for (let i = 0; i < ds.length; i++) {
+        if (ds[i].lengthAfter === null) continue;
+        const after = i + 1 < ds.length ? ds[i + 1].deathsBefore : op.game.deaths;
+        n = after > ds[i].deathsBefore ? 0 : n + 1;
+      }
+      op.game = { ...op.game, attemptStep: Math.min(n, op.game.step) };
+    }
     op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;
     op.recentTrades = Array.isArray(raw.recentTrades) ? raw.recentTrades : [];
     op.tradersToday = raw.tradersToday && Array.isArray(raw.tradersToday.handles) ? raw.tradersToday : { day: '', handles: [] };

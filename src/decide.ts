@@ -7,10 +7,11 @@ export const ACTIONS: Action[] = ['forward', 'left', 'right'];
 export const ACTION_TITLE: Record<Action, string> = { forward: 'Continue forward', left: 'Turn left', right: 'Turn right' };
 export const TITLE_ACTION: Record<string, Action> = { 'Continue forward': 'forward', 'Turn left': 'left', 'Turn right': 'right' };
 
-/** docs/snake.md "The step": `Game G, move N: Turn left`, the game and the
- *  step the proposal decides, then the action after the colon. */
-export function proposalTitle(action: Action, gameNumber: number, step: number): string {
-  return `Game ${gameNumber}, move ${step}: ${ACTION_TITLE[action]}`;
+/** docs/snake.md "The step": `Game G, attempt A, move N: Turn left`, the
+ *  game, the attempt (deaths plus one) and the move within it that the
+ *  proposal decides, then the action after the colon. */
+export function proposalTitle(action: Action, gameNumber: number, attempt: number, move: number): string {
+  return `Game ${gameNumber}, attempt ${attempt}, move ${move}: ${ACTION_TITLE[action]}`;
 }
 /** The action a proposal title names: the part after the last colon, or the
  *  whole title when it is bare; null when it is none of the three. */

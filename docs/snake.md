@@ -89,12 +89,15 @@ otherwise.
 ## The step
 
 At second 0 of each minute the operator posts three proposals at once,
-titled `Game G, move N: Turn left`, `Game G, move N: Turn right` and
-`Game G, move N: Continue forward`, where G is the game number and N the
-step the proposals decide (the first proposals of a game are move 1), so
-a proposal names its place in the game wherever Telarchy lists it and a
-reader can tell one minute's `Turn left` from the thousand others. The
-action is the part after the colon, exactly one of the three. Each
+titled `Game G, attempt A, move N: Turn left`, `Game G, attempt A, move
+N: Turn right` and `Game G, attempt A, move N: Continue forward`, where G
+is the game number, A the current attempt (the deaths so far in this game
+plus one: the snake's first life is attempt 1, and every respawn starts
+the next) and N the move the proposals decide counted within that attempt
+(the first move after a start or a respawn is move 1), so a proposal
+names its place in the game wherever Telarchy lists it and a reader can
+tell one minute's `Turn left` from the thousand others. The action is the
+part after the colon, exactly one of the three. Each
 carries the same deadline, the top of the next minute, so the books
 close together and the deadline a trader sees is the real one. The
 description names the step, the state including the current heading,
@@ -209,8 +212,9 @@ It holds, in this order and nothing else: the grid (drawn exactly as on
 Live, at the frame the timeline points to), a **timeline** (a slider
 over every recorded move of the chosen game, a play/pause control that
 plays at ten moves a second, and a game picker when more than one game
-is recorded), and **one caption line**, `Game 1 · move 120 of 171 · Turn
-left → · length 7`, the move the frame shows, the action the market
+is recorded), and **one caption line**, `Game 1 · attempt 30, move 3 · Turn
+left → · length 7`, the move the frame shows (the attempt and the move
+within it, as the proposal titles count them), the action the market
 approved for it (`undecided` when the step was), the resulting compass
 arrow and the length after it. Deaths show as the frame after them: the
 snake back at the start, length 2.
@@ -229,8 +233,8 @@ frame and the list of moves, each replayed through the game's rules
 death), so the page never stores a frame the service did not record.
 Recording starts when this version of the service first runs: a game
 that was already under way is recorded from that step on, its start
-frame is the state at that moment, and the caption's first move is that
-step, not 1.
+frame is the state at that moment, and the caption's first move is the
+attempt's move at that step, not 1.
 
 ### The feed
 
@@ -267,7 +271,7 @@ workspace endpoints, never from the operator's own books:
 `GET /replay?game=G&from=I` returns `{ games, gameNumber, size,
 complete, start, moves }`: `games`, the numbers of every recorded game,
 oldest first; `start`, the recorded start frame `{ step, snake, heading,
-food, deaths }` of game G (the newest game when `game` is absent);
+food, deaths, attemptStep }` of game G (the newest game when `game` is absent);
 `moves`, the recorded moves of that game from index I on (all of them
 when `from` is absent), oldest first, each `{ step, at, action,
 direction, undecided, food, died }` where `food` is the food's cell after
