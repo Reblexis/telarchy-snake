@@ -94,8 +94,8 @@
 </main>
 <details id="more">
   <summary>More</summary>
-  <h2>Prices in 1, 5 and 60 moves</h2>
-  <div class="tscroll"><table><thead><tr><th>action</th><th>1 move</th><th>5 moves</th><th>60 moves</th><th>declined, 60</th></tr></thead><tbody id="prices"></tbody></table></div>
+  <h2>Prices: max length achieved in 60 moves</h2>
+  <div class="tscroll"><table><thead><tr><th>action</th><th>if approved</th><th>if declined</th><th>impact</th></tr></thead><tbody id="prices"></tbody></table></div>
   <div id="traders">
     <h2>Traders this step <span class="muted" id="tradersCount"></span></h2>
     <div class="tscroll"><table><thead><tr><th>trader</th><th>side</th><th>action</th><th>horizon</th><th>book</th><th>stake</th><th>worth</th></tr></thead><tbody id="tradersBody"></tbody></table></div>
@@ -149,7 +149,7 @@ function draw(g){
 }
 const embed = new URLSearchParams(location.search).get('embed') === '1';
 if (embed) document.documentElement.classList.add('embed');
-const hz = { m1: '1 move', m5: '5 moves', m60: '60 moves' };
+const hz = { m60: '60 moves' };
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toISOString().slice(11,16); };
 const clockText = secs => Math.floor(secs/60) + ':' + String(secs%60).padStart(2,'0');
@@ -177,14 +177,14 @@ function render(s){
     document.getElementById('wslink').href = s.open.proposals.forward.url.replace(/\/p\/.*$/, '');
   } else tiles.innerHTML = s.complete ? `<div class="tile lead done"><div class="name">The snake filled the grid</div><div class="impact">Next game on ${GRID+1}x${GRID+1} ${s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'after an hour'}</div></div>` : '';
   // 4. the status line
-  document.getElementById('status').textContent = `Length ${s.game.length} · Game ${s.gameNumber || 1} · ${GRID}x${GRID}`;
+  document.getElementById('status').textContent = `Length ${s.game.length} · Record ${s.bestLength ?? s.game.length} · Game ${s.gameNumber || 1} · ${GRID}x${GRID}`;
   // 5. the quiet line: the newest trade, else the commentary
   const trades = s.recentTrades || [];
   const t = trades[0];
   document.getElementById('quiet').textContent = t ? `${t.handle} bet ${fmt(t.cost)} on ${actTitle[t.action] || t.action}` : (s.commentary || '');
   if (embed) return;
   // More
-  document.getElementById('prices').innerHTML = s.open ? acts.map(a => { const q = s.open.quotes[a]; return `<tr><td>${actTitle[a]}</td><td>${fmt(q.m1.approved)}</td><td>${fmt(q.m5.approved)}</td><td>${fmt(q.m60.approved)}</td><td>${fmt(q.m60.declined)}</td></tr>`; }).join('') : '<tr><td colspan="5" class="muted">No open step.</td></tr>';
+  document.getElementById('prices').innerHTML = s.open ? acts.map(a => { const q = s.open.quotes[a]; const i = impact(q); return `<tr><td>${actTitle[a]}</td><td>${fmt(q.m60.approved)}</td><td>${fmt(q.m60.declined)}</td><td>${i == null ? '-' : (i >= 0 ? '+' : '') + fmt(i)}</td></tr>`; }).join('') : '<tr><td colspan="4" class="muted">No open step.</td></tr>';
   const key = trades.map(t => t.id).join(',');
   if (key !== tickerKey) {
     tickerKey = key;

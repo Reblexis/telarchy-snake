@@ -34,11 +34,12 @@ are free within it.
   turns left moves left), **continue forward** keeps the heading. A snake
   cannot reverse, so no action runs it into its own neck.
 - On death the snake respawns at once at length 2 in the starting state.
-  Deaths are counted and shown, nothing else happens: the length itself is
-  the penalty, because the length is what the market prices.
+  Deaths are counted and shown, nothing else happens: the market prices
+  the longest the snake gets, and a snake back at 2 is far from beating
+  its record, so a death is its own penalty.
 - A game ends when the snake fills the grid (length 144 on the first
   grid): it is **complete**, the operator posts no more proposals, keeps
-  posting the full length as the reading every minute, and the board
+  posting the full grid as the reading every minute, and the board
   shows the full snake and says so. After a **cooldown of one hour** the
   next game starts on the larger grid, at length 2, with the game number
   counted up. Until a game completes it runs without end.
@@ -47,41 +48,41 @@ are free within it.
 
 One public Telarchy workspace named `Snake` (Telarchy derives the slug,
 `snake`, from the name), owned by the snake operator account. One metric,
-**Snake length**, the number of segments the snake has right now, an
-integer starting at 2. Its market range is 0 to the full grid (144 on the
-first grid), so a book can price any length the snake can reach; when a
-new game starts on a larger grid the operator raises the range to the
-new full grid first. Telarchy refuses that while an open book on the
-metric has trades, so the operator retries every minute until it goes
-through, and the cooldown lasts that long. The operator posts a
-reading after every step, so the metric's chart is the length minute by
-minute.
+**Max length achieved**, the longest the snake has been in the current
+game: an integer that starts at 2, never falls during a game (a death
+does not lower it) and starts again at 2 when a new game begins on the
+larger grid. Its market range is 0 to the full grid (144 on the first
+grid), so a book can price any length the snake can reach; when a new
+game starts on a larger grid the operator raises the range to the new
+full grid first. Telarchy refuses that while an open book on the metric
+has trades, so the operator retries every minute until it goes through,
+and the cooldown lasts that long. The operator posts a reading after
+every step, so the metric's chart is the record minute by minute.
 
-The metric is priced on three rolling horizons, each a one-minute
-period on Telarchy's clock (`+1min`, `+5min`, `+60min`): the length in
-**1 move**, in **5 moves** and in **60 moves**. A book for a minute
-settles on the last reading whose timestamp falls inside that minute; the
-operator's reading at the top of each minute, posted right after the
-move, is that minute's fixing, so the book for minute M+5 settles on the
-length after five more moves. No calendar horizon is priced.
+The metric is priced on one rolling horizon, a one-minute period on
+Telarchy's clock sixty minutes out (`+60min`): the record after **60
+moves**. A book for a minute settles on the last reading whose timestamp
+falls inside that minute; the operator's reading at the top of each
+minute, posted right after the move, is that minute's fixing, so the
+book for minute M+60 settles on the record after sixty more moves. No
+other horizon and no calendar horizon is priced.
 
 A rolling minute cell exists only once the workspace's rolling markets
 are refreshed, so the operator forces that refresh at every step, before
-posting the four proposals; the three baseline books for the step's
-cells are then open and every proposal gets its three pairs.
+posting the three proposals; the baseline book for the step's cell is
+then open and every proposal gets its pair.
 
 Liquidity: every pair book a proposal opens is funded by the workspace
-owner through the metric's per-horizon proposal credits (20 credits a
-book on the 1-move and 5-move horizons, 40 on the 60-move horizon, so a
-five-credit trade is an opinion and a twenty-credit one does not pin the
-book),
+owner through the metric's proposal credits on the 60-move horizon (40
+credits a book, so a five-credit trade is an opinion and a twenty-credit
+one does not pin the book),
 never by the proposer; the operator posts
 with no subsidy of its own. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
 The workspace is **muted**: `notificationsMuted` is on, so nothing it does
-reaches anyone by email, push or the bell, owner included. Four proposals
-and four decisions a minute would otherwise mail the owner and the
+reaches anyone by email, push or the bell, owner included. Three proposals
+and three decisions a minute would otherwise mail the owner and the
 proposer thousands of times a day. It stays muted until Viktor says
 otherwise.
 
@@ -91,34 +92,30 @@ At second 0 of each minute the operator posts three proposals at once,
 titles exactly `Turn left`, `Turn right`, `Continue forward`. Each
 carries the same deadline, the top of the next minute, so the books
 close together and the deadline a trader sees is the real one. The
-description names the step, the state including the current heading and
-the compass direction each action would take, the three cells the
-proposal is priced on (as clock minutes, UTC), the rule, and the board's
-address, in one line.
+description names the step, the state including the current heading,
+the current length and record, and the compass direction each action
+would take, the cell the proposal is priced on (as a clock minute, UTC),
+the rule, and the board's address, in one line.
 
 During the minute the operator re-reads the proposals' pairs every five
 seconds and publishes them on `/state`, so the board and any bot see the
 live prices and the current leader, not only the decision.
 
 At second 58, two seconds before the deadline, the operator reads each
-proposal's three pairs one last time and decides on the **60-move
-horizon alone**: a direction's
-score is its predicted impact there, the approved-branch price minus the
-declined-branch price. Then:
+proposal's pair one last time and decides: a direction's score is its
+predicted impact, the approved-branch price minus the declined-branch
+price. Then:
 
 - the proposal with the highest score is **approved**; its declined
-  branches void and its approved branches stay open to settle on the
-  length at their minutes;
-- the other three are **declined with refund**: all their branches void
+  branch voids and its approved branch stays open to settle on the
+  record at its minute;
+- the other two are **declined with refund**: both their branches void
   and every stake in them returns;
 - ties go to the current heading, then to up, right, down, left in that
   order;
-- if no 60-move price can be read, or the API fails, the snake continues
-  in its current heading and the four proposals are declined with refund;
-  the step is logged as undecided.
-
-The 1-move and 5-move pairs never decide anything; they exist to be
-traded and to show how the market sees the near future.
+- if no price can be read, or the API fails, the snake continues in its
+  current heading and the three proposals are declined with refund; the
+  step is logged as undecided.
 
 The approved action is applied at the next top of minute. So the board
 shows: proposals for step N open during minute N, decision at N:58, move
@@ -157,18 +154,18 @@ five elements, in this order, and nothing else:
 3. **Three choice tiles**, Continue, Left, Right, each showing only its
    compass arrow, its name and its live 60-move impact (`+1.4`) as a large
    tabular number; the leader in the accent colour. Each tile links to
-   its proposal on telarchy.com. No 1-move or 5-move price is on the
-   first screen. Source: `open.quotes`, `open.directions`,
-   `open.proposals`.
-4. **One status line**, three facts and no more: `Length 7 · Game 1 ·
-   12x12`. Source: `game.length`, `gameNumber`, `grid`.
+   its proposal on telarchy.com. Source: `open.quotes`,
+   `open.directions`, `open.proposals`.
+4. **One status line**, four facts and no more: `Length 7 · Record 9 ·
+   Game 1 · 12x12`. Source: `game.length`, `bestLength`, `gameNumber`,
+   `grid`.
 5. **One quiet line** at the bottom: the newest trade (`philipp-gl bet
    5 on Turn left`), or, when there is none, the commentary. Never both.
    Source: `recentTrades[0]`, else `commentary`.
 
 Everything else lives below the fold in one collapsed **More** section
 (a `details` element, closed by default) that holds, in this order: the
-1-move and 5-move prices per action, the current traders (with the
+approved and declined prices per action, the current traders (with the
 counts this step and today), the last 30 trades, the leaderboard, the
 last ten decisions, the counters (best length this game, deaths today,
 step) and the rule in words. Source: `open.quotes`, `traders`,
@@ -198,8 +195,8 @@ leaving the floor.
 
 `/state` is public and is the whole of the board's data and a bot's feed:
 the game state, the workspace and metric ids, the open step with its
-three proposals, and for each action and cell the approved and declined
-market ids and their live prices, the cell keys, the decide instant and
+three proposals, and for each action the approved and declined market
+ids and their live prices, the cell key, the decide instant and
 the next step instant, the decision rule in words, recent decisions and
 counters. A bot needs one read of `/state` per step to know what to
 trade.
@@ -210,7 +207,8 @@ workspace endpoints, never from the operator's own books:
 - `next`: `{ action, direction, decided, seconds }`, the next move as
   defined above.
 - `commentary`: the one-line commentary.
-- `bestLength`: the longest the snake has been in this game.
+- `bestLength`: the longest the snake has been in this game, which is
+  the metric's current reading.
 - `traders`: the positions in the open step's books, each
   `{ handle, action, horizon, branch, side, shares, cost, worth }`;
   `tradersThisStep` the number of distinct handles in it; `tradersToday`
@@ -225,10 +223,10 @@ workspace endpoints, never from the operator's own books:
 - `activityAt`: when the activity was last read.
 
 The operator reads activity on its own timer, apart from the quotes: the
-six 60-move books of the open step (approved and declined per action)
-every ten seconds, the twelve 1-move and 5-move books once per step, and
-the workspace leaderboard once a minute. That is about fifty public reads
-a minute on top of the step's own calls; it never walks a book's history.
+six books of the open step (approved and declined per action) every ten
+seconds and the workspace leaderboard once a minute. That is about forty
+public reads a minute on top of the step's own calls; it never walks a
+book's history.
 The operator account still never trades.
 
 ## The stream
@@ -272,7 +270,8 @@ fleet box.
 - Exactly three proposals per minute while running, never more.
 - A decision is made every minute before the deadline; the undecided
   path leaves nothing pending.
-- A reading is posted after every step, timestamped at the step, so the
-  last one before midnight is the number the day's books settle on.
+- A reading is posted after every step, timestamped at the step, and it
+  is the record of the game, never the current length: a death leaves it
+  where it was, a new game puts it back at 2.
 - The operator never trades.
 - The board never shows a price the workspace did not report.

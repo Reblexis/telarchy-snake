@@ -23,7 +23,6 @@ export interface ClientOptions {
 
 type FetchLike = typeof fetch;
 
-const HORIZON_MINUTES: Record<Horizon, number> = { m1: 1, m5: 5, m60: 60 };
 
 /** The minute cell (YYYY-MM-DDTHH:MM, UTC) N minutes after the minute `openedAt` lies in. */
 function cellAt(openedAt: Date, minutes: number): string {
@@ -32,9 +31,9 @@ function cellAt(openedAt: Date, minutes: number): string {
   return new Date(m.getTime() + minutes * 60_000).toISOString().slice(0, 16);
 }
 
-/** The three cells a step's proposals are priced on (docs/snake.md, "The workspace"). */
+/** The one cell a step's proposals are priced on, sixty minutes out (docs/snake.md, "The workspace"). */
 export function minuteCells(openedAt: Date): Record<Horizon, string> {
-  return { m1: cellAt(openedAt, 1), m5: cellAt(openedAt, 5), m60: cellAt(openedAt, 60) };
+  return { m60: cellAt(openedAt, 60) };
 }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);

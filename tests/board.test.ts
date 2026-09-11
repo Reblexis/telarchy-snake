@@ -37,6 +37,18 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(foot).toContain('href="/state"');
   });
 
+  it('prices one horizon: no 1-move or 5-move column, no near-horizon label, and the status line carries the record', () => {
+    expect(html).not.toMatch(/1 move|5 moves|m1|m5\b/);
+    expect(html).toMatch(/Record \$\{s\.bestLength/);
+  });
+
+  it('the provisioning script creates the one metric, Max length achieved, on the +60min horizon alone', () => {
+    const sh = fs.readFileSync(new URL('../scripts/provision.sh', import.meta.url), 'utf8');
+    expect(sh).toContain('"name": "Max length achieved"');
+    expect(sh).toMatch(/"customHorizons": \["\+60min"\]/);
+    expect(sh).not.toMatch(/\+1min|\+5min/);
+  });
+
   it('body text is left-aligned: no centred block', () => {
     expect(html).not.toMatch(/text-align:\s*center/);
   });

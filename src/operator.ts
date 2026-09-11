@@ -32,13 +32,13 @@ export interface NextMove { action: Action; direction: Direction; decided: boole
 export interface TelarchyClient {
   /** Post one proposal with an explicit deadline (docs/snake.md, "The step"). */
   postProposal(title: string, description: string, decideBy: Date): Promise<ProposalRef>;
-  /** The three pairs of each proposal, for the step that opened at `openedAt`. */
+  /** The pair of each proposal, for the step that opened at `openedAt`. */
   readQuotes(refs: ProposalRef[], openedAt: Date): Promise<Quotes>;
   decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void>;
-  /** A reading of Snake length at `at`; `final` marks the last reading of a UTC day. */
+  /** A reading of Max length achieved at `at`; `final` marks the last reading of a UTC day. */
   postReading(value: number, at: Date, final: boolean): Promise<void>;
-  /** Force the workspace's rolling markets to refresh, so the step's three
-   *  minute cells have their baseline books before the proposals are posted
+  /** Force the workspace's rolling markets to refresh, so the step's minute
+   *  cell has its baseline book before the proposals are posted
    *  (docs/snake.md, "The workspace"). */
   refreshBooks(): Promise<void>;
   /** Raise the metric's market range to `max` (the new full grid). Throws when
@@ -58,7 +58,7 @@ export interface OpenStep {
   decideAt: string;
   /** The proposals' deadline, the top of the next minute; trading closes there. */
   deadline: string;
-  /** The three minute cells the proposals are priced on. */
+  /** The minute cell the proposals are priced on. */
   cells: Record<Horizon, string>;
   /** The compass direction each action takes from the heading at this step. */
   directions: Record<Action, Direction>;
@@ -73,7 +73,7 @@ export interface OperatorOptions {
   metricId?: string;
 }
 
-export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the snake length in 1, 5 and 60 moves. At :58 the proposal with the highest 60-move impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
+export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the longest the snake will have been this game (max length achieved) in 60 moves. At :58 the proposal with the highest impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
 
 export interface DecisionRecord {
   step: number;
@@ -95,8 +95,6 @@ const DECIDE_SECOND = 58;
 const TRADES_KEPT = 30;
 const LEADERBOARD_SIZE = 5;
 const LEADERBOARD_EVERY_MS = 60_000;
-/** The 1-move and 5-move books are read once per step, from this second on. */
-const NEAR_BOOKS_SECOND = 45;
 /** docs/snake.md, "The game": the pause between a completed game and the next. */
 const COOLDOWN_MS = 60 * 60_000;
 
@@ -122,7 +120,6 @@ export class Operator {
   /** Positions per book of the open step, keyed by market id, for this step only. */
   private positions: Map<string, TraderRow[]> = new Map();
   private positionsStep = 0;
-  private nearPolledStep = 0;
   private leaderboardAt = 0;
 
   constructor(private client: TelarchyClient, game: GameState, private rng: Rng, private opts: OperatorOptions = {}) {
@@ -146,7 +143,7 @@ export class Operator {
     if (this.open) throw new Error(`step ${this.open.step} is already open`);
     if (this.game.complete) throw new Error('the game is complete');
     if (!this.canOpen(now)) throw new Error('too close to the deadline to open a step');
-    // Every step: make sure the three minute cells have their baseline books.
+    // Every step: make sure the minute cell has its baseline book.
     // A failure here only costs this step's prices (the undecided path).
     try { await this.client.refreshBooks(); } catch { /* undecided path covers it */ }
     const stepNo = this.game.step + 1;
@@ -159,10 +156,10 @@ export class Operator {
     const hhmm = (c: string) => c.slice(11);
     const board = this.opts.boardUrl ? ` Board: ${this.opts.boardUrl}.` : '';
     const description =
-      `Step ${stepNo}: snake length ${g.length}, heading ${g.heading} (forward = ${directions.forward}, turn left = ${directions.left}, ` +
+      `Step ${stepNo}: snake length ${g.length}, record ${this.bestLength}, heading ${g.heading} (forward = ${directions.forward}, turn left = ${directions.left}, ` +
       `turn right = ${directions.right}), head at (${g.snake[0].x},${g.snake[0].y}), food at (${g.food.x},${g.food.y}), ` +
-      `${g.deaths} deaths so far. Priced on the length in 1, 5 and 60 moves (${hhmm(cells.m1)}, ${hhmm(cells.m5)}, ${hhmm(cells.m60)} UTC). ` +
-      `The highest 60-move impact is approved at :58, the others are declined with refund; ties continue forward; the snake moves at :00.${board}`;
+      `${g.deaths} deaths so far. Priced on the max length achieved this game in 60 moves (${hhmm(cells.m60)} UTC). ` +
+      `The highest impact is approved at :58, the others are declined with refund; ties continue forward; the snake moves at :00.${board}`;
     // All three at once, so they land in the same second and share the deadline.
     const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(ACTION_TITLE[a], description, deadline)));
     const proposals = {} as Record<Action, ProposalRef>;
@@ -249,7 +246,7 @@ export class Operator {
         try {
           await this.client.setRange(size * size);
         } catch {
-          await this.client.postReading(this.game.length, now, false);
+          await this.client.postReading(this.bestLength, now, false);
           return; // a traded open book: try again next minute
         }
         this.game = newGame(this.rng, size, (this.game.gameNumber ?? 1) + 1);
@@ -257,11 +254,11 @@ export class Operator {
         this.completedAt = null;
         this.pending = null;
         this.open = null;
-        await this.client.postReading(this.game.length, now, false);
+        await this.client.postReading(this.bestLength, now, false);
         await this.openStep(now);
         return;
       }
-      await this.client.postReading(this.game.length, now, false);
+      await this.client.postReading(this.bestLength, now, false);
       return;
     }
     if (this.open && !this.open.decision) await this.closeStep(now);
@@ -273,11 +270,13 @@ export class Operator {
     if (rec && rec.lengthAfter === null) rec.lengthAfter = this.game.length;
     this.pending = null;
     this.open = null;
-    // The reading is stamped at the minute it was taken; the last one before
-    // midnight is marked final so the day's books settle on it.
+    // The reading is the record of the game, not the current length
+    // (docs/snake.md, "What must hold"). It is stamped at the minute it was
+    // taken; the last one before midnight is marked final so the day's
+    // books settle on it.
     const next = new Date(now.getTime() + 60_000);
     const final = utcDay(next) !== utcDay(now) || this.game.complete;
-    await this.client.postReading(this.game.length, now, final);
+    await this.client.postReading(this.bestLength, now, final);
     if (this.game.complete) { this.completedAt = now.toISOString(); return; } // the cooldown begins
     await this.openStep(now);
   }
@@ -302,19 +301,17 @@ export class Operator {
   }
 
   /** On its own timer, apart from the quotes (docs/snake.md, "The feed"):
-   *  the six 60-move books of the open step every call, the twelve near
-   *  books once per step late in the minute, the leaderboard once a minute.
-   *  Reads only; nothing here can trade. Failures keep the last activity. */
+   *  the six books of the open step every call, the leaderboard once a
+   *  minute. Reads only; nothing here can trade. Failures keep the last
+   *  activity. */
   async pollActivity(now: Date): Promise<void> {
     const open = this.open;
     if (open && open.quotes) {
       if (this.positionsStep !== open.step) { this.positions = new Map(); this.positionsStep = open.step; }
-      const near = now.getUTCSeconds() >= NEAR_BOOKS_SECOND && this.nearPolledStep !== open.step;
-      const books = this.books(near ? HORIZONS : ['m60']);
+      const books = this.books(HORIZONS);
       if (books.size > 0) {
         try {
           const activity = await this.client.readActivity([...books.keys()]);
-          if (near) this.nearPolledStep = open.step;
           const day = utcDay(now);
           const seen = new Set(this.recentTrades.map(t => t.id));
           for (const [marketId, meta] of books) {

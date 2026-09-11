@@ -16,7 +16,7 @@ j() { python3 -c "import sys,json; d=json.load(sys.stdin); print($1)"; }
 
 echo "# registering $OPERATOR_ID via $JOIN_WS" >&2
 REG=$(curl -sf -H 'Content-Type: application/json' -X POST "$BASE/agents/register" \
-  -d "{\"agentId\":\"$OPERATOR_ID\",\"workspaceId\":\"$JOIN_WS\",\"nickname\":\"snake\",\"bio\":\"The operator of the futarchy snake. Posts four moves a minute, approves the one the market prices highest. Never trades.\"}" || true)
+  -d "{\"agentId\":\"$OPERATOR_ID\",\"workspaceId\":\"$JOIN_WS\",\"nickname\":\"snake\",\"bio\":\"The operator of the futarchy snake. Posts three moves a minute, approves the one the market prices highest. Never trades.\"}" || true)
 KEY=$(echo "$REG" | j "d.get('apiKey','')")
 if [ -z "$KEY" ]; then echo "register failed or already registered: $REG" >&2; exit 1; fi
 
@@ -29,25 +29,25 @@ WS=$(curl -sf -H "X-Agent-Key: $KEY" -H 'Content-Type: application/json' -X POST
   -d '{"name":"Snake","visibility":"public"}')
 WSID=$(echo "$WS" | j "d['id']"); SLUG=$(echo "$WS" | j "d['slug']")
 
-echo "# creating metric Snake length" >&2
+echo "# creating metric Max length achieved" >&2
 METRIC=$(curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-Type: application/json' -X POST "$BASE/metrics" -d '{
-  "name": "Snake length",
-  "description": "How many segments the snake has right now. A step every minute; the market picks the direction. Death respawns it at 3.",
+  "name": "Max length achieved",
+  "description": "The longest the snake has been in the current game. One move a minute; the market picks the direction. Priced on the record in 60 moves. A death respawns the snake at 2 but leaves the record; a new game on a larger grid starts it again at 2.",
   "value": 2,
   "marketRangeMax": 144,
-  "timePreference": { "enabled": false, "customHorizons": ["+1min", "+5min", "+60min"],
-    "horizonCredits": { "+1min": { "book": 10, "proposal": 10 }, "+5min": { "book": 10, "proposal": 10 }, "+60min": { "book": 25, "proposal": 20 } } }
+  "timePreference": { "enabled": false, "customHorizons": ["+60min"],
+    "horizonCredits": { "+60min": { "book": 25, "proposal": 40 } } }
 }')
 MID=$(echo "$METRIC" | j "d['id']")
 
 echo "# settings: one-minute decision window, public" >&2
 curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-Type: application/json' -X PUT "$BASE/workspaces/$WSID/settings" -d '{
   "decisionMinutes": 1, "visibility": "public", "notificationsMuted": true,
-  "description": "A snake game steered by this market: four proposals a minute, one per direction, the highest approved.",
-  "subjectAbout": "Every minute four proposals appear, Move up / right / down / left. Each is priced on the snake length at the end of today (and this week). At second 55 the operator approves the move the market prices highest and declines the rest with a refund. The snake moves at the top of the next minute. Watch it live on the board (link in the workspace description) and trade the move you believe in."
+  "description": "A snake game steered by this market: three proposals a minute, turn left, turn right or continue, the highest approved.",
+  "subjectAbout": "Every minute three proposals appear, Turn left / Turn right / Continue forward. Each is priced on the max length achieved this game in 60 moves. At second 58 the operator approves the move with the highest impact (approved minus declined) and declines the rest with a refund. The snake moves at the top of the next minute. Watch it live on the board (link in the workspace description) and trade the move you believe in."
 }' >/dev/null
 
-echo "# opening the today/week books" >&2
+echo "# opening the rolling books" >&2
 curl -sf -H "X-API-Key: $MASTER_KEY" -H 'Content-Type: application/json' -X POST "$BASE/cron/refresh" -d "{\"workspaceId\":\"$WSID\"}" >/dev/null || echo "refresh call failed (the hourly cron will open them)" >&2
 
 cat <<ENV
