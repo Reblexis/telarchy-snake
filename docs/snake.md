@@ -463,7 +463,18 @@ than the trade line.
 
 The service is one process: engine, operator loop, board, `/state`. It
 persists its state (grid, step, counters, decision log) to a JSON file on
-every step so a restart continues the game. Configuration by environment:
+every step so a restart continues the game.
+
+A watchdog (`scripts/watchdog.sh`, a systemd timer every minute on the
+host) runs `scripts/health.sh`, which asks the one question that matters:
+can somebody trade the snake right now. It checks that the step is moving,
+that the feed carries an open proposal, that the floor's own proxy is
+within three steps of the feed, that telarchy.com/snake serves, and that
+the open proposal carries its three option books. A stalled operator is
+restarted, at most once in five minutes; a stopped stream is started; a
+fault on the floor's side is logged and left alone, because the host
+cannot fix it. Every action is logged with its reason to
+`~/logs/telarchy-snake-watchdog.log`. Configuration by environment:
 the Telarchy base URL, the operator API key, the workspace id, the port,
 the state file path, the liquidity per book.
 
