@@ -1,15 +1,14 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
 import { GRID, newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
-import { decide, ACTIONS, proposalTitle, HORIZONS, directionsFrom, emptyQuotes, impact60, type Action, type Decision, type Quotes, type Horizon } from './decide.js';
+import { decide, ACTIONS, proposalTitle, proposalOptions, HORIZONS, directionsFrom, emptyQuotes, priceOf, pricesOf, type Action, type Decision, type Quotes, type Horizon, type ProposalOption } from './decide.js';
 import type { GameLog, LogStep } from './gamelog.js';
 import { minuteCells } from './client.js';
 import { commentary } from './commentary.js';
 
-export interface ProposalRef { id: string; title: string; url: string }
-export type Verdict = 'approve' | 'decline';
+/** The step's one proposal: its id, its number in the workspace and its public url. */
+export interface ProposalRef { id: string; number: number; url: string }
 export type Side = 'higher' | 'lower';
-export type Branch = 'approved' | 'declined';
 
 /** One book's public activity, as Telarchy's market-activity endpoint reports it. */
 export interface ActivityPosition { handle: string; direction: Side; shares: number; cost: number; worth: number | null }
@@ -19,10 +18,10 @@ export interface MarketActivity { consensus: number | null; positions: ActivityP
 export interface LeaderRow { rank: number; handle: string; profit: number; trades: number }
 
 /** A position in the open step's books, docs/snake.md "The feed". */
-export interface TraderRow { handle: string; action: Action; horizon: Horizon; branch: Branch; side: Side; shares: number; cost: number; worth: number | null }
+export interface TraderRow { handle: string; action: Action; horizon: Horizon; side: Side; shares: number; cost: number; worth: number | null }
 /** A trade in the rolling log, docs/snake.md "The feed". */
 export interface TradeRecord {
-  id: string; at: string; handle: string; step: number; action: Action; horizon: Horizon; branch: Branch; side: Side;
+  id: string; at: string; handle: string; step: number; action: Action; horizon: Horizon; side: Side;
   kind: 'buy' | 'sell'; shares: number; cost: number; marketId: string;
   /** The book's consensus when the trade was first seen, or null. */
   price: number | null;
@@ -31,11 +30,14 @@ export interface TradeRecord {
 export interface NextMove { action: Action; direction: Direction; decided: boolean; seconds: number }
 
 export interface TelarchyClient {
-  /** Post one proposal with an explicit deadline (docs/snake.md, "The step"). */
-  postProposal(title: string, description: string, decideBy: Date): Promise<ProposalRef>;
-  /** The pair of each proposal on the attempt's cell. */
-  readQuotes(refs: ProposalRef[], cell: string): Promise<Quotes>;
-  decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void>;
+  /** Post the step's one proposal with its three options and an explicit deadline (docs/snake.md, "The step"). */
+  postProposal(title: string, description: string, decideBy: Date, options: ProposalOption[]): Promise<ProposalRef>;
+  /** Each option's price and lead on the attempt's cell, from the one proposal. */
+  readQuotes(ref: ProposalRef, cell: string): Promise<Quotes>;
+  /** Choose: approve the proposal naming the option; Telarchy voids and refunds the others. Throws when refused. */
+  approveOption(ref: ProposalRef, option: Action): Promise<void>;
+  /** None of these: decline with refund, so every option voids. Throws when refused. */
+  declineProposal(ref: ProposalRef): Promise<void>;
   /** A reading of Reached length at `at`; `final` marks the last reading of a UTC day. */
   postReading(value: number, at: Date, final: boolean): Promise<void>;
   /** The attempt ended: settle every open book on the metric at `value`
@@ -43,7 +45,7 @@ export interface TelarchyClient {
    *  when Telarchy refuses; the operator logs it and carries on. */
   settleMetric(value: number, at: Date, reason: string): Promise<void>;
   /** Force the workspace's markets to refresh, so the attempt's cell has
-   *  its baseline book before the proposals are posted (docs/snake.md,
+   *  its baseline book before the proposal is posted (docs/snake.md,
    *  "The workspace"). */
   refreshBooks(): Promise<void>;
   /** Make `cell` (YYYY-MM-DDTHH:MM) the metric's only horizon: one book per
@@ -60,17 +62,18 @@ export interface TelarchyClient {
 }
 
 export interface OpenStep {
-  step: number; // the step these proposals decide (game.step + 1)
+  step: number; // the step this proposal decides (game.step + 1)
   openedAt: string;
   /** When the operator decides: two seconds before the deadline. */
   decideAt: string;
-  /** The proposals' deadline, the top of the next minute; trading closes there. */
+  /** The proposal's deadline, the top of the next minute; trading closes there. */
   deadline: string;
-  /** The minute cell the proposals are priced on. */
+  /** The minute cell the proposal is priced on. */
   cells: Record<Horizon, string>;
   /** The compass direction each action takes from the heading at this step. */
   directions: Record<Action, Direction>;
-  proposals: Record<Action, ProposalRef>;
+  /** The step's one proposal; its options are the three actions. */
+  proposal: ProposalRef;
   quotes: Quotes | null;
   decision: Decision | null;
 }
@@ -87,7 +90,7 @@ export interface OperatorOptions {
   decideReadTimeoutMs?: number;
 }
 
-export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the attempt\'s one book: the length the attempt will have reached one hour after it started (or at the next hour mark while it lives); when the attempt ends (a death or a full grid) the book settles at the length it reached. At :58 the proposal with the highest impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
+export const RULE = 'Every minute one proposal with three options, continue forward, turn left and turn right, each option priced by its own book on the attempt\'s cell: the length the attempt will have reached one hour after it started (or at the next hour mark while it lives); when the attempt ends (a death or a full grid) the books settle at the length it reached. At :58 the option with the highest price is chosen and the other two void with refund; ties and unreadable prices continue forward. The snake moves at :00.';
 
 /** One recorded move of a game, docs/snake.md "The feed" (`/replay`). */
 export interface ReplayMove {
@@ -96,6 +99,8 @@ export interface ReplayMove {
   action: Action;
   direction: Direction;
   undecided: boolean;
+  /** Every option's price as read at the decision, null when unreadable. */
+  prices: Record<Action, number | null>;
   /** The food's cell after the move; present only when the move ate it or killed the snake. */
   food?: { x: number; y: number };
   died: boolean;
@@ -112,13 +117,16 @@ export interface GameRecord {
 export interface DecisionRecord {
   step: number;
   at: string;
-  /** The approved action, or forward when undecided. */
+  /** The chosen option, or forward when undecided. */
   action: Action;
   direction: Direction;
+  /** The chosen option, null when undecided. */
   approved: Action | null;
   undecided: boolean;
   quotes: Quotes;
-  proposals: Record<Action, ProposalRef>;
+  /** Every option's price at the close (docs/snake.md, "The feed"). */
+  prices: Record<Action, number | null>;
+  proposal: ProposalRef;
   lengthBefore: number;
   lengthAfter: number | null;
   deathsBefore: number;
@@ -144,10 +152,10 @@ function within<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** The reason a step is undecided on these quotes: each action without a
+/** The reason a step is undecided on these quotes: each option without a
  *  price and what its quote says was missing. */
 function noPriceReason(quotes: Quotes): string {
-  return ACTIONS.filter(a => impact60(quotes[a]) === null)
+  return ACTIONS.filter(a => priceOf(quotes[a]) === null)
     .map(a => `${a}: ${quotes[a]?.m60?.reason ?? 'no price'}`)
     .join('; ');
 }
@@ -226,7 +234,7 @@ export class Operator {
       action: rec ? rec.action : null,
       direction: dir ?? g.heading,
       undecided: rec ? rec.undecided : false,
-      impact: { forward: q ? impact60(q.forward) : null, left: q ? impact60(q.left) : null, right: q ? impact60(q.right) : null },
+      prices: pricesOf(q),
       length: g.length, deaths: g.deaths,
     };
   }
@@ -237,12 +245,12 @@ export class Operator {
 
   /** A step needs at least ten seconds of trading before its deadline, the
    *  top of the next minute; a process that starts later in the minute
-   *  waits for the next one instead of posting proposals already past due. */
+   *  waits for the next one instead of posting a proposal already past due. */
   canOpen(now: Date): boolean {
     return 60 - now.getUTCSeconds() >= 10;
   }
 
-  /** Second 0: post the three proposals for the next step. */
+  /** Second 0: post the one proposal, three options, for the next step. */
   async openStep(now: Date): Promise<OpenStep> {
     // A step whose ruling is in may be replaced (the feed keeps showing it
     // until the new one is posted, docs/snake.md "The feed"); one still
@@ -274,23 +282,20 @@ export class Operator {
     const cells: Record<Horizon, string> = { m60: this.cell ?? minuteCells(now).m60 };
     const directions = directionsFrom(g.heading);
     const hhmm = (c: string) => c.slice(11);
-    // The proposal in the snake's own first person, one per action
-    // (docs/snake.md, "The step"): the move, then the state a trader prices
-    // on, the cell, and the rule in one clause. No board address: the game
-    // is on the floor itself.
+    // The proposal in the snake's own first person, one line per option in
+    // option order (docs/snake.md, "The step"), then the state a trader
+    // prices on, the cell, and the rule in one clause. No board address: the
+    // game is on the floor itself.
     const verb: Record<Action, string> = { forward: 'continue forward', left: 'turn left', right: 'turn right' };
     const attempt = g.deaths + 1;
     const move = (g.attemptStep ?? 0) + 1;
     const gameNo = g.gameNumber ?? 1;
-    const describe = (a: Action) =>
-      `I will ${verb[a]} at move ${move} of attempt ${attempt}, game ${gameNo}: from (${g.snake[0].x},${g.snake[0].y}) heading ${g.heading}, that is ${directions[a]}. ` +
-      `Length ${g.length}, record ${this.bestLength}, food at (${g.food.x},${g.food.y}). ` +
-      `Priced on the length this attempt reaches by ${hhmm(cells.m60)} UTC; when the attempt ends every open book settles at the length it reached. ` +
-      `Of the three moves the one with the highest impact at :58 is approved, the rest are declined with refund; ties continue forward; the snake moves at :00.`;
-    // All three at once, so they land in the same second and share the deadline.
-    const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(proposalTitle(a, gameNo, attempt, move), describe(a), deadline)));
-    const proposals = {} as Record<Action, ProposalRef>;
-    ACTIONS.forEach((a, i) => { proposals[a] = refs[i]; });
+    const description =
+      ACTIONS.map(a => `I will ${verb[a]} at move ${move} of attempt ${attempt}, game ${gameNo}: from (${g.snake[0].x},${g.snake[0].y}) heading ${g.heading}, that is ${directions[a]}.`).join('\n') +
+      `\nLength ${g.length}, record ${this.bestLength}, food at (${g.food.x},${g.food.y}). ` +
+      `Each option is priced on the length this attempt reaches by ${hhmm(cells.m60)} UTC; when the attempt ends every open book settles at the length it reached. ` +
+      `The option with the highest price at :58 is chosen, the other two void with refund; ties continue forward; the snake moves at :00.`;
+    const proposal = await this.client.postProposal(proposalTitle(gameNo, attempt, move), description, deadline, proposalOptions());
     this.open = {
       step: stepNo,
       openedAt: now.toISOString(),
@@ -298,7 +303,7 @@ export class Operator {
       deadline: deadline.toISOString(),
       cells,
       directions,
-      proposals,
+      proposal,
       quotes: null,
       decision: null,
     };
@@ -321,13 +326,14 @@ export class Operator {
     const open = this.open;
     if (!open || open.decision || !this.pollAllowed(now)) return;
     try {
-      open.quotes = await within(this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), open.cells.m60), this.pollTimeout());
+      open.quotes = await within(this.client.readQuotes(open.proposal, open.cells.m60), this.pollTimeout());
     } catch {
       // keep the last quotes
     }
   }
 
-  /** Second 58: read the pair prices and decide, approving one, declining three. */
+  /** Second 58: read the option prices and decide, approving the proposal
+   *  with the chosen option; the undecided path declines with refund. */
   async closeStep(now: Date): Promise<Decision> {
     const open = this.open;
     if (!open) throw new Error('no step is open');
@@ -336,28 +342,28 @@ export class Operator {
     // prices last polled during the minute (docs/snake.md, "The step").
     let quotes: Quotes;
     try {
-      quotes = await within(this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), open.cells.m60), this.opts.decideReadTimeoutMs ?? DECIDE_READ_TIMEOUT_MS);
+      quotes = await within(this.client.readQuotes(open.proposal, open.cells.m60), this.opts.decideReadTimeoutMs ?? DECIDE_READ_TIMEOUT_MS);
     } catch (e) {
       quotes = open.quotes ?? emptyQuotes();
       if (!open.quotes) for (const a of ACTIONS) quotes[a].m60.reason = (e as Error).message;
     }
     let decision = decide(quotes, this.game.heading);
     let undecidedReason: string | null = decision.undecided ? noPriceReason(quotes) : null;
-    // Approve first: if that fails the step is undecided and the snake keeps
-    // its heading; the other three are declined regardless so nothing is
-    // left pending past the deadline.
+    // Choose: approve naming the option; Telarchy voids and refunds the
+    // other two. If that fails the step is undecided and the snake keeps its
+    // heading; the proposal is then declined with refund so nothing is left
+    // pending past the deadline.
     if (decision.approved) {
       try {
-        await this.client.decideProposal(open.proposals[decision.approved], 'approve');
+        await this.client.approveOption(open.proposal, decision.approved);
       } catch (e) {
         undecidedReason = `approve of ${decision.approved} failed: ${(e as Error).message}`;
-        decision = { approved: null, declined: [...ACTIONS], direction: this.game.heading, undecided: true };
+        decision = { approved: null, direction: this.game.heading, undecided: true };
       }
     }
-    // The declines together, so the decision lands inside its two seconds.
-    await Promise.all(decision.declined.filter(a => a !== decision.approved).map(async a => {
-      try { await this.client.decideProposal(open.proposals[a], 'decline'); } catch { /* logged below as undecided */ }
-    }));
+    if (decision.undecided) {
+      try { await this.client.declineProposal(open.proposal); } catch (e) { console.error(`decline of step ${open.step} failed: ${(e as Error).message}`); }
+    }
     open.quotes = quotes;
     open.decision = decision;
     this.pending = decision.direction;
@@ -369,7 +375,8 @@ export class Operator {
       approved: decision.approved,
       undecided: decision.undecided,
       quotes,
-      proposals: open.proposals,
+      prices: pricesOf(quotes),
+      proposal: open.proposal,
       lengthBefore: this.game.length,
       lengthAfter: null,
       deathsBefore: this.game.deaths,
@@ -451,16 +458,14 @@ export class Operator {
     await this.openStep(now);
   }
 
-  /** The books of the open step, by market id: which action, horizon and branch each is. */
-  private books(horizons: Horizon[]): Map<string, { action: Action; horizon: Horizon; branch: Branch }> {
-    const out = new Map<string, { action: Action; horizon: Horizon; branch: Branch }>();
+  /** The books of the open step, by market id: which option and horizon each is. */
+  private books(horizons: Horizon[]): Map<string, { action: Action; horizon: Horizon }> {
+    const out = new Map<string, { action: Action; horizon: Horizon }>();
     const q = this.open?.quotes;
     if (!q) return out;
     for (const a of ACTIONS) for (const h of horizons) {
       const x = q[a]?.[h];
-      if (!x) continue;
-      if (x.approvedMarketId) out.set(x.approvedMarketId, { action: a, horizon: h, branch: 'approved' });
-      if (x.declinedMarketId) out.set(x.declinedMarketId, { action: a, horizon: h, branch: 'declined' });
+      if (x?.marketId) out.set(x.marketId, { action: a, horizon: h });
     }
     return out;
   }
@@ -471,7 +476,7 @@ export class Operator {
   }
 
   /** On its own timer, apart from the quotes (docs/snake.md, "The feed"):
-   *  the six books of the open step every call, the leaderboard once a
+   *  the three books of the open step every call, the leaderboard once a
    *  minute. Reads only; nothing here can trade. Failures keep the last
    *  activity. */
   async pollActivity(now: Date): Promise<void> {
@@ -489,7 +494,7 @@ export class Operator {
             const a = activity[marketId];
             if (!a) continue;
             this.positions.set(marketId, a.positions.map(p => ({
-              handle: p.handle, action: meta.action, horizon: meta.horizon, branch: meta.branch,
+              handle: p.handle, action: meta.action, horizon: meta.horizon,
               side: p.direction, shares: p.shares, cost: p.cost, worth: p.worth ?? null,
             })));
             for (const p of a.positions) this.noteTraderToday(p.handle, day);
@@ -499,7 +504,7 @@ export class Operator {
               seen.add(t.id);
               this.recentTrades.push({
                 id: t.id, at: t.createdAt, handle: t.handle, step: open.step, action: meta.action, horizon: meta.horizon,
-                branch: meta.branch, side: t.direction, kind: t.kind, shares: t.shares, cost: t.cost, marketId, price: a.consensus ?? null,
+                side: t.direction, kind: t.kind, shares: t.shares, cost: t.cost, marketId, price: a.consensus ?? null,
               });
             }
           }
@@ -523,7 +528,7 @@ export class Operator {
     return [...this.positions.values()].flat();
   }
 
-  /** The next move: the live leader before the decision, the approved action after it. */
+  /** The next move: the live leader before the decision, the chosen option after it. */
   next(now: Date): NextMove | null {
     const open = this.open;
     if (!open || this.game.complete) return null;
@@ -547,6 +552,7 @@ export class Operator {
       action: rec && rec.step === after.step ? rec.action : 'forward',
       direction: dir,
       undecided: rec && rec.step === after.step ? rec.undecided : true,
+      prices: rec && rec.step === after.step ? rec.prices ?? pricesOf(rec.quotes) : pricesOf(null),
       died,
     };
     if (died || ate) m.food = { x: after.food.x, y: after.food.y };
@@ -603,7 +609,7 @@ export class Operator {
             deadline: open.deadline,
             cells: open.cells,
             directions: open.directions,
-            proposals: open.proposals,
+            proposal: open.proposal,
             quotes: open.quotes ?? emptyQuotes(),
           }
         : null,
@@ -658,9 +664,19 @@ export class Operator {
       game = { ...game, attemptStep: Math.min(n, game.step) };
     }
     const op = new Operator(client, game, rng, opts);
-    op.open = raw.open ?? null;
-    // A record from before the reason was kept: undecided with no reason known.
-    op.decisions = decisions.map(d => (d.undecidedReason === undefined ? { ...d, undecidedReason: d.undecided ? 'not recorded' : null } : d));
+    // A step from before options (three proposals, `open.proposals`) cannot be
+    // decided by this code: it is not resumed, its proposals lapse at their
+    // deadline (voiding with refund), and the next tick opens a fresh step.
+    op.open = raw.open && raw.open.proposal ? raw.open : null;
+    op.decisions = decisions.map(d => {
+      const out: any = { ...d };
+      // A record from before the reason was kept: undecided with no reason known.
+      if (out.undecidedReason === undefined) out.undecidedReason = out.undecided ? 'not recorded' : null;
+      // A record from before options: its prices are unknown, its proposal is the one it approved or none.
+      if (out.prices === undefined) out.prices = pricesOf(null);
+      if (out.proposal === undefined) { out.proposal = (out.approved && out.proposals?.[out.approved]) ?? out.proposals?.forward ?? { id: '', number: 0, url: '' }; delete out.proposals; }
+      return out as DecisionRecord;
+    });
     op.pending = raw.pending ?? null;
     op.completedAt = raw.completedAt ?? null;
     op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;

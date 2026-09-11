@@ -1,20 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { Operator, type TelarchyClient, type ProposalRef } from '../src/operator.js';
 import { newGame, step as applyStep } from '../src/engine.js';
-import { actionOfTitle, proposalTitle } from '../src/decide.js';
-import type { Quotes } from '../src/decide.js';
+import { proposalTitle } from '../src/decide.js';
+import type { Quotes, Action, ProposalOption } from '../src/decide.js';
 
 type Call = { name: string; args: unknown[] };
 function fakeClient(quotesFor: () => Quotes) {
   const calls: Call[] = [];
   let n = 0;
   const client: TelarchyClient = {
-    async postProposal(title, description, decideBy) {
-      calls.push({ name: 'postProposal', args: [title, description, decideBy.toISOString()] });
-      return { id: `p${++n}`, title, url: `https://telarchy.com/snake/p/${n}` };
+    async postProposal(title, description, decideBy, options: ProposalOption[]) {
+      calls.push({ name: 'postProposal', args: [title, description, decideBy.toISOString(), options] });
+      n++;
+      return { id: `p${n}`, number: n, url: `https://telarchy.com/snake/p/${n}` };
     },
-    async readQuotes(_refs: ProposalRef[]) { return quotesFor(); },
-    async decideProposal() {},
+    async readQuotes(_ref: ProposalRef) { return quotesFor(); },
+    async approveOption(_ref: ProposalRef, _option: Action) {},
+    async declineProposal() {},
     async postReading() {},
     async refreshBooks() {},
     async setHorizon() {},
@@ -24,10 +26,10 @@ function fakeClient(quotesFor: () => Quotes) {
   };
   return { client, calls };
 }
-const h = (a: number | null, d: number | null) => ({ m1: { approved: a, declined: d }, m5: { approved: a, declined: d }, m60: { approved: a, declined: d } });
-const allTen = (): Quotes => ({ forward: h(10, 10), left: h(10, 10), right: h(10, 10) });
-const upWins = (): Quotes => ({ ...allTen(), left: h(12, 10) });
-const none = (): Quotes => ({ forward: h(null, null), left: h(null, null), right: h(null, null) });
+const h = (price: number | null) => ({ m60: { price, lead: null } });
+const allTen = (): Quotes => ({ forward: h(10), left: h(10), right: h(10) });
+const upWins = (): Quotes => ({ ...allTen(), left: h(12) });
+const none = (): Quotes => ({ forward: h(null), left: h(null), right: h(null) });
 const rng = () => 0;
 
 async function playSteps(op: Operator, n: number, start = Date.parse('2026-09-11T10:00:00Z')) {
@@ -39,35 +41,26 @@ async function playSteps(op: Operator, n: number, start = Date.parse('2026-09-11
 }
 
 describe('proposal titles (docs/snake.md, "The step")', () => {
-  it('a title names the game, the attempt and the move within it, then the action: Game 1, attempt 30, move 3: Turn left', () => {
-    expect(proposalTitle('left', 1, 30, 3)).toBe('Game 1, attempt 30, move 3: Turn left');
-    expect(proposalTitle('forward', 3, 1, 1)).toBe('Game 3, attempt 1, move 1: Continue forward');
-    expect(proposalTitle('right', 12, 2, 9999)).toBe('Game 12, attempt 2, move 9999: Turn right');
+  it('a title names the game, the attempt and the move within it, with no action: Game 1, attempt 30, move 3', () => {
+    expect(proposalTitle(1, 30, 3)).toBe('Game 1, attempt 30, move 3');
+    expect(proposalTitle(3, 1, 1)).toBe('Game 3, attempt 1, move 1');
+    expect(proposalTitle(12, 2, 9999)).toBe('Game 12, attempt 2, move 9999');
   });
 
   it('every title stays under the 80 characters Telarchy accepts', () => {
-    expect(proposalTitle('forward', 999999, 999999, 99999999).length).toBeLessThan(80);
+    expect(proposalTitle(999999, 999999, 99999999).length).toBeLessThan(80);
   });
 
-  it('the action is read back from a titled proposal, and from a bare title too', () => {
-    expect(actionOfTitle('Game 1, attempt 30, move 3: Turn left')).toBe('left');
-    expect(actionOfTitle('Game 1, move 171: Turn left')).toBe('left');
-    expect(actionOfTitle('Game 2, move 3: Continue forward')).toBe('forward');
-    expect(actionOfTitle('Game 2, move 3: Turn right')).toBe('right');
-    expect(actionOfTitle('Turn left')).toBe('left');
-    expect(actionOfTitle('Game 1, move 2: Sit still')).toBe(null);
-    expect(actionOfTitle('')).toBe(null);
-  });
-
-  it('the operator posts the three proposals of each step titled with the game and the move it decides', async () => {
+  it('the operator posts the one proposal of each step titled with the game and the move it decides, the options as its three choices', async () => {
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const titles = () => calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]));
-    expect(titles().sort()).toEqual(['Game 1, attempt 1, move 1: Continue forward', 'Game 1, attempt 1, move 1: Turn left', 'Game 1, attempt 1, move 1: Turn right']);
+    expect(titles()).toEqual(['Game 1, attempt 1, move 1']);
+    expect(calls[calls.length - 1].args[3]).toEqual([{ id: 'forward', label: 'Continue forward' }, { id: 'left', label: 'Turn left' }, { id: 'right', label: 'Turn right' }]);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
-    expect(titles().slice(3).sort()).toEqual(['Game 1, attempt 1, move 2: Continue forward', 'Game 1, attempt 1, move 2: Turn left', 'Game 1, attempt 1, move 2: Turn right']);
+    expect(titles()).toEqual(['Game 1, attempt 1, move 1', 'Game 1, attempt 1, move 2']);
   });
 
   it('a death starts the next attempt and its moves count from 1 again', async () => {
@@ -75,11 +68,11 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 6);
     const titles = calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]));
-    expect(titles[15]).toBe('Game 1, attempt 1, move 6: Continue forward');
+    expect(titles[5]).toBe('Game 1, attempt 1, move 6');
     expect(op.game.deaths).toBe(1);
-    expect(titles[18]).toBe('Game 1, attempt 2, move 1: Continue forward');
+    expect(titles[6]).toBe('Game 1, attempt 2, move 1');
     await playSteps(op, 1, Date.parse('2026-09-11T10:06:00Z'));
-    expect(calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]))[21]).toBe('Game 1, attempt 2, move 2: Continue forward');
+    expect(calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0]))[7]).toBe('Game 1, attempt 2, move 2');
   });
 
   it('a later game numbers its titles by that game, from attempt 1, move 1 again', async () => {
@@ -88,7 +81,7 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     await op.tick(new Date('2026-09-11T11:01:00Z'));
-    expect(calls.filter(c => c.name === 'postProposal').map(c => c.args[0])).toContain('Game 2, attempt 1, move 1: Turn left');
+    expect(calls.filter(c => c.name === 'postProposal').map(c => c.args[0])).toContain('Game 2, attempt 1, move 1');
   });
 
   it('a state file from before attempts were counted derives the attempt move from the decision log', async () => {
@@ -101,7 +94,7 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
     expect(back.game.attemptStep).toBe(2);
     await back.closeStep(new Date('2026-09-11T10:08:58Z'));
     await back.tick(new Date('2026-09-11T10:09:00Z'));
-    expect(calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0])).pop()).toBe('Game 1, attempt 2, move 4: Turn right');
+    expect(calls.filter(c => c.name === 'postProposal').map(c => String(c.args[0])).pop()).toBe('Game 1, attempt 2, move 4');
   });
 });
 
@@ -117,22 +110,22 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
     expect(r!.moves).toEqual([]);
   });
 
-  it('every applied move is recorded with its step, time, action, direction and whether it was undecided', async () => {
+  it('every applied move is recorded with its step, time, action, direction, every option\'s price and whether it was undecided', async () => {
     const { client } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 2);
     const r = op.replay()!;
     expect(r.moves.length).toBe(2);
-    expect(r.moves[0]).toMatchObject({ step: 1, at: '2026-09-11T10:01:00.000Z', action: 'left', direction: 'up', undecided: false, died: false });
+    expect(r.moves[0]).toMatchObject({ step: 1, at: '2026-09-11T10:01:00.000Z', action: 'left', direction: 'up', undecided: false, died: false, prices: { forward: 10, left: 12, right: 10 } });
     expect(r.moves[1]).toMatchObject({ step: 2, at: '2026-09-11T10:02:00.000Z', action: 'left', direction: 'left', undecided: false, died: false });
     expect(r.moves[0]).not.toHaveProperty('food');
   });
 
-  it('an undecided step is recorded as forward and undecided', async () => {
+  it('an undecided step is recorded as forward and undecided, its prices null', async () => {
     const { client } = fakeClient(none);
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 1);
-    expect(op.replay()!.moves[0]).toMatchObject({ step: 1, action: 'forward', direction: 'right', undecided: true });
+    expect(op.replay()!.moves[0]).toMatchObject({ step: 1, action: 'forward', direction: 'right', undecided: true, prices: { forward: null, left: null, right: null } });
   });
 
   it('the food is recorded only when the move changed it, and a death is marked with the new food', async () => {

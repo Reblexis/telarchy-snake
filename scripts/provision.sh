@@ -43,8 +43,8 @@ MID=$(echo "$METRIC" | j "d['id']")
 echo "# settings: one-minute decision window, public" >&2
 curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-Type: application/json' -X PUT "$BASE/workspaces/$WSID/settings" -d '{
   "decisionMinutes": 1, "visibility": "public", "notificationsMuted": true,
-  "description": "A snake game steered by this market: three proposals a minute, turn left, turn right or continue, the highest approved.",
-  "subjectAbout": "Every minute three proposals appear, Turn left / Turn right / Continue forward. Each is priced on the length this attempt will have reached in 60 moves, and when the attempt ends every open book settles at the length it reached. At second 58 the operator approves the move with the highest impact (approved minus declined) and declines the rest with a refund. The snake moves at the top of the next minute. Watch it live on the board (link in the workspace description) and trade the move you believe in."
+  "description": "A snake game steered by this market: one proposal a minute with three options, turn left, turn right or continue, the highest price chosen.",
+  "subjectAbout": "Every minute one proposal appears with three options, Continue forward / Turn left / Turn right, each priced by its own book on the length this attempt will have reached at the attempt's hour mark; when the attempt ends every open book settles at the length it reached. At second 58 the operator chooses the option with the highest price and the other two void with a refund. The snake moves at the top of the next minute. Watch it live on the board (link in the workspace description) and trade the option you believe in."
 }' >/dev/null
 
 echo "# opening the first book (the operator re-points it at the attempt's cell)" >&2

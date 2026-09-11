@@ -1,7 +1,7 @@
 // The Telarchy client the operator uses. Deliberately has no trade method:
 // docs/snake.md, "The operator account never trades."
-import type { LeaderRow, MarketActivity, ProposalRef, TelarchyClient, Verdict } from './operator.js';
-import { emptyDirectionQuotes, actionOfTitle, type Quotes, type Horizon } from './decide.js';
+import type { LeaderRow, MarketActivity, ProposalRef, TelarchyClient } from './operator.js';
+import { ACTIONS, emptyQuotes, type Action, type ProposalOption, type Quotes, type Horizon } from './decide.js';
 
 export interface SessionAuth {
   /** A browser account (the platform admin on the beta, which is admin-gated
@@ -128,54 +128,59 @@ export class HttpTelarchyClient implements TelarchyClient {
     return json;
   }
 
-  async postProposal(title: string, description: string, decideBy: Date): Promise<ProposalRef> {
-    const r = await this.call('POST', '/proposals', { title, description, decideBy: decideBy.toISOString() });
-    return { id: String(r.id), title, url: `${this.o.workspaceUrl}/p/${r.number}` };
+  /** docs/snake.md "The step": one proposal with the three options, the
+   *  given deadline, no subsidy of its own (the option books are funded by
+   *  the metric's proposal credits). */
+  async postProposal(title: string, description: string, decideBy: Date, options: ProposalOption[]): Promise<ProposalRef> {
+    const r = await this.call('POST', '/proposals', { title, description, decideBy: decideBy.toISOString(), options });
+    return { id: String(r.id), number: Number(r.number), url: `${this.o.workspaceUrl}/p/${r.number}` };
   }
 
-  /** The three proposals are read at once, and a missing price says why
-   *  (docs/snake.md "The step", `undecidedReason`). */
-  async readQuotes(refs: ProposalRef[], cell: string): Promise<Quotes> {
+  /** The one proposal is read once; each option's price and lead come from
+   *  the row on the attempt's cell, and a missing price says why
+   *  (docs/snake.md "The step", `undecidedReason`). An app that returns no
+   *  `options` on the row (before proposals with options are published)
+   *  yields null prices, never a crash. */
+  async readQuotes(ref: ProposalRef, cell: string): Promise<Quotes> {
     const cells: Record<Horizon, string> = { m60: cell };
-    const out = {} as Quotes;
-    await Promise.all(refs.map(async ref => {
-      const action = actionOfTitle(ref.title);
-      if (!action) return;
-      const q = emptyDirectionQuotes();
-      try {
-        const r = await this.call('GET', `/proposals/${encodeURIComponent(ref.id)}`);
-        const markets: any[] = Array.isArray(r?.markets) ? r.markets : [];
-        for (const h of Object.keys(cells) as Horizon[]) {
-          const cell = cells[h];
-          // By target date when the summary names one, else by the settlement
-          // instant, which is the end of the cell (one minute after it).
-          const end = Date.parse(`${cell}:00Z`) + 60_000;
-          const m =
-            markets.find(x => x.targetDate === cell) ??
-            markets.find(x => !x.targetDate && typeof x.resolvesOn === 'string' && Date.parse(x.resolvesOn) === end);
-          if (m) {
-            q[h] = { approved: num(m.approved?.consensus), declined: num(m.declined?.consensus) };
-            const aId = m.approved?.marketId ?? m.approvedMarketId;
-            const dId = m.declined?.marketId ?? m.declinedMarketId;
-            if (typeof aId === 'string') q[h].approvedMarketId = aId;
-            if (typeof dId === 'string') q[h].declinedMarketId = dId;
-            if (q[h].approved === null || q[h].declined === null) q[h].reason = 'no consensus';
-          } else {
-            q[h].reason = `no pair on ${cell}`;
-          }
+    const out = emptyQuotes();
+    const setReason = (h: Horizon, reason: string) => { for (const a of ACTIONS) out[a][h].reason = reason; };
+    try {
+      const r = await this.call('GET', `/proposals/${encodeURIComponent(ref.id)}`);
+      const markets: any[] = Array.isArray(r?.markets) ? r.markets : [];
+      for (const h of Object.keys(cells) as Horizon[]) {
+        const cell = cells[h];
+        // By target date when the row names one, else by the settlement
+        // instant, which is the end of the cell (one minute after it).
+        const end = Date.parse(`${cell}:00Z`) + 60_000;
+        const row =
+          markets.find(x => x.targetDate === cell) ??
+          markets.find(x => !x.targetDate && typeof x.resolvesOn === 'string' && Date.parse(x.resolvesOn) === end);
+        if (!row) { setReason(h, `no book on ${cell}`); continue; }
+        if (!Array.isArray(row.options)) { setReason(h, `no options on ${cell}`); continue; }
+        for (const a of ACTIONS) {
+          const o = row.options.find((x: any) => x?.id === a);
+          if (!o) { out[a][h].reason = `no option ${a} on ${cell}`; continue; }
+          out[a][h] = { price: num(o.consensus), lead: num(o.delta) };
+          if (typeof o.marketId === 'string') out[a][h].marketId = o.marketId;
+          if (out[a][h].price === null) out[a][h].reason = 'no consensus';
         }
-      } catch (e) {
-        // unreadable: null prices, the decision rule handles it
-        for (const h of Object.keys(cells) as Horizon[]) q[h].reason = (e as Error).message;
       }
-      out[action] = q;
-    }));
+    } catch (e) {
+      // unreadable: null prices, the decision rule handles it
+      for (const h of Object.keys(cells) as Horizon[]) setReason(h, (e as Error).message);
+    }
     return out;
   }
 
-  async decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void> {
-    if (verdict === 'approve') await this.call('POST', `/proposals/${encodeURIComponent(ref.id)}/approve`, {});
-    else await this.call('POST', `/proposals/${encodeURIComponent(ref.id)}/decline`, { refund: true });
+  /** docs/snake.md "The step": choosing is approving with the option named. */
+  async approveOption(ref: ProposalRef, option: Action): Promise<void> {
+    await this.call('POST', `/proposals/${encodeURIComponent(ref.id)}/approve`, { option });
+  }
+
+  /** "None of these": every option voids and refunds. */
+  async declineProposal(ref: ProposalRef): Promise<void> {
+    await this.call('POST', `/proposals/${encodeURIComponent(ref.id)}/decline`, { refund: true });
   }
 
   async setRange(max: number): Promise<void> {

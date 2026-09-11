@@ -28,9 +28,10 @@
   .tile { background:var(--tile); border-radius:14px; padding:18px 18px 16px; text-decoration:none; color:var(--fg); display:block; border:2px solid transparent; }
   .tile .arrow { font-size:32px; line-height:1; font-weight:600; }
   .tile .name { color:var(--mute); font-size:15px; margin-top:10px; }
-  .tile .impact { font-size:clamp(28px, 3vw, 40px); font-weight:600; line-height:1.1; margin-top:12px; }
+  .tile .price { font-size:clamp(28px, 3vw, 40px); font-weight:600; line-height:1.1; margin-top:12px; }
   .tile.lead { background:var(--tile-lead); border-color:var(--lead); color:var(--lead); }
   .tile.lead .name { color:var(--lead); }
+  .tile .by { font-variant-numeric:tabular-nums; font-weight:600; margin-left:6px; }
   .tile.done { grid-column: 1 / -1; }
   .status { font-size:22px; margin:0; }
   .quiet { color:var(--mute); font-size:17px; margin:0; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
@@ -72,7 +73,7 @@
     .side { gap:22px; }
     .tile { padding:14px 12px 12px; }
     .tile .arrow { font-size:26px; }
-    .tile .impact { font-size:26px; }
+    .tile .price { font-size:26px; }
     .status { font-size:18px; }
   }
   /* Embedded on the Telarchy floor (?embed=1): the first screen alone in a 16:9 frame. */
@@ -84,7 +85,7 @@
   .embed .tile { padding:clamp(8px, 1.6vh, 16px) clamp(8px, 1.6vh, 16px); border-radius:10px; }
   .embed .tile .arrow { font-size:clamp(16px, 4vh, 30px); }
   .embed .tile .name { font-size:clamp(10px, 2vh, 14px); margin-top:clamp(2px, 1vh, 8px); }
-  .embed .tile .impact { font-size:clamp(18px, 4.6vh, 36px); margin-top:clamp(2px, 1vh, 8px); }
+  .embed .tile .price { font-size:clamp(18px, 4.6vh, 36px); margin-top:clamp(2px, 1vh, 8px); }
   .embed .status { font-size:clamp(13px, 2.8vh, 20px); }
   .embed .quiet { font-size:clamp(12px, 2.8vh, 17px); }
   .embed .label { font-size:clamp(10px, 2vh, 14px); margin:0; }
@@ -121,10 +122,10 @@
 <details id="more">
   <summary>More</summary>
   <h2>Prices: reached length at the attempt's hour mark</h2>
-  <div class="tscroll"><table><thead><tr><th>action</th><th>if approved</th><th>if declined</th><th>impact</th></tr></thead><tbody id="prices"></tbody></table></div>
+  <div class="tscroll"><table><thead><tr><th>option</th><th>price</th><th>lead</th></tr></thead><tbody id="prices"></tbody></table></div>
   <div id="traders">
     <h2>Traders this step <span class="muted" id="tradersCount"></span></h2>
-    <div class="tscroll"><table><thead><tr><th>trader</th><th>side</th><th>action</th><th>horizon</th><th>book</th><th>stake</th><th>worth</th></tr></thead><tbody id="tradersBody"></tbody></table></div>
+    <div class="tscroll"><table><thead><tr><th>trader</th><th>side</th><th>option</th><th>horizon</th><th>stake</th><th>worth</th></tr></thead><tbody id="tradersBody"></tbody></table></div>
   </div>
   <h2>Last trades</h2>
   <div class="ticker" id="ticker"><div class="track"><span class="t muted">No trades yet. Yours could be the first.</span></div></div>
@@ -132,7 +133,7 @@
     <h2>Top traders in this workspace</h2>
     <div class="tscroll"><table><thead><tr><th>#</th><th>trader</th><th>profit</th><th>trades</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
   </div>
-  <h2>Last decisions, impact at decision time</h2>
+  <h2>Last decisions, prices at the close</h2>
   <div class="tscroll"><table><thead><tr><th>step</th><th>action</th><th>moved</th><th>forward</th><th>left</th><th>right</th><th>length</th></tr></thead><tbody id="log"></tbody></table></div>
   <h2>Counters</h2>
   <div class="counters" id="counters"></div>
@@ -203,7 +204,15 @@ const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toISOString().slice(11,16); };
 const clockText = secs => Math.floor(secs/60) + ':' + String(secs%60).padStart(2,'0');
 let tickerKey = '';
-function impact(q){ const m = q && q.m60; if (!m || m.approved == null || m.declined == null) return null; return m.approved - m.declined; }
+// An option's price and lead as the workspace reported them (docs/snake.md, "The feed"); anything else is no price.
+function price(q){ const v = q && q.m60 ? q.m60.price : null; return typeof v === 'number' && isFinite(v) ? v : null; }
+function leadOf(q){ const v = q && q.m60 ? q.m60.lead : null; return typeof v === 'number' && isFinite(v) ? v : null; }
+// The leader is the option the rule would choose now: the highest price, ties to the heading, then up, right, down, left.
+const COMPASS = ['up','right','down','left'];
+function leader(quotes, directions){ let best = null, bp = -Infinity; for (const a of acts) { const p = price(quotes && quotes[a]); if (p != null && p > bp) bp = p; }
+  if (bp === -Infinity) return null; const tied = acts.filter(a => { const p = price(quotes[a]); return p != null && bp - p <= 1e-9; });
+  if (tied.includes('forward')) return 'forward'; if (!directions) return tied[0];
+  return tied.sort((x, y) => COMPASS.indexOf(directions[x]) - COMPASS.indexOf(directions[y]))[0]; }
 function render(s){
   last = s;
   if (s.grid) GRID = s.grid;
@@ -217,14 +226,14 @@ function render(s){
   // 3. the tiles
   const tiles = document.getElementById('tiles');
   if (s.open) {
-    let best = null, bp = -Infinity;
-    for (const a of acts) { const p = impact(s.open.quotes[a]); if (p != null && p > bp) { bp = p; best = a; } }
+    const best = leader(s.open.quotes, s.open.directions);
+    const url = s.open.proposal ? s.open.proposal.url : '';
     tiles.innerHTML = acts.map(a => {
-      const p = s.open.proposals[a]; const d = s.open.directions ? s.open.directions[a] : null;
-      return `<a class="tile ${a===best?'lead':''}" href="${esc(p.url)}" target="_blank" rel="noopener"><div class="arrow">${d ? arrows[d] : ''}</div><div class="name">${tileLabel[a]}</div><div class="impact">${signed(impact(s.open.quotes[a]))}</div></a>`;
+      const q = s.open.quotes[a]; const d = s.open.directions ? s.open.directions[a] : null; const by = a === best ? leadOf(q) : null;
+      return `<a class="tile ${a===best?'lead':''}" href="${esc(url)}" target="_blank" rel="noopener"><div class="arrow">${d ? arrows[d] : ''}</div><div class="name">${tileLabel[a]}${by == null ? '' : ` <span class="by">${signed(by)}</span>`}</div><div class="price">${fmt(price(q))}</div></a>`;
     }).join('');
-    document.getElementById('wslink').href = s.open.proposals.forward.url.replace(/\/p\/.*$/, '');
-  } else tiles.innerHTML = s.complete ? `<div class="tile lead done"><div class="name">The snake filled the grid</div><div class="impact">Next game on ${GRID+1}x${GRID+1} ${s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'after an hour'}</div></div>` : '';
+    if (url) document.getElementById('wslink').href = s.open.proposal.url.replace(/\/p\/.*$/, '');
+  } else tiles.innerHTML = s.complete ? `<div class="tile lead done"><div class="name">The snake filled the grid</div><div class="price">Next game on ${GRID+1}x${GRID+1} ${s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'after an hour'}</div></div>` : '';
   // 4. the status line
   document.getElementById('status').textContent = `Length ${s.game.length} · Record ${s.bestLength ?? s.game.length} · Game ${s.gameNumber || 1} · ${GRID}x${GRID}`;
   // 5. the quiet line: the newest trade, else the commentary
@@ -233,21 +242,21 @@ function render(s){
   document.getElementById('quiet').textContent = t ? `${t.handle} bet ${fmt(t.cost)} on ${actTitle[t.action] || t.action}` : (s.commentary || '');
   if (embed) return;
   // More
-  document.getElementById('prices').innerHTML = s.open ? acts.map(a => { const q = s.open.quotes[a]; const i = impact(q); return `<tr><td>${actTitle[a]}</td><td>${fmt(q.m60.approved)}</td><td>${fmt(q.m60.declined)}</td><td>${i == null ? '-' : (i >= 0 ? '+' : '') + fmt(i)}</td></tr>`; }).join('') : '<tr><td colspan="4" class="muted">No open step.</td></tr>';
+  document.getElementById('prices').innerHTML = s.open ? acts.map(a => { const q = s.open.quotes[a]; return `<tr><td>${actTitle[a]}</td><td>${fmt(price(q))}</td><td>${signed(leadOf(q))}</td></tr>`; }).join('') : '<tr><td colspan="3" class="muted">No open step.</td></tr>';
   const key = trades.map(t => t.id).join(',');
   if (key !== tickerKey) {
     tickerKey = key;
-    const items = trades.length ? trades.map(t => `<span class="t">${hhmm(t.at)} <span class="h">${esc(t.handle)}</span> <span class="${t.kind}">${t.kind === 'sell' ? 'sold' : 'bought'} ${esc(t.side)}</span> on ${esc(actTitle[t.action] || t.action).toLowerCase()} in ${hz[t.horizon] || t.horizon}, ${t.branch} book, ${fmt(t.cost)} cr${t.price == null ? '' : ' at ' + fmt(t.price)}</span>`).join('') : '<span class="t muted">No trades yet. Yours could be the first.</span>';
+    const items = trades.length ? trades.map(t => `<span class="t">${hhmm(t.at)} <span class="h">${esc(t.handle)}</span> <span class="${t.kind}">${t.kind === 'sell' ? 'sold' : 'bought'} ${esc(t.side)}</span> on ${esc(actTitle[t.action] || t.action).toLowerCase()} in ${hz[t.horizon] || t.horizon}, ${fmt(t.cost)} cr${t.price == null ? '' : ' at ' + fmt(t.price)}</span>`).join('') : '<span class="t muted">No trades yet. Yours could be the first.</span>';
     document.getElementById('ticker').innerHTML = `<div class="track">${items}${items}</div>`;
   }
   const tr = s.traders || [];
   document.getElementById('tradersCount').textContent = tr.length ? `(${s.tradersThisStep} distinct, ${s.tradersToday ?? 0} today)` : `(${s.tradersToday ?? 0} today)`;
-  document.getElementById('tradersBody').innerHTML = tr.length ? tr.map(t => `<tr><td>${esc(t.handle)}</td><td>${esc(t.side)}</td><td>${esc(actTitle[t.action] || t.action)}</td><td>${hz[t.horizon] || t.horizon}</td><td>${t.branch}</td><td>${fmt(t.cost)} cr</td><td>${t.worth == null ? '-' : fmt(t.worth)}</td></tr>`).join('') : '<tr><td colspan="7" class="muted">Nobody holds a position in this step\'s books yet.</td></tr>';
+  document.getElementById('tradersBody').innerHTML = tr.length ? tr.map(t => `<tr><td>${esc(t.handle)}</td><td>${esc(t.side)}</td><td>${esc(actTitle[t.action] || t.action)}</td><td>${hz[t.horizon] || t.horizon}</td><td>${fmt(t.cost)} cr</td><td>${t.worth == null ? '-' : fmt(t.worth)}</td></tr>`).join('') : '<tr><td colspan="6" class="muted">Nobody holds a position in this step\'s books yet.</td></tr>';
   const lb = s.leaderboard || [];
   document.getElementById('leaderboardBody').innerHTML = lb.length ? lb.map(l => `<tr><td>${l.rank}</td><td>${esc(l.handle)}</td><td>${signed(l.profit)}</td><td>${l.trades}</td></tr>`).join('') : '<tr><td colspan="4" class="muted">Nobody has traded here yet.</td></tr>';
   document.getElementById('log').innerHTML = (s.recentDecisions || []).map(d =>
     `<tr><td>${d.step}</td><td>${actTitle[d.action] || '-'}${d.undecided?' (undecided)':''}</td><td>${arrows[d.direction]} ${d.direction}</td>` +
-    acts.map(x => `<td>${signed(impact(d.quotes[x]))}</td>`).join('') +
+    acts.map(x => `<td>${fmt(d.prices ? d.prices[x] : null)}</td>`).join('') +
     `<td>${d.lengthBefore} → ${d.lengthAfter ?? '…'}</td></tr>`).join('');
   document.getElementById('counters').innerHTML = `<span><b>${s.bestLength ?? s.game.length}</b> best this game</span><span><b>${s.deathsToday ?? 0}</b> deaths today</span><span><b>${s.game.step}</b> step</span><span><b>${arrows[s.game.heading]} ${s.game.heading}</b> heading</span>`;
   document.getElementById('rule').textContent = s.rule || '';

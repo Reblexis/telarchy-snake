@@ -7,14 +7,15 @@ import { Operator, type TelarchyClient, type ProposalRef } from '../src/operator
 import { GameLog, type LogStep } from '../src/gamelog.js';
 import { createServer } from '../src/server.js';
 import { GRID, newGame } from '../src/engine.js';
-import type { Quotes } from '../src/decide.js';
+import type { Quotes, Action } from '../src/decide.js';
 
 function fakeClient(quotesFor: () => Quotes) {
   let n = 0;
   const client: TelarchyClient = {
-    async postProposal(title) { return { id: `p${++n}`, title, url: `https://telarchy.com/snake/p/${n}` }; },
-    async readQuotes(_refs: ProposalRef[]) { return quotesFor(); },
-    async decideProposal() {},
+    async postProposal() { n++; return { id: `p${n}`, number: n, url: `https://telarchy.com/snake/p/${n}` }; },
+    async readQuotes(_ref: ProposalRef) { return quotesFor(); },
+    async approveOption(_ref: ProposalRef, _option: Action) {},
+    async declineProposal() {},
     async postReading() {},
     async refreshBooks() {},
     async setHorizon() {},
@@ -24,10 +25,10 @@ function fakeClient(quotesFor: () => Quotes) {
   };
   return client;
 }
-const h = (a: number | null, d: number | null) => ({ m60: { approved: a, declined: d } });
-const allTen = (): Quotes => ({ forward: h(10, 10), left: h(10, 10), right: h(10, 10) });
-const upWins = (): Quotes => ({ ...allTen(), left: h(12, 10) });
-const none = (): Quotes => ({ forward: h(null, null), left: h(null, null), right: h(null, null) });
+const h = (price: number | null) => ({ m60: { price, lead: null } });
+const allTen = (): Quotes => ({ forward: h(10), left: h(10), right: h(10) });
+const upWins = (): Quotes => ({ ...allTen(), left: h(12) });
+const none = (): Quotes => ({ forward: h(null), left: h(null), right: h(null) });
 const rng = () => 0;
 
 const dirs: string[] = [];
@@ -45,7 +46,7 @@ async function playSteps(op: Operator, n: number, start = Date.parse('2026-09-11
 const line = (step: number, extra: Partial<LogStep> = {}): LogStep => ({
   step, at: `2026-09-11T10:${String(step % 60).padStart(2, '0')}:00.000Z`, snake: [{ x: 6, y: 6 }, { x: 5, y: 6 }], food: { x: 0, y: 0 },
   heading: 'right', action: step === 0 ? null : 'forward', direction: 'right', undecided: false,
-  impact: { forward: null, left: null, right: null }, length: 2, deaths: 0, ...extra,
+  prices: { forward: null, left: null, right: null }, length: 2, deaths: 0, ...extra,
 });
 
 describe('the game log (docs/snake.md, "The feed": /games and /history)', () => {
@@ -73,12 +74,12 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
     return log.history('current').then(r => {
       expect(r!.total).toBe(1);
       expect(r!.from).toBe(0);
-      expect(r!.steps[0]).toMatchObject({ step: 0, snake: op.game.snake, food: op.game.food, heading: 'right', action: null, direction: 'right', undecided: false, impact: { forward: null, left: null, right: null }, length: 2, deaths: 0 });
+      expect(r!.steps[0]).toMatchObject({ step: 0, snake: op.game.snake, food: op.game.food, heading: 'right', action: null, direction: 'right', undecided: false, prices: { forward: null, left: null, right: null }, length: 2, deaths: 0 });
       expect(typeof r!.steps[0].at).toBe('string');
     });
   });
 
-  it('a step records the state after the move with action, direction, impact and undecided', async () => {
+  it('a step records the state after the move with action, direction, every option\'s price and undecided', async () => {
     const log = new GameLog(tmp());
     const op = new Operator(fakeClient(upWins), newGame(rng, 12, 1), rng, { log });
     await playSteps(op, 1);
@@ -86,17 +87,17 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
     expect(r.total).toBe(2);
     expect(r.steps[1]).toEqual({
       step: 1, at: '2026-09-11T10:01:00.000Z', snake: op.game.snake, food: op.game.food, heading: 'up',
-      action: 'left', direction: 'up', undecided: false, impact: { forward: 0, left: 2, right: 0 }, length: 2, deaths: 0,
+      action: 'left', direction: 'up', undecided: false, prices: { forward: 10, left: 12, right: 10 }, length: 2, deaths: 0,
     });
     expect(r.steps[1].snake[0]).toEqual({ x: 6, y: 5 });
   });
 
-  it('an undecided step records forward, undecided true and null impacts', async () => {
+  it('an undecided step records forward, undecided true and null prices', async () => {
     const log = new GameLog(tmp());
     const op = new Operator(fakeClient(none), newGame(rng, 12, 1), rng, { log });
     await playSteps(op, 1);
     const r = (await log.history(1))!;
-    expect(r.steps[1]).toMatchObject({ step: 1, action: 'forward', direction: 'right', undecided: true, impact: { forward: null, left: null, right: null } });
+    expect(r.steps[1]).toMatchObject({ step: 1, action: 'forward', direction: 'right', undecided: true, prices: { forward: null, left: null, right: null } });
   });
 
   it('a death step records length 2 and the new deaths count', async () => {
@@ -325,5 +326,18 @@ describe('the feed over HTTP (docs/snake.md, "The feed")', () => {
       expect(JSON.parse((await get('/games')).body)).toEqual({ games: [] });
       expect((await get('/history?game=current')).status).toBe(404);
     } finally { await close(); }
+  });
+});
+
+describe('an old log line from before options (docs/snake.md, "The feed")', () => {
+  it('a line written with `impact` reads back with every option\'s price null and no impact field', async () => {
+    const log = new GameLog(tmp());
+    const { prices: _p, ...rest } = line(0);
+    log.start(1, 12, '2026-09-11T10:00:00.000Z', { ...rest, impact: { forward: 1, left: 2, right: 0 } } as any, false);
+    log.append(1, line(1), 2, false);
+    const r = (await log.history(1))!;
+    expect(r.steps[0].prices).toEqual({ forward: null, left: null, right: null });
+    expect(r.steps[0]).not.toHaveProperty('impact');
+    expect(r.steps[1].prices).toEqual({ forward: null, left: null, right: null });
   });
 });
