@@ -2,19 +2,39 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 
 const html = fs.readFileSync(new URL('../src/board/index.html', import.meta.url), 'utf8');
-const doc = fs.readFileSync(new URL('../docs/snake.md', import.meta.url), 'utf8');
+
+/** The ids inside one element's markup (its own id excluded). */
+function idsIn(section: string): string[] {
+  return [...section.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
+}
+const first = html.slice(html.indexOf('<main id="first"'), html.indexOf('</main>'));
+const more = html.slice(html.indexOf('<details id="more"'), html.indexOf('</details>'));
+const styles = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
 
 describe('the board page (docs/snake.md, "The board")', () => {
-  it('has a slot for each element the doc lists', () => {
-    for (const id of ['next', 'commentary', 'cards', 'ticker', 'traders', 'leaderboard', 'log', 'best', 'tradersToday']) {
-      expect(html, id).toMatch(new RegExp(`id="${id}"`));
-    }
+  it('the first screen holds exactly the grid, the next move, the tiles, the status line and the quiet line, in that order', () => {
+    expect(first.length).toBeGreaterThan(0);
+    expect(idsIn(first)).toEqual(['first', 'c', 'next', 'clock', 'tiles', 'status', 'quiet']);
   });
 
-  it('the embed hides the traders list, the leaderboard and the decisions table, and keeps the next move and the ticker', () => {
-    const embedRules = html.split('\n').filter(l => l.includes('.embed ') && l.includes('display:none')).join('\n');
-    for (const hidden of ['#traders', '#leaderboard', '.tscroll']) expect(embedRules, hidden).toContain(hidden);
-    for (const kept of ['#next', '#ticker', '#cards']) expect(embedRules, kept).not.toContain(kept);
+  it('everything else is behind a More section that is a details element, closed by default', () => {
+    expect(more.length).toBeGreaterThan(0);
+    expect(more).not.toMatch(/<details[^>]*\sopen/);
+    for (const id of ['prices', 'traders', 'ticker', 'leaderboard', 'log', 'counters', 'rule']) expect(idsIn(more), id).toContain(id);
+    expect(html.indexOf('<details id="more"')).toBeGreaterThan(html.indexOf('</main>'));
+  });
+
+  it('the embed renders the first screen alone: More and the footer are hidden', () => {
+    const embedRules = styles.split('\n').filter(l => l.includes('.embed ') && l.includes('display:none')).join('\n');
+    for (const hidden of ['#more', '.foot']) expect(embedRules, hidden).toContain(hidden);
+    for (const kept of ['#next', '#tiles', '#status', '#quiet', '#c']) expect(embedRules, kept).not.toContain(kept);
+  });
+
+  it('the footer is one short line with the workspace, the stream and /state', () => {
+    const foot = html.slice(html.indexOf('class="foot"'), html.indexOf('</p>', html.indexOf('class="foot"')));
+    expect(foot).toContain('telarchy.com/snake');
+    expect(foot).toContain('twitch.tv/telarchy');
+    expect(foot).toContain('href="/state"');
   });
 
   it('body text is left-aligned: no centred block', () => {
@@ -22,16 +42,22 @@ describe('the board page (docs/snake.md, "The board")', () => {
   });
 
   it('no em-dash or en-dash anywhere in the board, the doc or the sources', () => {
-    const files = ['../src/board/index.html', '../docs/snake.md', '../src/frame.ts', '../src/commentary.ts', '../src/operator.ts', '../src/client.ts'];
+    const files = ['../src/board/index.html', '../docs/snake.md', '../src/frame.ts', '../src/stream.ts', '../src/commentary.ts', '../src/operator.ts', '../src/client.ts'];
     for (const f of files) expect(fs.readFileSync(new URL(f, import.meta.url), 'utf8'), f).not.toMatch(/[–—]/);
-    void doc;
   });
 
-  it('reads the ticker from recentTrades and the next move from next', () => {
+  it('loads only Inter from Google Fonts as an external asset, with a system fallback', () => {
+    const external = [...html.matchAll(/(?:src|href)="(https?:[^"]+)"/g)].map(m => m[1]).filter(u => !/telarchy\.com|twitch\.tv/.test(u));
+    for (const u of external) expect(u).toMatch(/^https:\/\/fonts\.(googleapis|gstatic)\.com/);
+    expect(html).toMatch(/font-family:\s*Inter,[^;]*system-ui/);
+  });
+
+  it('reads the quiet line from recentTrades then commentary, the next move from next, and the tiles from the open step', () => {
     expect(html).toContain('recentTrades');
     expect(html).toContain('s.next');
     expect(html).toContain('s.commentary');
     expect(html).toContain('s.leaderboard');
     expect(html).toContain('s.traders');
+    expect(html).toContain('s.open.proposals');
   });
 });

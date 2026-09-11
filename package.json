@@ -19,6 +19,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.9",
     "dotenv": "^17.4.2"
   }
 }

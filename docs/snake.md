@@ -134,59 +134,65 @@ watch and to tell a visitor, at a glance, what the market is doing to the
 snake right now. It polls the service's own `/state` JSON every two
 seconds and shows nothing that is not in it.
 
-What the board shows, top to bottom, and where each element comes from:
+The board shows the most important thing first and as little else as
+possible. The first screen (what a visitor sees without scrolling, at
+1280 wide, at phone width and in the 16:9 embed) holds exactly these
+five elements, in this order, and nothing else:
 
-- **The grid**, the snake and the food, drawn large enough to read on a
-  stream at 1280 by 720, with the snake's heading marked on its head and
-  named in words. Source: `game` on `/state`.
-- **Counters**: the game number and grid size, the current length, the
-  best length reached in this game, deaths today, the step number, seconds
-  to the decision. Source: `game`, `bestLength`, `deathsToday`,
-  `secondsToDecision`.
-- **Next move**, one big line, `NEXT: TURN LEFT ↑ UP`, with the seconds
-  to the decision. Before the decision it is the current leader, the
-  action with the highest live 60-move impact (forward when no price is
-  readable, per the rule); after the decision it is the approved action,
-  held until the move happens at the top of the minute. Source: `next` on
-  `/state` (`action`, `direction`, `decided`, `seconds`).
-- **Commentary**, one left-aligned line written by a fixed rule set from
-  the state alone, no model: where the food is relative to the head and
-  which way the market leans, a death in the last two steps, a new record
-  length, a leader that runs into a wall or the body next move, a step
-  nobody has traded yet, a completed game. Source: `commentary`.
-- **Three cards**, one per action, each naming the compass direction it
-  would take, with the live 60-move impact large and the 1-move and
-  5-move prices small, the leader marked, each card linking to that
-  proposal on telarchy.com. Source: `open.quotes`, `open.directions`,
-  `open.proposals`.
-- **The trades ticker**, a strip scrolling the last 30 trades across the
-  snake's books, newest first: time, handle, action, horizon, branch
-  (approved or declined), side (higher or lower), buy or sell, amount in
-  credits, and the book's price when the trade was first seen. Source:
-  `recentTrades`.
-- **Current traders**: who holds a position in this step's books right
-  now, one row per position: handle, action, horizon, branch, side, stake
-  and current worth; with the count of distinct traders this step and
-  today. Source: `traders`, `tradersThisStep`, `tradersToday`.
-- **Leaderboard**: the top five traders of this workspace by profit, from
-  Telarchy's public per-workspace leaderboard, with their trade counts.
-  Source: `leaderboard`.
-- **The last ten decisions** (action and direction, the three impacts at
-  decision, what it did to the length). Source: `recentDecisions`.
-- One line saying what this is and where to trade, with the workspace
-  link.
+1. **The grid**, large and clean: a near-black board with soft grid
+   lines, the snake as rounded green segments, its head clearly marked
+   with its heading (an eye or wedge on the side it moves towards, a soft
+   glow around the head), the food as a rounded red dot. The cell size
+   follows `grid` on `/state`, so a larger game draws smaller cells.
+   Source: `game`, `grid`.
+2. **The next move**, one big line: the arrow of the resulting compass
+   direction and the action, `→ Turn left`, with the seconds to the
+   decision as a clock beside it, `0:31`. Before the decision it is the
+   current leader, the action with the highest live 60-move impact
+   (forward when no price is readable, per the rule), in the accent
+   colour; once decided the clock goes and the line reads as decided,
+   in the snake's green, held until the move at the top of the minute.
+   Source: `next` on `/state` (`action`, `direction`, `decided`,
+   `seconds`).
+3. **Three choice tiles**, Continue, Left, Right, each showing only its
+   compass arrow, its name and its live 60-move impact (`+1.4`) as a large
+   tabular number; the leader in the accent colour. Each tile links to
+   its proposal on telarchy.com. No 1-move or 5-move price is on the
+   first screen. Source: `open.quotes`, `open.directions`,
+   `open.proposals`.
+4. **One status line**, three facts and no more: `Length 7 · Game 1 ·
+   12x12`. Source: `game.length`, `gameNumber`, `grid`.
+5. **One quiet line** at the bottom: the newest trade (`philipp-gl bet
+   5 on Turn left`), or, when there is none, the commentary. Never both.
+   Source: `recentTrades[0]`, else `commentary`.
 
-Body text on the board is left-aligned; only titles and single numbers
-may be centred.
+Everything else lives below the fold in one collapsed **More** section
+(a `details` element, closed by default) that holds, in this order: the
+1-move and 5-move prices per action, the current traders (with the
+counts this step and today), the last 30 trades, the leaderboard, the
+last ten decisions, the counters (best length this game, deaths today,
+step) and the rule in words. Source: `open.quotes`, `traders`,
+`tradersThisStep`, `tradersToday`, `recentTrades`, `leaderboard`,
+`recentDecisions`, `bestLength`, `deathsToday`, `game.step`, `rule`.
+Under More comes one short footer line with the workspace link, the
+stream link and `/state`.
 
-The board also renders inside Telarchy: the workspace's live-view setting
-points at the board's embed form (`/?embed=1`, the same page without its
-own heading and footer, sized for a 16:9 frame), and the public floor
-shows it above the owner's text. The embed is compact: it shows the grid,
-the counters, the next move, the commentary, the three cards and the
-ticker, and hides the traders list, the leaderboard and the decisions
-table. A visitor of telarchy.com/snake sees the game without leaving the
-floor.
+Visual language: calm and modern, one accent colour (yellow) for the
+leader and the next move, green snake, red food, near-black background,
+large tabular numbers, generous spacing, no box inside a box. Body text
+is left-aligned; only a title or a single number may be centred. The
+page is one static HTML file with inline CSS and JS; its only external
+asset is the Inter typeface from Google Fonts, with a system fallback.
+At 1280 wide the grid sits left and the move, tiles and lines sit
+right; at phone width the grid fills the width and the rest stacks
+below it.
+
+The board also renders inside Telarchy: the workspace's live-view
+setting points at the board's embed form (`/?embed=1`), and the public
+floor shows it above the owner's text. The embed is the first screen
+alone, sized for a 16:9 frame: the More section and the footer are not
+rendered at all. A visitor of telarchy.com/snake sees the game without
+leaving the floor.
 
 ### The feed
 
@@ -234,12 +240,19 @@ and the stream key in the keyring, `telarchy/twitch.env`). The stream is
 a link on the board and the floor; it is not expected to find viewers on
 its own.
 
-The frame carries the grid on the left and, in the right column: the
-title, the counters, the next move in large yellow type, the commentary,
-the three cards, the current traders (up to three rows), the last trades
-(up to five rows, newest first), the last decisions, and the trade line.
-Every line is readable at 720p: nothing below the cards is drawn smaller
-than the decisions rows.
+The frame is the board's first screen and nothing more: the grid on the
+left, filling the frame's height, and in the right column, top to
+bottom, the next move with its clock, the three choice tiles, the status
+line, the quiet line (newest trade, else commentary), and in small muted
+type `Trade at telarchy.com/snake`. No traders, no trades list, no
+leaderboard, no decisions, no counters and no rule text are drawn. The
+same visual language as the board applies (accent for the leader and the
+next move, green snake with a marked head, red food, near-black ground).
+
+Text is set in Inter, bundled in the repo under `fonts/` with its OFL
+licence and registered at render time; the frame never depends on a
+system font. Every line is readable at 720p: nothing is drawn smaller
+than the trade line.
 
 ## Operation
 

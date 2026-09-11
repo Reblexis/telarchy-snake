@@ -4,146 +4,187 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Futarchy snake</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
 <style>
-  :root { --bg:#0b0d10; --fg:#e8e6e1; --mute:#8b8f98; --line:#22262c; --snake:#4ade80; --head:#bbf7d0; --food:#f87171; --lead:#facc15; }
+  :root { --bg:#0b0d10; --board:#111419; --fg:#e8e6e1; --mute:#8b8f98; --line:#22262c; --tile:#15181e; --tile-lead:#2a2612; --snake:#4ade80; --head:#bbf7d0; --food:#f87171; --lead:#facc15; --link:#93c5fd; }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; padding-block:16px; padding-inline:16px; }
-  .wrap { max-width:1248px; margin:0 auto; display:grid; grid-template-columns: minmax(0, 720px) minmax(0, 1fr); gap:24px; }
-  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
-  h1 { font-size:20px; margin:0 0 4px; font-weight:600; }
-  .sub { color:var(--mute); margin:0 0 12px; }
-  canvas { width:100%; max-width:720px; aspect-ratio:1; background:#101318; border:1px solid var(--line); border-radius:8px; display:block; }
-  .stats { display:flex; gap:20px; flex-wrap:wrap; margin:12px 0; }
-  .stat b { display:block; font-size:28px; font-weight:600; line-height:1.1; }
-  .stat span { color:var(--mute); font-size:13px; }
-  .cards { display:grid; grid-template-columns: 1fr; gap:10px; }
-  .card { border:1px solid var(--line); border-radius:8px; padding:10px 12px; text-decoration:none; color:inherit; display:block; }
-  .card.lead { border-color:var(--lead); }
-  .card .dir { font-weight:600; }
-  .card .px { font-size:24px; font-weight:600; }
-  .card .vs { color:var(--mute); font-size:13px; }
-  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:12px; }
-  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
-  th { color:var(--mute); font-weight:500; }
-  .tscroll { overflow-x:auto; }
-  .foot { color:var(--mute); font-size:13px; margin-top:12px; }
-  a { color:#93c5fd; }
-  .count { font-variant-numeric: tabular-nums; }
-  .next { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0 0 10px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
-  .next b { font-size:28px; font-weight:700; color:var(--lead); line-height:1.1; }
-  .next span { color:var(--mute); font-size:13px; }
+  html { background:var(--bg); }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; font-size:16px; line-height:1.4; padding-block:20px; padding-inline:20px; font-variant-numeric: tabular-nums; }
+  a { color:var(--link); }
+  main { max-width:1240px; margin:0 auto; display:grid; grid-template-columns: minmax(0, 680px) minmax(0, 1fr); gap:40px; align-items:start; }
+  canvas { width:100%; max-width:100%; aspect-ratio:1; background:var(--board); border-radius:12px; display:block; }
+  .side { display:flex; flex-direction:column; gap:28px; min-width:0; }
+  .label { color:var(--mute); font-size:14px; margin:0 0 6px; }
+  .next { display:flex; align-items:baseline; justify-content:space-between; gap:16px; }
+  .next b { font-size:clamp(32px, 4vw, 52px); font-weight:600; line-height:1.1; color:var(--lead); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .next .clock { font-size:clamp(32px, 4vw, 52px); font-weight:600; line-height:1.1; color:var(--fg); flex-shrink:0; }
   .next.decided b { color:var(--snake); }
-  .comment { margin:0 0 10px; color:var(--fg); }
-  .ticker { margin-top:10px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); overflow:hidden; white-space:nowrap; font-size:13px; line-height:2; }
+  .next.decided .clock { font-size:18px; font-weight:400; color:var(--snake); }
+  .next.idle b { color:var(--mute); }
+  .tiles { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; }
+  .tile { background:var(--tile); border-radius:14px; padding:18px 18px 16px; text-decoration:none; color:var(--fg); display:block; border:2px solid transparent; }
+  .tile .arrow { font-size:32px; line-height:1; font-weight:600; }
+  .tile .name { color:var(--mute); font-size:15px; margin-top:10px; }
+  .tile .impact { font-size:clamp(28px, 3vw, 40px); font-weight:600; line-height:1.1; margin-top:12px; }
+  .tile.lead { background:var(--tile-lead); border-color:var(--lead); color:var(--lead); }
+  .tile.lead .name { color:var(--lead); }
+  .tile.done { grid-column: 1 / -1; }
+  .status { font-size:22px; margin:0; }
+  .quiet { color:var(--mute); font-size:17px; margin:0; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  details { max-width:1240px; margin:48px auto 0; border-top:1px solid var(--line); padding-top:12px; }
+  summary { cursor:pointer; color:var(--mute); font-size:15px; list-style:none; }
+  summary::-webkit-details-marker { display:none; }
+  summary::before { content:"+ "; }
+  details[open] summary::before { content:"- "; }
+  h2 { font-size:14px; font-weight:600; color:var(--mute); margin:24px 0 6px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { text-align:left; padding:5px 8px 5px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mute); font-weight:400; }
+  .tscroll { overflow-x:auto; }
+  .ticker { overflow:hidden; white-space:nowrap; font-size:14px; line-height:2; }
   .ticker .track { display:inline-block; animation: tick 60s linear infinite; }
   .ticker .track:hover { animation-play-state: paused; }
   .ticker .t { margin-right:32px; }
   .ticker .h { color:var(--lead); }
   .ticker .buy { color:var(--snake); } .ticker .sell { color:var(--food); }
   @keyframes tick { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-  h2 { font-size:14px; font-weight:600; margin:16px 0 4px; }
   .muted { color:var(--mute); }
-  /* Embedded on the Telarchy floor (?embed=1): a 16:9 frame, no heading or footer of its own. */
-  .embed body { padding-block:8px; padding-inline:8px; }
-  .embed .wrap { grid-template-columns: minmax(0, 46%) minmax(0, 1fr); gap:12px; max-width:none; }
-  .embed h1.title, .embed p.lead, .embed .foot, .embed .tscroll, .embed #traders, .embed #leaderboard, .embed h2, .embed p.sub.cardsub { display:none; }
-  .embed .next b { font-size:22px; }
-  .embed .stat b { font-size:20px; }
-  .embed .card .px { font-size:18px; }
-  .embed .card .vs { font-size:11px; }
+  .counters { display:flex; gap:24px; flex-wrap:wrap; font-size:15px; }
+  .counters b { font-weight:600; }
+  .rule { color:var(--mute); font-size:14px; max-width:70ch; }
+  .foot { max-width:1240px; margin:24px auto 0; color:var(--mute); font-size:14px; }
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0, 1fr); gap:24px; }
+    .side { gap:22px; }
+    .tile { padding:14px 12px 12px; }
+    .tile .arrow { font-size:26px; }
+    .tile .impact { font-size:26px; }
+    .status { font-size:18px; }
+  }
+  /* Embedded on the Telarchy floor (?embed=1): the first screen alone in a 16:9 frame. */
+  .embed body { padding-block:12px; padding-inline:12px; height:100vh; overflow:hidden; }
+  .embed main { grid-template-columns: auto minmax(0, 1fr); gap:24px; max-width:none; height:calc(100vh - 24px); align-items:stretch; }
+  .embed canvas { width:auto; height:100%; max-width:100%; }
+  .embed .side { justify-content:flex-start; gap:clamp(10px, 2.5vh, 24px); }
+  .embed .next b, .embed .next .clock { font-size:clamp(18px, 5vh, 44px); }
+  .embed .tile { padding:clamp(8px, 1.6vh, 16px) clamp(8px, 1.6vh, 16px); border-radius:10px; }
+  .embed .tile .arrow { font-size:clamp(16px, 4vh, 30px); }
+  .embed .tile .name { font-size:clamp(10px, 2vh, 14px); margin-top:clamp(2px, 1vh, 8px); }
+  .embed .tile .impact { font-size:clamp(18px, 4.6vh, 36px); margin-top:clamp(2px, 1vh, 8px); }
+  .embed .status { font-size:clamp(13px, 2.8vh, 20px); }
+  .embed .quiet { font-size:clamp(11px, 2.2vh, 15px); }
+  .embed .label { font-size:clamp(10px, 2vh, 14px); margin:0; }
+  .embed #more, .embed .foot { display:none; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div>
-    <h1 class="title">Futarchy snake</h1>
-    <p class="sub lead">Every minute the market picks the snake's next move: three proposals, turn left, turn right and continue forward, each priced on the snake's length. The highest 60-move impact is approved.</p>
-    <canvas id="c" width="720" height="720"></canvas>
-    <div class="stats">
-      <div class="stat"><b id="gametitle" style="font-size:16px">-</b><span>game</span></div>
-      <div class="stat"><b id="len">-</b><span>length</span></div>
-      <div class="stat"><b id="best">-</b><span>best this game</span></div>
-      <div class="stat"><b id="heading">-</b><span>heading</span></div>
-      <div class="stat"><b id="deaths">-</b><span>deaths today</span></div>
-      <div class="stat"><b id="step">-</b><span>step</span></div>
-      <div class="stat"><b id="clock" class="count">-</b><span>seconds to decision</span></div>
-      <div class="stat"><b id="tradersToday">-</b><span>traders today</span></div>
+<main id="first">
+  <canvas id="c" width="720" height="720"></canvas>
+  <div class="side">
+    <div>
+      <p class="label">Next move</p>
+      <div class="next idle" id="next"><b>Waiting</b><span class="clock" id="clock"></span></div>
     </div>
+    <div class="tiles" id="tiles"></div>
+    <p class="status" id="status">Length - · Game - · -</p>
+    <p class="quiet" id="quiet"></p>
   </div>
-  <div>
-    <div class="next" id="next"><b>-</b><span>waiting for the next step</span></div>
-    <p class="comment" id="commentary"></p>
-    <h1 style="font-size:16px">Step <span id="openstep">-</span>: which way?</h1>
-    <p class="sub cardsub">Each card is the market's predicted impact of that move on the length in 60 moves (approved minus declined). The highest is approved at :58. Click a card to trade it.</p>
-    <div class="cards" id="cards"></div>
-    <div class="ticker" id="ticker"><div class="track"><span class="t muted">No trades yet. Yours could be the first.</span></div></div>
-    <div id="traders">
-      <h2>Traders this step <span class="muted" id="tradersCount"></span></h2>
-      <div class="tscroll"><table><thead><tr><th>trader</th><th>side</th><th>action</th><th>horizon</th><th>book</th><th>stake</th><th>worth</th></tr></thead><tbody id="tradersBody"></tbody></table></div>
-    </div>
-    <div id="leaderboard">
-      <h2>Top traders in this workspace</h2>
-      <div class="tscroll"><table><thead><tr><th>#</th><th>trader</th><th>profit</th><th>trades</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
-    </div>
-    <h2>Last decisions</h2>
-    <div class="tscroll">
-    <table>
-      <thead><tr><th>step</th><th>action</th><th>moved</th><th>forward</th><th>left</th><th>right</th><th>length</th></tr></thead>
-      <caption style="caption-side:top;text-align:left;color:var(--mute);padding:4px 6px">Impact in 60 moves at decision time</caption>
-      <tbody id="log"></tbody>
-    </table>
-    </div>
-    <p class="foot">This is a Telarchy workspace steered by its own market. Trade at <a id="wslink" href="https://telarchy.com/snake">telarchy.com/snake</a>. Live stream: <a href="https://www.twitch.tv/telarchy" target="_blank" rel="noopener">twitch.tv/telarchy</a>. Data: <a href="/state">/state</a>.</p>
+</main>
+<details id="more">
+  <summary>More</summary>
+  <h2>Prices in 1, 5 and 60 moves</h2>
+  <div class="tscroll"><table><thead><tr><th>action</th><th>1 move</th><th>5 moves</th><th>60 moves</th><th>declined, 60</th></tr></thead><tbody id="prices"></tbody></table></div>
+  <div id="traders">
+    <h2>Traders this step <span class="muted" id="tradersCount"></span></h2>
+    <div class="tscroll"><table><thead><tr><th>trader</th><th>side</th><th>action</th><th>horizon</th><th>book</th><th>stake</th><th>worth</th></tr></thead><tbody id="tradersBody"></tbody></table></div>
   </div>
-</div>
+  <h2>Last trades</h2>
+  <div class="ticker" id="ticker"><div class="track"><span class="t muted">No trades yet. Yours could be the first.</span></div></div>
+  <div id="leaderboard">
+    <h2>Top traders in this workspace</h2>
+    <div class="tscroll"><table><thead><tr><th>#</th><th>trader</th><th>profit</th><th>trades</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
+  </div>
+  <h2>Last decisions, impact in 60 moves at decision time</h2>
+  <div class="tscroll"><table><thead><tr><th>step</th><th>action</th><th>moved</th><th>forward</th><th>left</th><th>right</th><th>length</th></tr></thead><tbody id="log"></tbody></table></div>
+  <h2>Counters</h2>
+  <div class="counters" id="counters"></div>
+  <h2>The rule</h2>
+  <p class="rule" id="rule"></p>
+</details>
+<p class="foot">A Telarchy workspace steering its own snake. Trade at <a id="wslink" href="https://telarchy.com/snake">telarchy.com/snake</a> · stream <a href="https://www.twitch.tv/telarchy" target="_blank" rel="noopener">twitch.tv/telarchy</a> · data <a href="/state">/state</a></p>
 <script>
 let GRID = 12;
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 const acts = ['forward','left','right'];
 const actTitle = { forward: 'Continue forward', left: 'Turn left', right: 'Turn right' };
+const nextLabel = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
+const tileLabel = { forward: 'Continue', left: 'Left', right: 'Right' };
 const arrows = { up:'↑', right:'→', down:'↓', left:'←' };
 let last = null;
 function fmt(v){ return v == null ? '-' : (Math.round(v*10)/10).toString(); }
+function signed(v){ return v == null ? '-' : (v >= 0 ? '+' : '') + fmt(v); }
+function rr(x, y, w, h, r){ ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.closePath(); }
 function draw(g){
-  const cell = cv.width / GRID;
-  ctx.fillStyle = '#101318'; ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.strokeStyle = '#181c22'; ctx.lineWidth = 1;
-  for (let i=0;i<=GRID;i++){ ctx.beginPath(); ctx.moveTo(i*cell,0); ctx.lineTo(i*cell,cv.height); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i*cell); ctx.lineTo(cv.width,i*cell); ctx.stroke(); }
-  ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc((g.food.x+0.5)*cell,(g.food.y+0.5)*cell,cell*0.32,0,Math.PI*2); ctx.fill();
-  g.snake.forEach((s,i)=>{ ctx.fillStyle = i===0 ? '#bbf7d0' : '#4ade80'; ctx.fillRect(s.x*cell+2, s.y*cell+2, cell-4, cell-4); });
-  // heading marker: a dark bar on the edge of the head the snake moves towards
-  const h = g.snake[0], t = Math.max(3, cell/6); ctx.fillStyle = '#facc15';
-  if (g.heading==='up') ctx.fillRect(h.x*cell+4, h.y*cell+2, cell-8, t);
-  if (g.heading==='down') ctx.fillRect(h.x*cell+4, (h.y+1)*cell-2-t, cell-8, t);
-  if (g.heading==='left') ctx.fillRect(h.x*cell+2, h.y*cell+4, t, cell-8);
-  if (g.heading==='right') ctx.fillRect((h.x+1)*cell-2-t, h.y*cell+4, t, cell-8);
+  const S = cv.width, cell = S / GRID;
+  ctx.clearRect(0,0,S,S);
+  ctx.strokeStyle = '#1a1e25'; ctx.lineWidth = 1;
+  for (let i=1;i<GRID;i++){ ctx.beginPath(); ctx.moveTo(i*cell+0.5,0); ctx.lineTo(i*cell+0.5,S); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i*cell+0.5); ctx.lineTo(S,i*cell+0.5); ctx.stroke(); }
+  ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc((g.food.x+0.5)*cell,(g.food.y+0.5)*cell,cell*0.3,0,Math.PI*2); ctx.fill();
+  const pad = Math.max(2, cell*0.08), radius = Math.max(3, cell*0.22);
+  const c = p => [(p.x+0.5)*cell, (p.y+0.5)*cell];
+  if (g.snake.length > 1) {
+    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = cell - 2*pad; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath(); g.snake.forEach((p,i)=>{ const [x,y]=c(p); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }); ctx.stroke();
+  }
+  const h = g.snake[0];
+  if (h) {
+    ctx.save(); ctx.shadowColor = 'rgba(74,222,128,0.35)'; ctx.shadowBlur = cell*0.6; ctx.fillStyle = '#bbf7d0';
+    rr(h.x*cell+pad, h.y*cell+pad, cell-2*pad, cell-2*pad, radius); ctx.fill(); ctx.restore();
+    const [cx, cy] = c(h), off = cell*0.22, side = cell*0.16, er = Math.max(1.5, cell*0.07);
+    const eyes = g.heading==='up' ? [[cx-side,cy-off],[cx+side,cy-off]] : g.heading==='down' ? [[cx-side,cy+off],[cx+side,cy+off]] : g.heading==='left' ? [[cx-off,cy-side],[cx-off,cy+side]] : [[cx+off,cy-side],[cx+off,cy+side]];
+    ctx.fillStyle = '#0b0d10'; for (const [ex,ey] of eyes){ ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill(); }
+  }
 }
 const embed = new URLSearchParams(location.search).get('embed') === '1';
 if (embed) document.documentElement.classList.add('embed');
 const hz = { m1: '1 move', m5: '5 moves', m60: '60 moves' };
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toISOString().slice(11,16); };
+const clockText = secs => Math.floor(secs/60) + ':' + String(secs%60).padStart(2,'0');
 let tickerKey = '';
 function impact(q){ const m = q && q.m60; if (!m || m.approved == null || m.declined == null) return null; return m.approved - m.declined; }
 function render(s){
   last = s;
   if (s.grid) GRID = s.grid;
   draw(s.game);
-  document.getElementById('gametitle').textContent = 'Game ' + (s.gameNumber || 1) + ', ' + GRID + ' by ' + GRID;
-  document.getElementById('len').textContent = s.game.length;
-  document.getElementById('heading').textContent = arrows[s.game.heading] + ' ' + s.game.heading;
-  document.getElementById('deaths').textContent = s.deathsToday;
-  document.getElementById('step').textContent = s.game.step;
-  document.getElementById('openstep').textContent = s.open ? s.open.step : '-';
-  document.getElementById('best').textContent = s.bestLength ?? s.game.length;
-  document.getElementById('tradersToday').textContent = s.tradersToday ?? 0;
+  // 2. the next move
   const nx = document.getElementById('next');
   if (s.next) {
     nx.className = 'next' + (s.next.decided ? ' decided' : '');
-    nx.innerHTML = `<b>NEXT: ${esc(actTitle[s.next.action]).toUpperCase()} ${arrows[s.next.direction]} ${esc(s.next.direction).toUpperCase()}</b><span>${s.next.decided ? 'decided, moves at the top of the minute' : 'the market leans this way, decides in <span id="nextclock">' + s.next.seconds + '</span> s'}</span>`;
-  } else { nx.className = 'next'; nx.innerHTML = `<b>-</b><span>${s.complete ? 'game complete' : 'waiting for the next step'}</span>`; }
-  document.getElementById('commentary').textContent = s.commentary || '';
+    nx.innerHTML = `<b>${arrows[s.next.direction] || ''} ${esc(nextLabel[s.next.action] || '?')}</b><span class="clock" id="clock">${s.next.decided ? 'decided' : clockText(s.next.seconds)}</span>`;
+  } else { nx.className = 'next idle'; nx.innerHTML = `<b>${s.complete ? 'Complete' : 'Waiting'}</b><span class="clock" id="clock"></span>`; }
+  // 3. the tiles
+  const tiles = document.getElementById('tiles');
+  if (s.open) {
+    let best = null, bp = -Infinity;
+    for (const a of acts) { const p = impact(s.open.quotes[a]); if (p != null && p > bp) { bp = p; best = a; } }
+    tiles.innerHTML = acts.map(a => {
+      const p = s.open.proposals[a]; const d = s.open.directions ? s.open.directions[a] : null;
+      return `<a class="tile ${a===best?'lead':''}" href="${esc(p.url)}" target="_blank" rel="noopener"><div class="arrow">${d ? arrows[d] : ''}</div><div class="name">${tileLabel[a]}</div><div class="impact">${signed(impact(s.open.quotes[a]))}</div></a>`;
+    }).join('');
+    document.getElementById('wslink').href = s.open.proposals.forward.url.replace(/\/p\/.*$/, '');
+  } else tiles.innerHTML = s.complete ? `<div class="tile lead done"><div class="name">The snake filled the grid</div><div class="impact">Next game on ${GRID+1}x${GRID+1} ${s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'after an hour'}</div></div>` : '';
+  // 4. the status line
+  document.getElementById('status').textContent = `Length ${s.game.length} · Game ${s.gameNumber || 1} · ${GRID}x${GRID}`;
+  // 5. the quiet line: the newest trade, else the commentary
   const trades = s.recentTrades || [];
+  const t = trades[0];
+  document.getElementById('quiet').textContent = t ? `${t.handle} bet ${fmt(t.cost)} on ${actTitle[t.action] || t.action}` : (s.commentary || '');
+  if (embed) return;
+  // More
+  document.getElementById('prices').innerHTML = s.open ? acts.map(a => { const q = s.open.quotes[a]; return `<tr><td>${actTitle[a]}</td><td>${fmt(q.m1.approved)}</td><td>${fmt(q.m5.approved)}</td><td>${fmt(q.m60.approved)}</td><td>${fmt(q.m60.declined)}</td></tr>`; }).join('') : '<tr><td colspan="5" class="muted">No open step.</td></tr>';
   const key = trades.map(t => t.id).join(',');
   if (key !== tickerKey) {
     tickerKey = key;
@@ -151,28 +192,20 @@ function render(s){
     document.getElementById('ticker').innerHTML = `<div class="track">${items}${items}</div>`;
   }
   const tr = s.traders || [];
-  document.getElementById('tradersCount').textContent = tr.length ? `(${s.tradersThisStep} distinct)` : '';
+  document.getElementById('tradersCount').textContent = tr.length ? `(${s.tradersThisStep} distinct, ${s.tradersToday ?? 0} today)` : `(${s.tradersToday ?? 0} today)`;
   document.getElementById('tradersBody').innerHTML = tr.length ? tr.map(t => `<tr><td>${esc(t.handle)}</td><td>${esc(t.side)}</td><td>${esc(actTitle[t.action] || t.action)}</td><td>${hz[t.horizon] || t.horizon}</td><td>${t.branch}</td><td>${fmt(t.cost)} cr</td><td>${t.worth == null ? '-' : fmt(t.worth)}</td></tr>`).join('') : '<tr><td colspan="7" class="muted">Nobody holds a position in this step\'s books yet.</td></tr>';
   const lb = s.leaderboard || [];
-  document.getElementById('leaderboardBody').innerHTML = lb.length ? lb.map(l => `<tr><td>${l.rank}</td><td>${esc(l.handle)}</td><td>${l.profit >= 0 ? '+' : ''}${fmt(l.profit)}</td><td>${l.trades}</td></tr>`).join('') : '<tr><td colspan="4" class="muted">Nobody has traded here yet.</td></tr>';
-  const cards = document.getElementById('cards');
-  if (s.open) {
-    let best = null, bp = -Infinity;
-    for (const a of acts) { const p = impact(s.open.quotes[a]); if (p != null && p > bp) { bp = p; best = a; } }
-    cards.innerHTML = acts.map(a => {
-      const q = s.open.quotes[a]; const p = s.open.proposals[a]; const imp = impact(q); const d = s.open.directions ? s.open.directions[a] : null;
-      return `<a class="card ${a===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${actTitle[a]}${d ? ' ' + arrows[d] + ' ' + d : ''}</div><div class="px">${imp == null ? '-' : (imp >= 0 ? '+' : '') + fmt(imp)}</div><div class="vs">impact on length in 60 moves. In 1: ${fmt(q.m1.approved)}, in 5: ${fmt(q.m5.approved)}, in 60: ${fmt(q.m60.approved)}</div></a>`;
-    }).join('');
-    document.getElementById('wslink').href = s.open.proposals.forward.url.replace(/\/p\/.*$/, '');
-  } else cards.innerHTML = s.complete ? '<div class="card lead"><div class="dir">Complete</div><div class="vs">The snake filled the grid. The next game starts on a ' + (GRID+1) + ' by ' + (GRID+1) + ' grid ' + (s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'after an hour') + '.</div></div>' : '';
-  document.getElementById('log').innerHTML = s.recentDecisions.map(d =>
+  document.getElementById('leaderboardBody').innerHTML = lb.length ? lb.map(l => `<tr><td>${l.rank}</td><td>${esc(l.handle)}</td><td>${signed(l.profit)}</td><td>${l.trades}</td></tr>`).join('') : '<tr><td colspan="4" class="muted">Nobody has traded here yet.</td></tr>';
+  document.getElementById('log').innerHTML = (s.recentDecisions || []).map(d =>
     `<tr><td>${d.step}</td><td>${actTitle[d.action] || '-'}${d.undecided?' (undecided)':''}</td><td>${arrows[d.direction]} ${d.direction}</td>` +
-    acts.map(x => { const v = impact(d.quotes[x]); return `<td>${v == null ? '-' : fmt(v)}</td>`; }).join('') +
+    acts.map(x => `<td>${signed(impact(d.quotes[x]))}</td>`).join('') +
     `<td>${d.lengthBefore} → ${d.lengthAfter ?? '…'}</td></tr>`).join('');
+  document.getElementById('counters').innerHTML = `<span><b>${s.bestLength ?? s.game.length}</b> best this game</span><span><b>${s.deathsToday ?? 0}</b> deaths today</span><span><b>${s.game.step}</b> step</span><span><b>${arrows[s.game.heading]} ${s.game.heading}</b> heading</span>`;
+  document.getElementById('rule').textContent = s.rule || '';
 }
 async function poll(){ try { const r = await fetch('/state', {cache:'no-store'}); render(await r.json()); } catch(e){} }
 setInterval(poll, 2000); poll();
-setInterval(()=>{ if(!last||!last.open) return; const s = Math.max(0, Math.round((Date.parse(last.open.decideAt)-Date.now())/1000)); document.getElementById('clock').textContent = s; const n = document.getElementById('nextclock'); if (n) n.textContent = s; }, 250);
+setInterval(()=>{ if(!last||!last.open||!last.next||last.next.decided) return; const s = Math.max(0, Math.round((Date.parse(last.open.decideAt)-Date.now())/1000)); const n = document.getElementById('clock'); if (n) n.textContent = clockText(s); }, 250);
 </script>
 </body>
 </html>

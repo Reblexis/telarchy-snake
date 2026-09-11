@@ -1,228 +1,233 @@
-// The stream frame, docs/snake.md "The stream": the board drawn straight into
-// an RGB buffer, no browser. A 5x7 bitmap font carries the numbers and labels.
+// The stream frame, docs/snake.md "The stream": the board's first screen
+// drawn in-process with @napi-rs/canvas, no browser. Text is set in Inter,
+// bundled under fonts/ (OFL) and registered here, never a system font.
+import { createCanvas, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
+import { fileURLToPath } from 'node:url';
 import { GRID } from './engine.js';
 import { impact60, ACTIONS, ACTION_TITLE } from './decide.js';
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
-type RGB = [number, number, number];
 
-const BG: RGB = [11, 13, 16];
-const BOARD: RGB = [16, 19, 24];
-const GRIDLINE: RGB = [24, 28, 34];
-const SNAKE: RGB = [74, 222, 128];
-const HEAD: RGB = [187, 247, 208];
-const FOOD: RGB = [248, 113, 113];
-const FG: RGB = [232, 230, 225];
-const MUTE: RGB = [139, 143, 152];
-const LEAD: RGB = [250, 204, 21];
-const CARD: RGB = [34, 38, 44];
+/** The face every line is set in; the file ships in the repo. */
+export const FONT = 'Inter';
+for (const file of ['Inter-Regular.ttf', 'Inter-SemiBold.ttf']) {
+  GlobalFonts.registerFromPath(fileURLToPath(new URL(`../fonts/${file}`, import.meta.url)), FONT);
+}
+
+const BG = '#0b0d10';
+const BOARD = '#111419';
+const GRIDLINE = '#1a1e25';
+const SNAKE = '#4ade80';
+const HEAD = '#bbf7d0';
+const HEAD_GLOW = 'rgba(74, 222, 128, 0.35)';
+const EYE = '#0b0d10';
+const FOOD = '#f87171';
+const FG = '#e8e6e1';
+const MUTE = '#8b8f98';
+const LEAD = '#facc15';
+const TILE = '#15181e';
+const TILE_LEAD = '#2a2612';
 
 const MARGIN = 24;
 const BOARD_PX = HEIGHT - 2 * MARGIN; // 672
+const X = MARGIN + BOARD_PX + 40; // 736: the right column
+const W = WIDTH - X - MARGIN; // 520
 
 export function cellRect(x: number, y: number, size: number = GRID) {
   const cell = Math.floor(BOARD_PX / size);
   return { x: MARGIN + x * cell, y: MARGIN + y * cell, w: cell, h: cell };
 }
 
-function fill(buf: Buffer, x: number, y: number, w: number, h: number, c: RGB) {
-  const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(WIDTH, x + w), y1 = Math.min(HEIGHT, y + h);
-  for (let yy = y0; yy < y1; yy++) {
-    let i = (yy * WIDTH + x0) * 3;
-    for (let xx = x0; xx < x1; xx++) { buf[i++] = c[0]; buf[i++] = c[1]; buf[i++] = c[2]; }
-  }
+const measurer = createCanvas(1, 1).getContext('2d');
+const font = (size: number, weight: 400 | 600 = 600) => `${weight} ${size}px ${FONT}`;
+
+/** Width in pixels of `s` set at `size` px (semibold unless `weight` says otherwise). */
+export function measureText(s: string, size: number, weight: 400 | 600 = 600): number {
+  if (s.length === 0) return 0;
+  measurer.font = font(size, weight);
+  return measurer.measureText(s).width;
 }
 
-// 5x7 glyphs, rows top to bottom, bit 4 = leftmost column.
-const GLYPHS: Record<string, number[]> = {
-  '0': [0x0e,0x11,0x13,0x15,0x19,0x11,0x0e], '1': [0x04,0x0c,0x04,0x04,0x04,0x04,0x0e],
-  '2': [0x0e,0x11,0x01,0x02,0x04,0x08,0x1f], '3': [0x1f,0x02,0x04,0x02,0x01,0x11,0x0e],
-  '4': [0x02,0x06,0x0a,0x12,0x1f,0x02,0x02], '5': [0x1f,0x10,0x1e,0x01,0x01,0x11,0x0e],
-  '6': [0x06,0x08,0x10,0x1e,0x11,0x11,0x0e], '7': [0x1f,0x01,0x02,0x04,0x08,0x08,0x08],
-  '8': [0x0e,0x11,0x11,0x0e,0x11,0x11,0x0e], '9': [0x0e,0x11,0x11,0x0f,0x01,0x02,0x0c],
-  'A': [0x0e,0x11,0x11,0x1f,0x11,0x11,0x11], 'B': [0x1e,0x11,0x11,0x1e,0x11,0x11,0x1e],
-  'C': [0x0e,0x11,0x10,0x10,0x10,0x11,0x0e], 'D': [0x1c,0x12,0x11,0x11,0x11,0x12,0x1c],
-  'E': [0x1f,0x10,0x10,0x1e,0x10,0x10,0x1f], 'F': [0x1f,0x10,0x10,0x1e,0x10,0x10,0x10],
-  'G': [0x0e,0x11,0x10,0x17,0x11,0x11,0x0f], 'H': [0x11,0x11,0x11,0x1f,0x11,0x11,0x11],
-  'I': [0x0e,0x04,0x04,0x04,0x04,0x04,0x0e], 'J': [0x07,0x02,0x02,0x02,0x02,0x12,0x0c],
-  'K': [0x11,0x12,0x14,0x18,0x14,0x12,0x11], 'L': [0x10,0x10,0x10,0x10,0x10,0x10,0x1f],
-  'M': [0x11,0x1b,0x15,0x15,0x11,0x11,0x11], 'N': [0x11,0x11,0x19,0x15,0x13,0x11,0x11],
-  'O': [0x0e,0x11,0x11,0x11,0x11,0x11,0x0e], 'P': [0x1e,0x11,0x11,0x1e,0x10,0x10,0x10],
-  'Q': [0x0e,0x11,0x11,0x11,0x15,0x12,0x0d], 'R': [0x1e,0x11,0x11,0x1e,0x14,0x12,0x11],
-  'S': [0x0f,0x10,0x10,0x0e,0x01,0x01,0x1e], 'T': [0x1f,0x04,0x04,0x04,0x04,0x04,0x04],
-  'U': [0x11,0x11,0x11,0x11,0x11,0x11,0x0e], 'V': [0x11,0x11,0x11,0x11,0x11,0x0a,0x04],
-  'W': [0x11,0x11,0x11,0x15,0x15,0x15,0x0a], 'X': [0x11,0x11,0x0a,0x04,0x0a,0x11,0x11],
-  'Y': [0x11,0x11,0x11,0x0a,0x04,0x04,0x04], 'Z': [0x1f,0x01,0x02,0x04,0x08,0x10,0x1f],
-  ' ': [0,0,0,0,0,0,0], '.': [0,0,0,0,0,0x0c,0x0c], ':': [0,0x0c,0x0c,0,0x0c,0x0c,0],
-  '-': [0,0,0,0x1f,0,0,0], '+': [0,0x04,0x04,0x1f,0x04,0x04,0], '/': [0x01,0x02,0x02,0x04,0x08,0x08,0x10], '?': [0x0e,0x11,0x01,0x02,0x04,0,0x04],
-  '#': [0x0a,0x0a,0x1f,0x0a,0x1f,0x0a,0x0a], '(': [0x02,0x04,0x08,0x08,0x08,0x04,0x02], ')': [0x08,0x04,0x02,0x02,0x02,0x04,0x08],
-  '>': [0x08,0x04,0x02,0x01,0x02,0x04,0x08], '^': [0x04,0x0a,0x11,0,0,0,0], 'v': [0,0,0,0x11,0x0a,0x04,0], '<': [0x02,0x04,0x08,0x10,0x08,0x04,0x02],
-  '_': [0,0,0,0,0,0,0x1f], ',': [0,0,0,0,0x0c,0x04,0x08], '!': [0x04,0x04,0x04,0x04,0x04,0,0x04], '=': [0,0,0x1f,0,0x1f,0,0],
-  '*': [0,0x0a,0x04,0x1f,0x04,0x0a,0], "'": [0x04,0x04,0,0,0,0,0], '%': [0x18,0x19,0x02,0x04,0x08,0x13,0x03],
-  '@': [0x0e,0x11,0x17,0x15,0x17,0x10,0x0e],
-};
-
-export function measureText(s: string, scale: number): number {
-  return s.length === 0 ? 0 : s.length * 6 * scale - scale;
+function text(ctx: SKRSContext2D, s: string, x: number, y: number, size: number, colour: string, weight: 400 | 600 = 600, align: 'left' | 'right' | 'center' = 'left') {
+  ctx.font = font(size, weight);
+  ctx.fillStyle = colour;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(s, x, y);
 }
 
-export function drawText(buf: Buffer, x: number, y: number, s: string, scale: number, c: RGB) {
-  let cx = x;
-  for (const ch of s) {
-    const g = GLYPHS[ch] ?? GLYPHS[ch.toUpperCase()] ?? GLYPHS['?'];
-    for (let r = 0; r < 7; r++) for (let col = 0; col < 5; col++) {
-      if (g[r] & (1 << (4 - col))) fill(buf, cx + col * scale, y + r * scale, scale, scale, c);
-    }
-    cx += 6 * scale;
+/** Cut `s` with an ellipsis so it fits `w` px at `size`. */
+function clip(s: string, size: number, w: number, weight: 400 | 600 = 600): string {
+  if (measureText(s, size, weight) <= w) return s;
+  let t = s;
+  while (t.length > 1 && measureText(t + '…', size, weight) > w) t = t.slice(0, -1);
+  return t.trimEnd() + '…';
+}
+
+/** Word-wrap `s` to at most `lines` lines of `w` px, the last one clipped. */
+function wrap(s: string, size: number, w: number, lines: number, weight: 400 | 600 = 400): string[] {
+  const out: string[] = [];
+  let line = '';
+  for (const word of s.split(/\s+/).filter(Boolean)) {
+    const cand = line ? `${line} ${word}` : word;
+    if (line && measureText(cand, size, weight) > w) {
+      out.push(line);
+      line = word;
+      if (out.length === lines) break;
+    } else line = cand;
   }
+  if (out.length < lines && line) out.push(line);
+  if (out.length === lines && out.length > 0) out[lines - 1] = clip(out[lines - 1] + (line && out[lines - 1] !== line ? ' ' + line : ''), size, w, weight);
+  return out;
+}
+
+function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.closePath();
 }
 
 const fmt = (v: number | null | undefined) => (v === null || v === undefined ? '-' : (Math.round(v * 10) / 10).toString());
-const ARROW: Record<string, string> = { up: '^', right: '>', down: 'v', left: '<' };
-/** The next-move line's action words: short enough to fit beside the countdown at scale 3. */
-export const NEXT_LABEL: Record<string, string> = { forward: 'FORWARD', left: 'TURN LEFT', right: 'TURN RIGHT' };
+const signed = (v: number | null) => (v === null ? '-' : `${v >= 0 ? '+' : ''}${fmt(v)}`);
+const ARROW: Record<string, string> = { up: '↑', right: '→', down: '↓', left: '←' };
+/** The next-move line's action words. */
+export const NEXT_LABEL: Record<string, string> = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
+const TILE_LABEL: Record<string, string> = { forward: 'Continue', left: 'Left', right: 'Right' };
+const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+
+function drawBoard(ctx: SKRSContext2D, g: any, N: number) {
+  const CELL = Math.floor(BOARD_PX / N);
+  const size = CELL * N;
+  ctx.fillStyle = BOARD;
+  roundRect(ctx, MARGIN, MARGIN, size, size, 12);
+  ctx.fill();
+  ctx.strokeStyle = GRIDLINE;
+  ctx.lineWidth = 1;
+  for (let i = 1; i < N; i++) {
+    ctx.beginPath(); ctx.moveTo(MARGIN + i * CELL + 0.5, MARGIN); ctx.lineTo(MARGIN + i * CELL + 0.5, MARGIN + size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(MARGIN, MARGIN + i * CELL + 0.5); ctx.lineTo(MARGIN + size, MARGIN + i * CELL + 0.5); ctx.stroke();
+  }
+  // food: a rounded red dot
+  const fr = cellRect(g.food.x, g.food.y, N);
+  ctx.fillStyle = FOOD;
+  ctx.beginPath(); ctx.arc(fr.x + fr.w / 2, fr.y + fr.h / 2, fr.w * 0.3, 0, Math.PI * 2); ctx.fill();
+  // snake: one rounded band through the cell centres, the head lighter with a glow
+  const pad = Math.max(2, Math.round(CELL * 0.08));
+  const radius = Math.max(3, Math.round(CELL * 0.22));
+  const snake: { x: number; y: number }[] = g.snake ?? [];
+  const centre = (c: { x: number; y: number }) => { const r = cellRect(c.x, c.y, N); return [r.x + r.w / 2, r.y + r.h / 2] as const; };
+  if (snake.length > 1) {
+    ctx.strokeStyle = SNAKE;
+    ctx.lineWidth = CELL - 2 * pad;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    snake.forEach((c, i) => { const [x, y] = centre(c); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.stroke();
+  } else if (snake.length === 1) {
+    const r = cellRect(snake[0].x, snake[0].y, N);
+    ctx.fillStyle = SNAKE;
+    roundRect(ctx, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad, radius); ctx.fill();
+  }
+  if (snake[0]) {
+    const r = cellRect(snake[0].x, snake[0].y, N);
+    ctx.save();
+    ctx.shadowColor = HEAD_GLOW; ctx.shadowBlur = CELL * 0.6;
+    ctx.fillStyle = HEAD;
+    roundRect(ctx, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad, radius); ctx.fill();
+    ctx.restore();
+  }
+  // the heading: two eyes on the side of the head the snake moves towards
+  if (snake[0]) {
+    const h = cellRect(snake[0].x, snake[0].y, N);
+    const cx = h.x + h.w / 2, cy = h.y + h.h / 2;
+    const off = h.w * 0.22, side = h.w * 0.16, er = Math.max(1.5, h.w * 0.07);
+    const eyes: [number, number][] = g.heading === 'up' ? [[cx - side, cy - off], [cx + side, cy - off]]
+      : g.heading === 'down' ? [[cx - side, cy + off], [cx + side, cy + off]]
+      : g.heading === 'left' ? [[cx - off, cy - side], [cx - off, cy + side]]
+      : [[cx + off, cy - side], [cx + off, cy + side]];
+    ctx.fillStyle = EYE;
+    for (const [ex, ey] of eyes) { ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill(); }
+  }
+}
 
 export function renderFrame(s: any): Buffer {
-  const buf = Buffer.alloc(WIDTH * HEIGHT * 3);
-  fill(buf, 0, 0, WIDTH, HEIGHT, BG);
+  const canvas = createCanvas(WIDTH, HEIGHT);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
   const g = s.game;
   const N: number = s.grid ?? g.size ?? GRID;
-  const CELL = Math.floor(BOARD_PX / N);
-  // board
-  fill(buf, MARGIN, MARGIN, CELL * N, CELL * N, BOARD);
-  for (let i = 0; i <= N; i++) {
-    fill(buf, MARGIN + i * CELL, MARGIN, 1, CELL * N, GRIDLINE);
-    fill(buf, MARGIN, MARGIN + i * CELL, CELL * N, 1, GRIDLINE);
-  }
-  const fr = cellRect(g.food.x, g.food.y, N);
-  fill(buf, fr.x + 8, fr.y + 8, fr.w - 16, fr.h - 16, FOOD);
-  g.snake.forEach((c: { x: number; y: number }, i: number) => {
-    const r = cellRect(c.x, c.y, N);
-    fill(buf, r.x + 2, r.y + 2, r.w - 4, r.h - 4, i === 0 ? HEAD : SNAKE);
-  });
-  // The heading, marked on the head: a bar on the edge the snake is moving towards.
-  {
-    const h = cellRect(g.snake[0].x, g.snake[0].y, N);
-    const t = Math.max(3, Math.floor(h.w / 6));
-    if (g.heading === 'up') fill(buf, h.x + 4, h.y + 2, h.w - 8, t, LEAD);
-    if (g.heading === 'down') fill(buf, h.x + 4, h.y + h.h - 2 - t, h.w - 8, t, LEAD);
-    if (g.heading === 'left') fill(buf, h.x + 2, h.y + 4, t, h.h - 8, LEAD);
-    if (g.heading === 'right') fill(buf, h.x + h.w - 2 - t, h.y + 4, t, h.h - 8, LEAD);
-  }
+  drawBoard(ctx, g, N);
 
-  // right column: 556 px wide from X, every line at scale 2 or larger so it reads at 720p.
-  const X = MARGIN + CELL * GRID + 40; // 724
-  const W = WIDTH - X - MARGIN; // 532
-  const clip = (t: string, scale: number, w: number = W) => {
-    const max = Math.floor((w + scale) / (6 * scale));
-    return t.length > max ? t.slice(0, Math.max(0, max - 1)) + '.' : t;
-  };
-  /** Word-wrap to at most `lines` lines of the column's width. */
-  const wrap = (t: string, scale: number, lines: number): string[] => {
-    const max = Math.floor((W + scale) / (6 * scale));
-    const out: string[] = [];
-    let line = '';
-    for (const w of t.split(' ')) {
-      if (line && (line + ' ' + w).length > max) { out.push(line); line = w; } else line = line ? line + ' ' + w : w;
-      if (out.length === lines) break;
-    }
-    if (out.length < lines && line) out.push(line);
-    return out.map(l => clip(l, scale));
-  };
-  const gameNo = s.gameNumber ?? g.gameNumber ?? 1;
-  let y = MARGIN;
-  drawText(buf, X, y, 'FUTARCHY SNAKE', 4, FG); y += 34;
-  drawText(buf, X, y, clip(`GAME ${gameNo}  ${N}X${N}  THE MARKET PICKS EVERY MOVE`, 2), 2, MUTE); y += 22;
-  drawText(buf, X, y, `LENGTH ${g.length}`, 4, FG);
-  drawText(buf, X + 250, y + 4, `HEADING ${ARROW[g.heading]} ${String(g.heading).toUpperCase()}`, 3, LEAD); y += 30;
-  drawText(buf, X, y, clip(`BEST ${s.bestLength ?? g.length}  DEATHS ${s.deathsToday ?? 0}  STEP ${g.step}  TRADERS TODAY ${s.tradersToday ?? 0}`, 2), 2, MUTE); y += 22;
-
-  // the next move, large and yellow (docs/snake.md, "The board")
+  // 2. the next move, one big line with the clock
+  let y = MARGIN + 24;
+  text(ctx, 'Next move', X, y, 18, MUTE, 400);
+  y += 62;
   const next = s.next ?? null;
   if (next) {
-    const dir = String(next.direction).toUpperCase();
-    // Decided: the line turns green and the countdown goes (the commentary says "Decided: ...").
-    drawText(buf, X, y, clip(`NEXT: ${NEXT_LABEL[next.action] ?? '?'} ${ARROW[next.direction] ?? ''} ${dir}`, 3, W - 60), 3, next.decided ? SNAKE : LEAD);
-    if (!next.decided) { const secs = `${s.secondsToDecision ?? next.seconds}S`; drawText(buf, X + W - measureText(secs, 3), y, secs, 3, FG); }
-    y += 26;
+    const label = `${ARROW[next.direction] ?? ''} ${NEXT_LABEL[next.action] ?? '?'}`;
+    const secs: number | null = next.decided ? null : (s.secondsToDecision ?? next.seconds ?? null);
+    const right = secs === null ? 'decided' : clock(Math.max(0, secs));
+    const rightSize = secs === null ? 20 : 48;
+    const rw = measureText(right, rightSize, secs === null ? 400 : 600);
+    text(ctx, clip(label, 48, W - rw - 16), X, y, 48, next.decided ? SNAKE : LEAD);
+    text(ctx, right, X + W, y, rightSize, secs === null ? SNAKE : FG, secs === null ? 400 : 600, 'right');
   } else if (s.complete) {
-    drawText(buf, X, y, 'COMPLETE: THE SNAKE FILLED THE GRID', 3, LEAD); y += 26;
+    text(ctx, 'Complete', X, y, 48, LEAD);
   } else {
-    drawText(buf, X, y, 'WAITING FOR THE NEXT STEP', 3, MUTE); y += 26;
+    text(ctx, 'Waiting', X, y, 48, MUTE);
   }
-  for (const line of wrap(String(s.commentary ?? '').toUpperCase(), 2, 2)) { drawText(buf, X, y, line, 2, FG); y += 20; }
-  if (!s.commentary) y += 20;
-  y += 2;
 
+  // 3. three choice tiles: arrow, name, 60-move impact; the leader in the accent
+  y += 40;
+  const gap = 12, tw = Math.floor((W - 2 * gap) / 3), th = 150;
   if (s.open) {
     let best: string | null = null, bp = -Infinity;
     for (const a of ACTIONS) {
       const p = impact60(s.open.quotes?.[a]);
       if (p !== null && p > bp) { bp = p; best = a; }
     }
-    const cw = W, chh = 50;
     ACTIONS.forEach((a, i) => {
-      const cx = X, cy = y + i * (chh + 6);
-      fill(buf, cx, cy, cw, chh, CARD);
-      if (a === best) { fill(buf, cx, cy, 4, chh, LEAD); }
-      const q = s.open.quotes?.[a] ?? {};
-      const imp = impact60(q);
+      const tx = X + i * (tw + gap);
+      const lead = a === best;
+      ctx.fillStyle = lead ? TILE_LEAD : TILE;
+      roundRect(ctx, tx, y, tw, th, 14); ctx.fill();
+      if (lead) { ctx.strokeStyle = LEAD; ctx.lineWidth = 2; roundRect(ctx, tx + 1, y + 1, tw - 2, th - 2, 13); ctx.stroke(); }
       const dir = s.open.directions?.[a];
-      drawText(buf, cx + 14, cy + 8, `${ACTION_TITLE[a].toUpperCase()}${dir ? `  ${ARROW[dir]} ${String(dir).toUpperCase()}` : ''}`, 2, a === best ? LEAD : FG);
-      drawText(buf, cx + 14, cy + 30, clip(`+1 ${fmt(q.m1?.approved)}  +5 ${fmt(q.m5?.approved)}  +60 ${fmt(q.m60?.approved)}/${fmt(q.m60?.declined)}`, 2, cw - 125), 2, MUTE);
-      const it = imp === null ? '-' : `${imp >= 0 ? '+' : ''}${fmt(imp)}`;
-      drawText(buf, cx + cw - 14 - measureText(it, 4), cy + 11, it, 4, a === best ? LEAD : FG);
+      text(ctx, dir ? ARROW[dir] ?? '' : '', tx + 18, y + 48, 34, lead ? LEAD : FG);
+      text(ctx, TILE_LABEL[a], tx + 18, y + 80, 18, lead ? LEAD : MUTE, 400);
+      text(ctx, signed(impact60(s.open.quotes?.[a])), tx + 18, y + 128, 40, lead ? LEAD : FG);
     });
-    y += 3 * (chh + 6) + 6;
   } else if (s.complete) {
-    if (s.nextGameAt) { const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000)); drawText(buf, X, y, `NEXT GAME ON A ${N + 1}X${N + 1} GRID IN ${m} MIN`, 2, MUTE); }
-    y += 24;
+    const lines = ['The snake filled the grid.'];
+    if (s.nextGameAt) { const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000)); lines.push(`Next game on ${N + 1}x${N + 1} in ${m} min.`); }
+    lines.forEach((l, i) => text(ctx, l, X, y + 40 + i * 30, 22, FG, 400));
   }
+  y += th + 48;
 
-  const hm = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '--:--' : d.toISOString().slice(11, 16); };
-  const ACT: Record<string, string> = { forward: 'FWD', left: 'LEFT', right: 'RIGHT' };
-  const HZ: Record<string, string> = { m1: '1', m5: '5', m60: '60' };
-  const BR: Record<string, string> = { approved: 'A', declined: 'D' };
-  const SD: Record<string, string> = { higher: 'HIGHER', lower: 'LOWER' };
-  const SD2: Record<string, string> = { higher: 'HI', lower: 'LO' };
-  const handle = (h: unknown, n: number) => String(h).toUpperCase().slice(0, n).padEnd(n);
+  // 4. the status line: three facts
+  const gameNo = s.gameNumber ?? g.gameNumber ?? 1;
+  text(ctx, `Length ${g.length} · Game ${gameNo} · ${N}x${N}`, X, y, 24, FG, 400);
+  y += 44;
 
-  // current traders: up to three rows
-  const traders: any[] = Array.isArray(s.traders) ? s.traders : [];
-  const tn = s.tradersThisStep ?? new Set(traders.map(t => t.handle)).size;
-  drawText(buf, X, y, clip(`TRADERS THIS STEP: ${tn}`, 2), 2, MUTE); y += 20;
-  if (traders.length === 0) { drawText(buf, X, y, 'NO POSITIONS YET. YOURS COULD BE FIRST.', 2, FG); y += 20; }
-  for (const t of traders.slice(0, 3)) {
-    drawText(buf, X, y, clip(`${handle(t.handle, 12)} ${SD[t.side] ?? '?'} ${ACT[t.action] ?? '?'} ${HZ[t.horizon] ?? '?'} ${BR[t.branch] ?? '?'} ${fmt(t.cost)} CR${t.worth === null || t.worth === undefined ? '' : ` WORTH ${fmt(t.worth)}`}`, 2), 2, FG); y += 20;
-  }
-  y += 6;
-
-  // last trades: up to five rows, newest first
+  // 5. the quiet line, above the trade line at the foot of the column: the newest trade, else the commentary
   const trades: any[] = Array.isArray(s.recentTrades) ? s.recentTrades : [];
-  drawText(buf, X, y, clip('LAST TRADES  (A/D = APPROVED/DECLINED BOOK)', 2), 2, MUTE); y += 20;
-  if (trades.length === 0) { drawText(buf, X, y, 'NO TRADES YET', 2, FG); y += 20; }
-  for (const t of trades.slice(0, 5)) {
-    drawText(buf, X, y, clip(`${hm(t.at)} ${handle(t.handle, 9)} ${t.kind === 'sell' ? 'SELL' : 'BUY '} ${SD2[t.side] ?? '?'} ${ACT[t.action] ?? '?'} ${HZ[t.horizon] ?? '?'} ${BR[t.branch] ?? '?'} ${fmt(t.cost)}${t.price === null || t.price === undefined ? '' : ` @${fmt(t.price)}`}`, 2), 2, FG); y += 20;
-  }
-  y += 6;
+  const t = trades[0];
+  const quiet = t
+    ? `${t.handle} bet ${fmt(t.cost)} on ${ACTION_TITLE[t.action as keyof typeof ACTION_TITLE] ?? t.action}`
+    : String(s.commentary ?? '');
+  const lines = wrap(quiet, 20, W, 2);
+  const footY = HEIGHT - MARGIN - 6;
+  lines.forEach((l, i) => text(ctx, l, X, footY - 44 - (lines.length - 1 - i) * 28, 20, MUTE, 400));
+  void y;
 
-  // leaderboard, top three, and the last decisions side by side
-  const leaders: any[] = Array.isArray(s.leaderboard) ? s.leaderboard : [];
-  const half = Math.floor(W / 2) - 8;
-  drawText(buf, X, y, 'TOP TRADERS', 2, MUTE);
-  drawText(buf, X + half + 16, y, 'LAST MOVES', 2, MUTE); y += 20;
-  const fi = (q: any) => { const v = impact60(q); return v === null ? '-' : `${v >= 0 ? '+' : ''}${fmt(v)}`; };
-  const decisions: any[] = (s.recentDecisions ?? []).slice(0, 3);
-  for (let i = 0; i < 3; i++) {
-    if (y > HEIGHT - MARGIN - 40) break;
-    const l = leaders[i];
-    if (l) drawText(buf, X, y, clip(`${l.rank}. ${String(l.handle).toUpperCase().padEnd(12).slice(0, 12)} ${l.profit >= 0 ? '+' : ''}${fmt(l.profit)}`, 2, half), 2, FG);
-    else if (i === 0) drawText(buf, X, y, 'NOBODY YET', 2, FG);
-    const d = decisions[i];
-    if (d) drawText(buf, X + half + 16, y, clip(`${d.step} ${ACT[d.action] ?? '?'} ${ARROW[d.direction] ?? ''}${d.undecided ? '?' : ''} ${fi(d.quotes?.[d.action])} ${d.lengthBefore}>${d.lengthAfter ?? '..'}`, 2, half), 2, FG);
-    y += 20;
-  }
-  drawText(buf, X, HEIGHT - MARGIN - 14, 'TRADE YOUR MOVE AT TELARCHY.COM/SNAKE', 2, MUTE);
-  return buf;
+  text(ctx, 'Trade at telarchy.com/snake', X, footY, 18, MUTE, 400);
+
+  // RGBA canvas bytes to the RGB the stream pipes into ffmpeg
+  const rgba = canvas.data();
+  const out = Buffer.alloc(WIDTH * HEIGHT * 3);
+  for (let i = 0, o = 0; i < rgba.length; i += 4, o += 3) { out[o] = rgba[i]; out[o + 1] = rgba[i + 1]; out[o + 2] = rgba[i + 2]; }
+  return out;
 }
