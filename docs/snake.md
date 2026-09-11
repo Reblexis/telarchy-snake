@@ -1,10 +1,10 @@
 # Futarchy snake
 
 A snake game steered by a Telarchy workspace. Every minute the market
-decides the snake's next move: three proposals are posted, turn left,
-turn right and continue forward, each priced by the workspace's own pair
-markets on the snake's length, and the one the market expects to leave
-the snake longest is approved. The game runs around the clock and a board
+decides the snake's next move: one proposal is posted with three options,
+continue forward, turn left and turn right, each option priced by its own
+conditional market on the snake's length, and the option the market
+expects to leave the snake longest is chosen. The game runs around the clock and a board
 page shows it live.
 
 It exists for four reasons, all Viktor's (record:
@@ -36,7 +36,7 @@ are free within it.
   per step in its heading, eating food grows it by one and spawns new food
   on a random free cell, hitting a wall or its own body kills it.
 - One step per minute, at the top of each UTC minute. The step's action
-  is the approved proposal's action (below): **turn left** and **turn
+  is the chosen option of the step's proposal (below): **turn left** and **turn
   right** are relative to the snake's heading (a snake heading up that
   turns left moves left), **continue forward** keeps the heading. A snake
   cannot reverse, so no action runs it into its own neck.
@@ -74,7 +74,8 @@ one-minute cell sixty minutes ahead (an absolute `YYYY-MM-DDTHH:MM` in
 the clock) and refreshes the workspace's markets, which opens that cell's
 baseline book. Every proposal of the attempt is priced on that same cell:
 the question on the floor is "what length will this attempt have reached
-at HH:MM", asked once, not a new question every minute. The book settles
+at HH:MM", asked once, not a new question every minute, with one answer
+per option. The book settles
 on the last reading inside its minute if the attempt is still alive then,
 or at the attempt's end (below), whichever comes first. When the cell's
 minute has passed with the attempt alive, the next step sets the next
@@ -88,84 +89,92 @@ reading, the operator settles the metric
 app's `docs/market-integrity.md`) at the length the attempt reached,
 with the reason `Game G, attempt A ended at length L`. That settles every
 open book on the metric at once, the attempt's baseline book and the
-approved branches of its proposals alike, so a trader is paid the moment
+chosen options of its proposals alike, so a trader is paid the moment
 the question is answered rather than an hour later on a number from the
 next attempt. The next step sets the new attempt's cell and opens its
 book. If the call fails the operator logs it and carries on; those books
 then settle on the readings inside their own minute.
 
 The operator forces the workspace's market refresh at every step, before
-posting the three proposals, so the attempt's baseline book exists and
-every proposal gets its pair. If setting the cell fails the step still
-runs (the undecided path covers a missing pair) and the next step tries
-again.
+posting the proposal, so the attempt's baseline book exists and the
+proposal gets its three option books. If setting the cell fails the step
+still runs (the undecided path covers a missing book) and the next step
+tries again.
 
-Liquidity: every pair book a proposal opens is funded by the workspace
+Liquidity: every option book a proposal opens is funded by the workspace
 owner through the metric's proposal credits on the 60-move horizon (1,000
-credits a branch, so a five-credit trade is an opinion and a hundred-credit
-one does not pin the book), never by the proposer; the operator posts
-with no subsidy of its own. A step therefore puts 6,000 credits out and
-gets 5,000 back within the minute (the two declined proposals and the
-approved one's declined branch void and refund); the approved branch's
+credits an option, so a five-credit trade is an opinion and a
+hundred-credit one does not pin the book), never by the proposer; the
+operator posts with no subsidy of its own. A step opens three books, one
+per option, so it puts 3,000 credits out and gets 2,000 back within the
+minute (the two options not chosen void and refund); the chosen option's
 1,000 stays out until that book settles, at its minute or at the attempt's
-end, so at most 61 steps' worth, 66,000 credits, is ever out at once. The
-operator's float must stay above that or Telarchy refuses the proposals
-(`Insufficient balance for forecast subsidy`); what traders win off the
-approved books is the only thing that draws it down. The workspace's decision window is one minute,
+end, so at most 61 steps' worth, 63,000 credits (sixty chosen books plus
+the open step's three), is ever out at once. The operator's float must
+stay above that or Telarchy refuses the proposal (`Insufficient balance
+for forecast subsidy`); what traders win off the chosen books is the only
+thing that draws it down. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
 The workspace is **muted**: `notificationsMuted` is on, so nothing it does
-reaches anyone by email, push or the bell, owner included. Three proposals
-and three decisions a minute would otherwise mail the owner and the
-proposer thousands of times a day. It stays muted until Viktor says
+reaches anyone by email, push or the bell, owner included. A proposal and a
+decision a minute would otherwise mail the owner and the proposer
+thousands of times a day. It stays muted until Viktor says
 otherwise.
 
 ## The step
 
-At second 0 of each minute the operator posts three proposals at once,
-titled `Game G, attempt A, move N: Turn left`, `Game G, attempt A, move
-N: Turn right` and `Game G, attempt A, move N: Continue forward`, where G
-is the game number, A the current attempt (the deaths so far in this game
-plus one: the snake's first life is attempt 1, and every respawn starts
-the next) and N the move the proposals decide counted within that attempt
-(the first move after a start or a respawn is move 1), so a proposal
-names its place in the game wherever Telarchy lists it and a reader can
-tell one minute's `Turn left` from the thousand others. The action is the
-part after the colon, exactly one of the three. Each
-carries the same deadline, the top of the next minute, so the books
-close together and the deadline a trader sees is the real one. The
-description is the proposal in the snake's own first person, one line
-per action (Viktor, 2026-09-11: it "is supposed to say something like
-'I will move right at move X'"): "I will turn right at move 2 of attempt
-55, game 1: from (9,6) heading right, that is down." Then the state a
-trader prices on (length, record, food), the cell the proposal is priced
-on (the length this attempt reaches by a clock minute, UTC), and the rule
-in one clause (the highest impact at :58 is approved, the rest declined
-with refund, ties continue forward). No board address: the game is on
-the floor itself.
+At second 0 of each minute the operator posts one proposal titled
+`Game G, attempt A, move N`, where G is the game number, A the current
+attempt (the deaths so far in this game plus one: the snake's first life
+is attempt 1, and every respawn starts the next) and N the move the
+proposal decides counted within that attempt (the first move after a
+start or a respawn is move 1), so a proposal names its place in the game
+wherever Telarchy lists it. The proposal carries three **options**, in
+this fixed order and with these ids: `forward` "Continue forward",
+`left` "Turn left", `right` "Turn right" (Telarchy's proposals with
+options, its `docs/guides/proposals.md`, "More than two options"). The
+action is the option's id, exactly one of the three. Telarchy opens one
+conditional market per option on the attempt's cell, so the three books
+close together at the proposal's one deadline, the top of the next
+minute, and the deadline a trader sees is the real one. The description
+is the proposal in the snake's own first person, one line per option
+(record: the telarchy umbrella's `notes/futarchy-snake-proposal-38.md`):
+"I will turn right at move 2 of attempt 55, game 1: from (9,6) heading
+right, that is down." Then the state a trader prices on (length, record,
+food), the cell the proposal is priced on (the length this attempt
+reaches by a clock minute, UTC), and the rule in one clause (the option
+with the highest price at :58 is chosen, the others void with refund,
+ties continue forward). No board address: the game is on the floor
+itself.
 
-During the minute the operator re-reads the proposals' pairs every five
-seconds and publishes them on `/state`, so the board and any bot see the
-live prices and the current leader, not only the decision.
+During the minute the operator re-reads the proposal every five seconds
+and publishes each option's price and lead on `/state`, so the board and
+any bot see the live prices and the current leader, not only the
+decision.
 
-At second 58, two seconds before the deadline, the operator reads each
-proposal's pair one last time and decides: a direction's score is its
-predicted impact, the approved-branch price minus the declined-branch
-price. Then:
+At second 58, two seconds before the deadline, the operator reads the
+proposal one last time and decides: an option's score is its **price**,
+the consensus of its own book (the length the market expects this
+attempt to reach if the snake takes that option). Then:
 
-- the proposal with the highest score is **approved**; its declined
-  branch voids and its approved branch stays open to settle on the
-  reached length, at its minute or when the attempt ends;
-- the other two are **declined with refund**: both their branches void
-  and every stake in them returns;
-- ties go to the current heading, then to up, right, down, left in that
-  order;
-- if no price can be read, or the API fails, the snake continues in its
-  current heading and the three proposals are declined with refund; the
-  step is logged as undecided, and the record says why
-  (`undecidedReason` on the decision, shown on `/state`): which action
-  had no price and what was missing (no pair on the cell, no consensus,
-  no answer from Telarchy), or the error the approval returned.
+- the option with the highest price is **chosen**: the operator approves
+  the proposal naming that option (`POST /api/proposals/:id/approve
+  { option }`); its book stays open to settle on the reached length, at
+  its minute or when the attempt ends, and Telarchy voids the other two
+  options' books and refunds every stake in them;
+- ties (prices within a billionth of each other) go to the current
+  heading, then to the option whose direction comes first in up, right,
+  down, left;
+- if no option has a price, or the API fails, the snake continues in its
+  current heading and the proposal is **declined with refund**
+  (`POST /api/proposals/:id/decline { refund: true }`), which voids all
+  three books; the step is logged as undecided, and the record says why
+  (`undecidedReason` on the decision, shown on `/state`): which option
+  had no price and what was missing (no book on the cell, no options on
+  the proposal, no consensus, no answer from Telarchy), or the error the
+  approval returned. When the approval itself fails the operator declines
+  with refund the same way, so nothing stays pending past the deadline.
 
 No call to Telarchy waits without limit. The app can stall for minutes
 at a time, and a loop stuck in one read past the deadline is how a step
@@ -180,9 +189,9 @@ calls, the settlement, the reading and the proposals wait at most twenty
 seconds each. A call that takes longer than five seconds is logged with
 its path and duration.
 
-The approved action is applied at the next top of minute. So the board
-shows: proposals for step N open during minute N, decision at N:58, move
-at N+1:00, and the next three proposals posted the same second.
+The chosen action is applied at the next top of minute. So the board
+shows: the proposal for step N open during minute N, decision at N:58,
+move at N+1:00, and the next proposal posted the same second.
 
 Nothing about the game is decided by the operator except through this
 rule. The operator account never trades.
@@ -221,19 +230,20 @@ row, exactly these five elements, in this order, and nothing else:
 2. **The next move**, one big line: the arrow of the resulting compass
    direction and the action, `→ Turn left`, with the seconds to the
    decision as a clock beside it, `0:31`. Before the decision it is the
-   current leader, the action with the highest live 60-move impact
-   (forward when no price is readable, per the rule), in the accent
-   colour; once decided the clock goes and the line reads as decided,
+   current leader, the option with the highest live price (forward when
+   no price is readable, per the rule), in the accent colour; once decided the clock goes and the line reads as decided,
    in the snake's green, held until the move at the top of the minute.
    Source: `next` on `/state` (`action`, `direction`, `decided`,
    `seconds`).
 3. **Three choice tiles**, Continue, Left, Right, each showing only its
-   compass arrow, its name and its live 60-move impact (`+1.4`) as a large
-   tabular number; the leader in the accent colour. Each tile links to
-   its proposal on telarchy.com. Source: `open.quotes`,
-   `open.directions`, `open.proposals`.
+   compass arrow, its name, its live price (`7.4`, the length the market
+   expects if the snake takes it) as a large tabular number, and on the
+   leader alone its lead over the best other option (`+1.4`); the leader
+   in the accent colour. Each tile links to the step's proposal on
+   telarchy.com. Source: `open.quotes`, `open.directions`,
+   `open.proposal`.
 4. **One status line**, four facts and no more: `Length 7 · Record 9 ·
-   Game 1 · 12x12`. Source: `game.length`, `bestLength`, `gameNumber`,
+   Game 1 · 4x4`. Source: `game.length`, `bestLength`, `gameNumber`,
    `grid`.
 5. **One quiet line** at the bottom: the newest trade (`philipp-gl bet
    5 on Turn left`), or, when there is none, the commentary. Never both.
@@ -241,7 +251,7 @@ row, exactly these five elements, in this order, and nothing else:
 
 Everything else lives below the fold in one collapsed **More** section
 (a `details` element, closed by default) that holds, in this order: the
-approved and declined prices per action, the current traders (with the
+price and lead per option, the current traders (with the
 counts this step and today), the last 30 trades, the leaderboard, the
 last ten decisions, the counters (best length this game, deaths today,
 step) and the rule in words. Source: `open.quotes`, `traders`,
@@ -277,7 +287,7 @@ plays at ten moves a second, and a game picker when more than one game
 is recorded), and **one caption line**, `Game 1 · attempt 30, move 3 · Turn
 left → · length 7`, the move the frame shows (the attempt and the move
 within it, as the proposal titles count them), the action the market
-approved for it (`undecided` when the step was), the resulting compass
+chose for it (`undecided` when the step was), the resulting compass
 arrow and the length after it. Deaths show as the frame after them: the
 snake back at the start, length 2.
 
@@ -309,19 +319,27 @@ a page needs to show the game live and replay any of it.
 
 
 **The feed never blanks between steps.** The step the operator has just
-ruled on stays on `/state` until the next step's proposals are posted, so
-a watcher never sees the board without a step for the seconds those posts
-take. `phase` says which moment it is: `open` while the step is trading,
+ruled on stays on `/state` until the next step's proposal is posted, so
+a watcher never sees the board without a step for the seconds that post
+takes. The ruled step keeps its one `open.proposal` and its `open.quotes`
+as they stood at the ruling until the next step replaces both. `phase`
+says which moment it is: `open` while the step is trading,
 `decided` from its ruling until the next step replaces it, `idle` only
 when there is no step at all (a complete game's cooldown).
 
 `/state` is the whole of the board's data and a bot's feed: the game
-state, the workspace and metric ids, the open step with its three
-proposals, and for each action the approved and declined market ids and
-their live prices, the cell key, the decide instant and the next step
-instant, the decision rule in words, recent decisions (each with its
-`undecidedReason`, null when the step was decided) and counters. A
-bot needs one read of `/state` per step to know what to trade.
+state, the workspace and metric ids, the open step with its one proposal
+(`open.proposal: { id, number, url }`), and for each action its option's
+market id and live price and lead (`open.quotes: { forward | left |
+right: { m60: { price, lead, marketId, reason? } } }`, where `price` is
+the option book's consensus, `lead` the price minus the best other
+option's price, positive for the leader and negative for the rest, both
+null while unpriced, and `reason` says what is missing when `price` is
+null), the cell key, the decide instant and the next step instant, the
+decision rule in words, recent decisions (each with the chosen option,
+every option's price at the close in `prices`, and its `undecidedReason`,
+null when the step was decided) and counters. A bot needs one read of
+`/state` per step to know what to trade.
 
 The activity fields on `/state`, all read from Telarchy's public
 workspace endpoints, never from the operator's own books:
@@ -330,13 +348,13 @@ workspace endpoints, never from the operator's own books:
   defined above.
 - `commentary`: the one-line commentary.
 - `bestLength`: the longest the snake has been in this game.
-- `traders`: the positions in the open step's books, each
-  `{ handle, action, horizon, branch, side, shares, cost, worth }`;
+- `traders`: the positions in the open step's three books, each
+  `{ handle, action, horizon, side, shares, cost, worth }`;
   `tradersThisStep` the number of distinct handles in it; `tradersToday`
   the number of distinct handles seen trading or holding a position in any
   snake book since midnight UTC (a counter that survives a restart).
 - `recentTrades`: the last 30 trades across the snake's books, newest
-  first, each `{ id, at, handle, step, action, horizon, branch, side, kind,
+  first, each `{ id, at, handle, step, action, horizon, side, kind,
   shares, cost, marketId, price }` where `price` is the book's consensus
   when the trade was first seen, or null.
 - `leaderboard`: the top five `{ rank, handle, profit, trades }` of this
@@ -370,15 +388,15 @@ carries `"partial": true`; the others carry no `partial` field.
 game (absent means `current`). Each step is the state **after** the move
 of that step: `{ "step", "at", "snake": [{x,y}...] (head first), "food":
 {x,y}, "heading", "action": "forward"|"left"|"right", "direction",
-"undecided", "impact": { "forward": n|null, "left": n|null, "right":
-n|null }, "length", "deaths" }`, where `action` is the action the market
-approved (`forward` with `undecided: true` when the step was undecided),
-`direction` the compass direction moved, `impact` the 60-move impact of
-each action as read at the decision (approved minus declined, null when
-unreadable), and a death shows as the state after it: length 2, `deaths`
-counted up. Step 0 is the starting position, recorded when the game
-starts; it has no move, so its `action` is `null`, its `direction` the
-starting heading and its `impact` all null. `total` is the number of
+"undecided", "prices": { "forward": n|null, "left": n|null, "right":
+n|null }, "length", "deaths" }`, where `action` is the option the market
+chose (`forward` with `undecided: true` when the step was undecided),
+`direction` the compass direction moved, `prices` the price of each
+option as read at the decision (null when unreadable), and a death shows
+as the state after it: length 2, `deaths` counted up. Step 0 is the
+starting position, recorded when the game starts; it has no move, so its
+`action` is `null`, its `direction` the starting heading and its `prices`
+all null. `total` is the number of
 entries recorded for the game, `from` the index of the first entry
 returned (0-based within the recording; for a game recorded from its
 start the index is the step number) and `steps` runs from it in order.
@@ -410,10 +428,9 @@ file; `/history` is the frame-by-frame shape a page draws without
 replaying anything.
 
 The operator reads activity on its own timer, apart from the quotes: the
-six books of the open step (approved and declined per action) every ten
-seconds and the workspace leaderboard once a minute. That is about forty
-public reads a minute on top of the step's own calls; it never walks a
-book's history.
+three books of the open step (one per option) every ten seconds and the
+workspace leaderboard once a minute. That is about twenty public reads a
+minute on top of the step's own calls; it never walks a book's history.
 The operator account still never trades.
 
 ## The stream
@@ -468,7 +485,10 @@ to production.
 
 ## What must hold
 
-- Exactly three proposals per minute while running, never more.
+- Exactly one proposal per minute while running, never more, and it
+  carries exactly the three options forward, left, right in that order.
+- The option with the highest price is the one chosen; a tie continues
+  in the current heading.
 - A decision is made every minute before the deadline; the undecided
   path leaves nothing pending.
 - A reading is posted after every step, timestamped at the step, and it
@@ -477,7 +497,7 @@ to production.
   attempt reached, before the new attempt's reading is posted, and never
   otherwise.
 - One cell per attempt: the metric's horizon is set when an attempt
-  starts and when its cell's minute has passed, never in between; every
-  proposal of a step is priced on the current cell.
+  starts and when its cell's minute has passed, never in between; the
+  step's proposal is priced on the current cell.
 - The operator never trades.
 - The board never shows a price the workspace did not report.
