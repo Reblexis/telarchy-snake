@@ -1,10 +1,11 @@
 # Futarchy snake
 
 A snake game steered by a Telarchy workspace. Every minute the market
-decides the snake's next move: four proposals are posted, one per
-direction, each priced by the workspace's own pair markets on the snake's
-length, and the one the market expects to leave the snake longest is
-approved. The game runs around the clock and a board page shows it live.
+decides the snake's next move: three proposals are posted, turn left,
+turn right and continue forward, each priced by the workspace's own pair
+markets on the snake's length, and the one the market expects to leave
+the snake longest is approved. The game runs around the clock and a board
+page shows it live.
 
 It exists for four reasons, all Viktor's (record:
 `viktor-cihal/projects/futarchy/snake-workspace.md`, decision log in the
@@ -25,9 +26,11 @@ are free within it.
   right, one food on a free cell. Classic rules: the snake moves one cell
   per step in its heading, eating food grows it by one and spawns new food
   on a random free cell, hitting a wall or its own body kills it.
-- One step per minute, at the top of each UTC minute. The step's
-  direction is the approved proposal's direction (below). Reversing into
-  the second segment is a death like any other collision.
+- One step per minute, at the top of each UTC minute. The step's action
+  is the approved proposal's action (below): **turn left** and **turn
+  right** are relative to the snake's heading (a snake heading up that
+  turns left moves left), **continue forward** keeps the heading. A snake
+  cannot reverse, so no action runs it into its own neck.
 - On death the snake respawns at once at length 2 in the starting state.
   Deaths are counted and shown, nothing else happens: the length itself is
   the penalty, because the length is what the market prices.
@@ -76,17 +79,18 @@ otherwise.
 
 ## The step
 
-At second 0 of each minute the operator posts four proposals at once,
-titles exactly `Move up`, `Move right`, `Move down`, `Move left`. Each
-carries the same deadline, the top of the next minute, so the four books
+At second 0 of each minute the operator posts three proposals at once,
+titles exactly `Turn left`, `Turn right`, `Continue forward`. Each
+carries the same deadline, the top of the next minute, so the books
 close together and the deadline a trader sees is the real one. The
-description names the step, the state, the three cells the proposal is
-priced on (as clock minutes, UTC), the rule, and the board's address, in
-one line.
+description names the step, the state including the current heading and
+the compass direction each action would take, the three cells the
+proposal is priced on (as clock minutes, UTC), the rule, and the board's
+address, in one line.
 
-During the minute the operator re-reads the four proposals' pairs every
-five seconds and publishes them on `/state`, so the board and any bot
-see the live prices and the current leader, not only the decision.
+During the minute the operator re-reads the proposals' pairs every five
+seconds and publishes them on `/state`, so the board and any bot see the
+live prices and the current leader, not only the decision.
 
 At second 58, two seconds before the deadline, the operator reads each
 proposal's three pairs one last time and decides on the **60-move
@@ -108,9 +112,9 @@ declined-branch price. Then:
 The 1-move and 5-move pairs never decide anything; they exist to be
 traded and to show how the market sees the near future.
 
-The approved direction is applied at the next top of minute. So the
-board shows: proposals for step N open during minute N, decision at N:58,
-move at N+1:00, and the next four proposals posted the same second.
+The approved action is applied at the next top of minute. So the board
+shows: proposals for step N open during minute N, decision at N:58, move
+at N+1:00, and the next three proposals posted the same second.
 
 Nothing about the game is decided by the operator except through this
 rule. The operator account never trades.
@@ -120,21 +124,23 @@ rule. The operator account never trades.
 The service serves one page, the board, at `/`. It carries:
 
 - the grid, the snake and the food, drawn large enough to read on a
-  stream at 1280 by 720,
+  stream at 1280 by 720, with the snake's heading marked on its head and
+  named in words,
 - the current length, deaths today, the step number, seconds to the
   decision,
-- four cards, one per direction, with the live 60-move impact large and
-  the 1-move and 5-move prices small, the leader marked, each card linking
-  to that proposal on telarchy.com,
-- the last ten decisions (direction, the four prices at decision, what it
-  did to the length),
+- three cards, one per action, each naming the compass direction it
+  would take, with the live 60-move impact large and the 1-move and
+  5-move prices small, the leader marked, each card linking to that
+  proposal on telarchy.com,
+- the last ten decisions (action and direction, the three impacts at
+  decision, what it did to the length),
 - one line saying what this is and where to trade, with the workspace
   link.
 
 It polls the service's own `/state` JSON every two seconds. `/state` is
 public and is the whole of the board's data and a bot's feed: the game
 state, the workspace and metric ids, the open step with its four
-proposals, and for each direction and cell the approved and declined
+proposals, and for each action and cell the approved and declined
 market ids and their live prices, the cell keys, the decide instant and
 the next step instant, the decision rule in words, recent decisions and
 counters. A bot needs one read of `/state` per step to know what to
@@ -171,7 +177,7 @@ fleet box.
 
 ## What must hold
 
-- Exactly four proposals per minute while running, never more.
+- Exactly three proposals per minute while running, never more.
 - A decision is made every minute before the deadline; the undecided
   path leaves nothing pending.
 - A reading is posted after every step, timestamped at the step, so the
