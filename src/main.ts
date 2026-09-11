@@ -1,11 +1,12 @@
 // The process: engine + operator loop + board + /state, docs/snake.md "Operation".
 import 'dotenv/config';
-import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Operator } from './operator.js';
 import { HttpTelarchyClient } from './client.js';
+import { GameLog } from './gamelog.js';
+import { createServer } from './server.js';
 
 const env = (k: string, d?: string) => process.env[k] ?? d ?? (() => { throw new Error(`missing env ${k}`); })();
 const BASE = env('TELARCHY_BASE_URL', 'https://telarchy.com/api');
@@ -20,7 +21,9 @@ const PORT = Number(env('PORT', '8802'));
 const STATE = env('STATE_FILE', 'state/snake.json');
 const PUBLIC_WS_URL = env('WORKSPACE_URL', 'https://telarchy.com/snake');
 const BOARD_URL = env('BOARD_URL', 'https://snake.telarchy.com');
-const OPTS = { boardUrl: BOARD_URL, workspaceId: WS, metricId: METRIC };
+/** docs/snake.md "The feed": the game log lives beside the state file. */
+const GAMES_DIR = env('GAMES_DIR', path.join(path.dirname(STATE), 'games'));
+const OPTS = { boardUrl: BOARD_URL, workspaceId: WS, metricId: METRIC, log: new GameLog(GAMES_DIR) };
 
 const client = new HttpTelarchyClient({
   baseUrl: BASE, apiKey: KEY, workspaceId: WS, metricId: METRIC, workspaceUrl: PUBLIC_WS_URL,
@@ -47,26 +50,7 @@ function save(op: Operator) {
 const op = load();
 const boardHtml = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'board', 'index.html'));
 
-http.createServer((req, res) => {
-  const url = new URL(req.url ?? '/', 'http://x');
-  if (url.pathname === '/state') {
-    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
-    res.end(JSON.stringify(op.publicState(new Date())));
-  } else if (url.pathname === '/replay') {
-    // docs/snake.md "The feed": one game's record, its moves from `from` on.
-    const game = url.searchParams.get('game');
-    const from = Number(url.searchParams.get('from') ?? '0');
-    const r = op.replay(game === null ? undefined : Number(game), Number.isFinite(from) ? from : 0);
-    if (!r) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no such game"}'); return; }
-    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
-    res.end(JSON.stringify(r));
-  } else if (url.pathname === '/' || url.pathname === '/index.html') {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(boardHtml);
-  } else {
-    res.writeHead(404); res.end('not found');
-  }
-}).listen(PORT, () => console.log(`board on :${PORT}`));
+createServer(op, boardHtml).listen(PORT, () => console.log(`board on :${PORT}`));
 
 // Scheduler: :00 tick (move + post), :55 close (decide). Wall-clock driven so a
 // long API call never drifts the minute; a missed second is caught up.

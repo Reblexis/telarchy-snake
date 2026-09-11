@@ -1,7 +1,8 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
 import { GRID, newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
-import { decide, ACTIONS, proposalTitle, HORIZONS, directionsFrom, emptyQuotes, type Action, type Decision, type Quotes, type Horizon } from './decide.js';
+import { decide, ACTIONS, proposalTitle, HORIZONS, directionsFrom, emptyQuotes, impact60, type Action, type Decision, type Quotes, type Horizon } from './decide.js';
+import type { GameLog, LogStep } from './gamelog.js';
 import { minuteCells } from './client.js';
 import { commentary } from './commentary.js';
 
@@ -71,6 +72,8 @@ export interface OperatorOptions {
   boardUrl?: string;
   workspaceId?: string;
   metricId?: string;
+  /** The on-disk game record behind /games and /history (docs/snake.md "The feed"); none in tests that do not need it. */
+  log?: GameLog;
 }
 
 export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the longest the snake will have been this game (max length achieved) in 60 moves. At :58 the proposal with the highest impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
@@ -155,10 +158,35 @@ export class Operator {
   private positionsStep = 0;
   private leaderboardAt = 0;
 
+  /** The game log, when the process keeps one. */
+  readonly log: GameLog | null;
+
   constructor(private client: TelarchyClient, game: GameState, private rng: Rng, private opts: OperatorOptions = {}) {
     this.game = game;
     this.bestLength = game.length;
     this.games = [startRecord(game)];
+    this.log = opts.log ?? null;
+    // docs/snake.md "The feed": a game with no log yet is recorded from
+    // here on; when that is not its start the entry is marked partial.
+    if (this.log && !this.log.has(game.gameNumber ?? 1)) {
+      const at = new Date().toISOString();
+      this.log.start(game.gameNumber ?? 1, game.size ?? GRID, at, this.logLine(game, at, null), game.step > 0);
+      if (game.complete) this.log.end(game.gameNumber ?? 1, at);
+    }
+  }
+
+  /** One log entry: the state as it stands, with the move that led to it (none for a starting position). */
+  private logLine(g: GameState, at: string, rec: DecisionRecord | null, dir?: Direction): LogStep {
+    const q = rec?.quotes;
+    return {
+      step: g.step, at,
+      snake: g.snake.map(c => ({ x: c.x, y: c.y })), food: { x: g.food.x, y: g.food.y }, heading: g.heading,
+      action: rec ? rec.action : null,
+      direction: dir ?? g.heading,
+      undecided: rec ? rec.undecided : false,
+      impact: { forward: q ? impact60(q.forward) : null, left: q ? impact60(q.left) : null, right: q ? impact60(q.right) : null },
+      length: g.length, deaths: g.deaths,
+    };
   }
 
   static fresh(client: TelarchyClient, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
@@ -285,6 +313,7 @@ export class Operator {
         }
         this.game = newGame(this.rng, size, (this.game.gameNumber ?? 1) + 1);
         this.games.push(startRecord(this.game));
+        this.log?.start(this.game.gameNumber, this.game.size, now.toISOString(), this.logLine(this.game, now.toISOString(), null), false);
         this.bestLength = this.game.length;
         this.completedAt = null;
         this.pending = null;
@@ -304,6 +333,8 @@ export class Operator {
     const rec = this.decisions[this.decisions.length - 1];
     if (rec && rec.lengthAfter === null) rec.lengthAfter = this.game.length;
     this.recordMove(before, this.game, dir, now, rec);
+    // docs/snake.md "The feed": the state after the move, right after it is applied.
+    this.log?.append(this.game.gameNumber ?? 1, this.logLine(this.game, now.toISOString(), rec && rec.step === this.game.step ? rec : null, dir), this.bestLength, this.game.complete);
     this.pending = null;
     this.open = null;
     // The reading is the record of the game, not the current length
@@ -498,27 +529,29 @@ export class Operator {
   }
 
   static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
-    const op = new Operator(client, raw.game, rng, opts);
-    op.open = raw.open ?? null;
-    op.decisions = raw.decisions ?? [];
-    op.pending = raw.pending ?? null;
-    op.completedAt = raw.completedAt ?? null;
-    if (op.game.complete === undefined) op.game = { ...op.game, complete: false };
-    if (op.game.size === undefined) op.game = { ...op.game, size: GRID, gameNumber: 1 };
-    if (op.game.attemptStep === undefined) {
+    let game: GameState = raw.game;
+    if (game.complete === undefined) game = { ...game, complete: false };
+    if (game.size === undefined) game = { ...game, size: GRID, gameNumber: 1 };
+    const decisions: DecisionRecord[] = raw.decisions ?? [];
+    if (game.attemptStep === undefined) {
       // A state file from before attempts were counted: the attempt's moves
       // are the decisions since the last death in this game.
       // A record's move killed the snake when the next record (or the game
       // now) counts one more death than it did.
       let n = 0;
-      const ds = op.decisions;
+      const ds = decisions;
       for (let i = 0; i < ds.length; i++) {
         if (ds[i].lengthAfter === null) continue;
-        const after = i + 1 < ds.length ? ds[i + 1].deathsBefore : op.game.deaths;
+        const after = i + 1 < ds.length ? ds[i + 1].deathsBefore : game.deaths;
         n = after > ds[i].deathsBefore ? 0 : n + 1;
       }
-      op.game = { ...op.game, attemptStep: Math.min(n, op.game.step) };
+      game = { ...game, attemptStep: Math.min(n, game.step) };
     }
+    const op = new Operator(client, game, rng, opts);
+    op.open = raw.open ?? null;
+    op.decisions = decisions;
+    op.pending = raw.pending ?? null;
+    op.completedAt = raw.completedAt ?? null;
     op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;
     op.recentTrades = Array.isArray(raw.recentTrades) ? raw.recentTrades : [];
     op.tradersToday = raw.tradersToday && Array.isArray(raw.tradersToday.handles) ? raw.tradersToday : { day: '', handles: [] };

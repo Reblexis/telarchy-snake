@@ -238,13 +238,19 @@ attempt's move at that step, not 1.
 
 ### The feed
 
-`/state` is public and is the whole of the board's data and a bot's feed:
-the game state, the workspace and metric ids, the open step with its
-three proposals, and for each action the approved and declined market
-ids and their live prices, the cell key, the decide instant and
-the next step instant, the decision rule in words, recent decisions and
-counters. A bot needs one read of `/state` per step to know what to
-trade.
+The service's data is three public JSON endpoints, `/state`, `/games`
+and `/history`, each answered with `access-control-allow-origin: *` and
+`cache-control: no-store`, so any page (telarchy.com's floor first) can
+read them from the browser and never sees a stale copy. `/state` is the
+present, `/games` and `/history` are the record; together they are what
+a page needs to show the game live and replay any of it.
+
+`/state` is the whole of the board's data and a bot's feed: the game
+state, the workspace and metric ids, the open step with its three
+proposals, and for each action the approved and declined market ids and
+their live prices, the cell key, the decide instant and the next step
+instant, the decision rule in words, recent decisions and counters. A
+bot needs one read of `/state` per step to know what to trade.
 
 The activity fields on `/state`, all read from Telarchy's public
 workspace endpoints, never from the operator's own books:
@@ -280,8 +286,58 @@ killed the snake. A page that already holds I moves asks for
 `from=I` and appends, so following a game live costs one small read
 every two seconds however long the game is. An unknown game is 404.
 
-The operator records every move it applies, in the state file with the
-rest of its state, and keeps every game since recording began.
+`GET /games` lists every recorded game, oldest first, the running game
+last: `{ "games": [ { "number": 1, "size": 12, "startedAt": ISO,
+"endedAt": ISO|null, "steps": N, "bestLength": n, "deaths": n } ] }`.
+`steps` is the number of moves made in the game (the `step` of `/state`),
+`endedAt` is null until the game completes, `bestLength` the record and
+`deaths` the count so far. A game whose log began mid-game (below)
+carries `"partial": true`; the others carry no `partial` field.
+
+`GET /history?game=N&from=S&limit=L` returns one game's steps:
+`{ "game": { "number", "size", "startedAt", "endedAt" }, "total", "from",
+"steps": [ ... ] }`. `game` is a number or `current`, the newest recorded
+game (absent means `current`). Each step is the state **after** the move
+of that step: `{ "step", "at", "snake": [{x,y}...] (head first), "food":
+{x,y}, "heading", "action": "forward"|"left"|"right", "direction",
+"undecided", "impact": { "forward": n|null, "left": n|null, "right":
+n|null }, "length", "deaths" }`, where `action` is the action the market
+approved (`forward` with `undecided: true` when the step was undecided),
+`direction` the compass direction moved, `impact` the 60-move impact of
+each action as read at the decision (approved minus declined, null when
+unreadable), and a death shows as the state after it: length 2, `deaths`
+counted up. Step 0 is the starting position, recorded when the game
+starts; it has no move, so its `action` is `null`, its `direction` the
+starting heading and its `impact` all null. `total` is the number of
+entries recorded for the game, `from` the index of the first entry
+returned (0-based within the recording; for a game recorded from its
+start the index is the step number) and `steps` runs from it in order.
+`from` defaults to `max(0, total - limit)`, the newest window; `limit`
+defaults to 300, is at least 1 and is capped at 2000. So `/history?game=current` is the
+last 300 moves and `/history?game=current&from=0&limit=2000` the first
+2000. An unknown game is 404 with `{ "error": "no such game" }`.
+
+The record is kept on disk, not in memory: one JSON line per step
+appended to `state/games/<number>.jsonl` (the starting position first,
+then every move the operator applies, right after it applies it), and
+`state/games/index.json` with the games list, rewritten whole after each
+step. A crash mid-write loses at most the last line: a torn last line is
+skipped by the reader and closed off at the next start so the next line
+is whole. A history page is served by streaming the game's file and
+keeping only the requested window, never by loading the whole file: a
+game can run to tens of thousands of lines and the process's memory does
+not follow it. The log starts when this version of the service first
+runs: a game already under way is recorded from that moment on, its
+first entry the state as it stands at step `game.step`, and the game is
+marked `partial` in the index because its earlier steps are not
+available. A game that starts later, on a fresh process or after the
+cooldown, is recorded from step 0 and its file and index entry are
+created at that instant.
+
+The Replay tab's `/replay` is the same record in the board's own shape
+(the start frame and the moves, replayed on the page), kept in the state
+file; `/history` is the frame-by-frame shape a page draws without
+replaying anything.
 
 The operator reads activity on its own timer, apart from the quotes: the
 six books of the open step (approved and declined per action) every ten
