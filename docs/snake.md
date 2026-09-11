@@ -34,12 +34,13 @@ are free within it.
   turns left moves left), **continue forward** keeps the heading. A snake
   cannot reverse, so no action runs it into its own neck.
 - On death the snake respawns at once at length 2 in the starting state.
-  Deaths are counted and shown, nothing else happens: the market prices
-  the longest the snake gets, and a snake back at 2 is far from beating
-  its record, so a death is its own penalty.
+  A death ends an **attempt**: the attempt's reached length is now known,
+  so every open book on the metric settles at it, right then (below).
+  Deaths are counted and shown.
 - A game ends when the snake fills the grid (length 144 on the first
-  grid): it is **complete**, the operator posts no more proposals, keeps
-  posting the full grid as the reading every minute, and the board
+  grid): it is **complete**, the attempt's reached length is the full grid
+  and every open book settles at it, the operator posts no more proposals,
+  keeps posting the full grid as the reading every minute, and the board
   shows the full snake and says so. After a **cooldown of one hour** the
   next game starts on the larger grid, at length 2, with the game number
   counted up. Until a game completes it runs without end.
@@ -48,24 +49,40 @@ are free within it.
 
 One public Telarchy workspace named `Snake` (Telarchy derives the slug,
 `snake`, from the name), owned by the snake operator account. One metric,
-**Max length achieved**, the longest the snake has been in the current
-game: an integer that starts at 2, never falls during a game (a death
-does not lower it) and starts again at 2 when a new game begins on the
-larger grid. Its market range is 0 to the full grid (144 on the first
+**Reached length**, the length the current attempt has reached: an
+integer that starts at 2 with every attempt and, since a snake never
+shrinks while it lives, is the snake's length until the attempt ends.
+Its market range is 0 to the full grid (144 on the first
 grid), so a book can price any length the snake can reach; when a new
 game starts on a larger grid the operator raises the range to the new
 full grid first. Telarchy refuses that while an open book on the metric
 has trades, so the operator retries every minute until it goes through,
 and the cooldown lasts that long. The operator posts a reading after
-every step, so the metric's chart is the record minute by minute.
+every step, so the metric's chart is the length minute by minute, back
+to 2 at every death.
 
 The metric is priced on one rolling horizon, a one-minute period on
-Telarchy's clock sixty minutes out (`+60min`): the record after **60
-moves**. A book for a minute settles on the last reading whose timestamp
-falls inside that minute; the operator's reading at the top of each
-minute, posted right after the move, is that minute's fixing, so the
-book for minute M+60 settles on the record after sixty more moves. No
-other horizon and no calendar horizon is priced.
+Telarchy's clock sixty minutes out (`+60min`): the length the attempt
+will have reached in **60 moves**. A book for a minute settles on the last
+reading whose timestamp falls inside that minute; the operator's reading
+at the top of each minute, posted right after the move, is that minute's
+fixing, so the book for minute M+60 settles on the length after sixty
+more moves, while the attempt lasts that long. No other horizon and no
+calendar horizon is priced.
+
+**When the attempt ends the answer is known.** Right after the move that
+kills the snake (or fills the grid), before it posts the new attempt's
+reading, the operator settles the metric
+(`POST /api/metrics/:id/settle`, Telarchy's early settlement, see the
+app's `docs/market-integrity.md`) at the length the attempt reached,
+with the reason `Game G, attempt A ended at length L`. That settles every
+open book on the metric at once, the baseline cells of the next sixty
+minutes and the approved branches of past proposals alike, so a trader is
+paid the moment the question is answered rather than an hour later on a
+number from the next attempt. The books the next steps open are fresh
+cells and price the new attempt. If the call fails the operator logs it
+and carries on; those books then settle on the readings inside their own
+minutes.
 
 A rolling minute cell exists only once the workspace's rolling markets
 are refreshed, so the operator forces that refresh at every step, before
@@ -116,7 +133,7 @@ price. Then:
 
 - the proposal with the highest score is **approved**; its declined
   branch voids and its approved branch stays open to settle on the
-  record at its minute;
+  reached length, at its minute or when the attempt ends;
 - the other two are **declined with refund**: both their branches void
   and every stake in them returns;
 - ties go to the current heading, then to up, right, down, left in that
@@ -258,8 +275,7 @@ workspace endpoints, never from the operator's own books:
 - `next`: `{ action, direction, decided, seconds }`, the next move as
   defined above.
 - `commentary`: the one-line commentary.
-- `bestLength`: the longest the snake has been in this game, which is
-  the metric's current reading.
+- `bestLength`: the longest the snake has been in this game.
 - `traders`: the positions in the open step's books, each
   `{ handle, action, horizon, branch, side, shares, cost, worth }`;
   `tradersThisStep` the number of distinct handles in it; `tradersToday`
@@ -388,7 +404,9 @@ fleet box.
 - A decision is made every minute before the deadline; the undecided
   path leaves nothing pending.
 - A reading is posted after every step, timestamped at the step, and it
-  is the record of the game, never the current length: a death leaves it
-  where it was, a new game puts it back at 2.
+  is the snake's length: 2 again after a death or a new game.
+- The move that ends an attempt settles the metric at the length the
+  attempt reached, before the new attempt's reading is posted, and never
+  otherwise.
 - The operator never trades.
 - The board never shows a price the workspace did not report.

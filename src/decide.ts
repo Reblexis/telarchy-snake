@@ -39,7 +39,7 @@ export interface Quote {
   approvedMarketId?: string;
   declinedMarketId?: string;
 }
-/** The one horizon: the record (max length achieved this game) in 60 moves. */
+/** The one horizon: the length the attempt will have reached in 60 moves. */
 export type Horizon = 'm60';
 export const HORIZONS: Horizon[] = ['m60'];
 export type DirectionQuotes = Record<Horizon, Quote>;

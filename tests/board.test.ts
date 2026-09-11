@@ -77,9 +77,9 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(html).toMatch(/Record \$\{s\.bestLength/);
   });
 
-  it('the provisioning script creates the one metric, Max length achieved, on the +60min horizon alone', () => {
+  it('the provisioning script creates the one metric, Reached length, on the +60min horizon alone', () => {
     const sh = fs.readFileSync(new URL('../scripts/provision.sh', import.meta.url), 'utf8');
-    expect(sh).toContain('"name": "Max length achieved"');
+    expect(sh).toContain('"name": "Reached length"');
     expect(sh).toMatch(/"customHorizons": \["\+60min"\]/);
     expect(sh).not.toMatch(/\+1min|\+5min/);
   });
