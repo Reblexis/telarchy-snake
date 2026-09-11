@@ -11,8 +11,14 @@ COOLDOWN=${COOLDOWN:-300}
 cd "$(dirname "$0")/.." || exit 1
 say() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 
+mkdir -p "$(dirname "$LOG")"
+# Trim, so a night of heartbeats never fills the disk.
+[ -f "$LOG" ] && [ "$(wc -l < "$LOG")" -gt 5000 ] && tail -2000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+
 OUT=$(./scripts/health.sh 2>&1); RC=$?
 if [ $RC -eq 0 ]; then
+  # A heartbeat, so silence means "not running" rather than "all well".
+  say "$OUT" 
   systemctl --user is-active --quiet telarchy-snake-stream.service || {
     say "stream is down, starting it"; systemctl --user start telarchy-snake-stream.service; }
   exit 0
