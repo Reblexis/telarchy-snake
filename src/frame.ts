@@ -201,6 +201,12 @@ function drawBoard(ctx: SKRSContext2D, g: any, N: number, next: { direction: str
   if (snake[0] && next) drawArrow(ctx, snake[0], N, next);
 }
 
+/** The grid the next game is played on: two cells larger, so every grid keeps
+ *  an even number of cells (docs/snake.md, "The game"). */
+export function nextGridLabel(n: number): string {
+  return `${n + 2}x${n + 2}`;
+}
+
 export function renderFrame(s: any): Buffer {
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext('2d');
@@ -254,7 +260,7 @@ export function renderFrame(s: any): Buffer {
     });
   } else if (s.complete) {
     const lines = ['The snake filled the grid.'];
-    if (s.nextGameAt) { const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000)); lines.push(`Next game on ${N + 1}x${N + 1} in ${m} min.`); }
+    if (s.nextGameAt) { const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000)); lines.push(`Next game on ${nextGridLabel(N)} in ${m} min.`); }
     lines.forEach((l, i) => text(ctx, l, X, y + 40 + i * 30, 22, FG, 400));
   }
   y += th + 48;

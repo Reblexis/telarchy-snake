@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderFrame, WIDTH, HEIGHT, cellRect, measureText, NEXT_LABEL, FONT } from '../src/frame.js';
+import { nextGridLabel, renderFrame, WIDTH, HEIGHT, cellRect, measureText, NEXT_LABEL, FONT } from '../src/frame.js';
 
 const state = {
   game: { snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }], heading: 'right', food: { x: 3, y: 4 }, length: 3, step: 12, deaths: 1, complete: false, size: 12, gameNumber: 1 },
@@ -246,5 +246,27 @@ describe('the stream frame: the first screen and nothing more (docs/snake.md, "T
     const f = renderFrame(rich as any);
     const y = HEIGHT - 1;
     for (let x = 0; x < WIDTH; x += 7) { const [r, g, b] = px(f, x, y); expect(Math.max(r, g, b)).toBeLessThan(20); }
+  });
+});
+
+describe('THE NEXT GRID IS NAMED AS IT WILL BE (docs/snake.md, "The game")', () => {
+  it('a complete game announces the next grid two cells larger, not one', () => {
+    const done = {
+      ...state,
+      grid: 4,
+      complete: true,
+      open: null,
+      nextGameAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      game: { ...state.game, size: 4, complete: true, length: 16, snake: [{ x: 0, y: 0 }] },
+    };
+    const f = renderFrame(done as any);
+    // The frame is text on a canvas, so read it back through the renderer's
+    // own line: the 6x6 line must be drawn, the 5x5 one must not.
+    const withSix = renderFrame({ ...done, grid: 4 } as any);
+    const five = renderFrame({ ...done, grid: 3 } as any); // a 3-grid would announce 5x5
+    expect(Buffer.compare(f, withSix)).toBe(0);
+    expect(Buffer.compare(f, five)).not.toBe(0);
+    expect(nextGridLabel(4)).toBe('6x6');
+    expect(nextGridLabel(6)).toBe('8x8');
   });
 });

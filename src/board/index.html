@@ -233,7 +233,7 @@ function render(s){
       return `<a class="tile ${a===best?'lead':''}" href="${esc(url)}" target="_blank" rel="noopener"><div class="arrow">${d ? arrows[d] : ''}</div><div class="name">${tileLabel[a]}${by == null ? '' : ` <span class="by">${signed(by)}</span>`}</div><div class="price">${fmt(price(q))}</div></a>`;
     }).join('');
     if (url) document.getElementById('wslink').href = s.open.proposal.url.replace(/\/p\/.*$/, '');
-  } else tiles.innerHTML = s.complete ? `<div class="tile lead done"><div class="name">The snake filled the grid</div><div class="price">Next game on ${GRID+1}x${GRID+1} ${s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'after an hour'}</div></div>` : '';
+  } else tiles.innerHTML = s.complete ? `<div class="tile lead done"><div class="name">The snake filled the grid</div><div class="price">Next game on ${GRID+2}x${GRID+2} ${s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'in five minutes'}</div></div>` : '';
   // 4. the status line
   document.getElementById('status').textContent = `Length ${s.game.length} · Record ${s.bestLength ?? s.game.length} · Game ${s.gameNumber || 1} · ${GRID}x${GRID}`;
   // 5. the quiet line: the newest trade, else the commentary
