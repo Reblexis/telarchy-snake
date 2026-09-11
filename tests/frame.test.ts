@@ -115,8 +115,8 @@ describe('the stream frame: activity (docs/snake.md, "The stream")', () => {
     // 1280 - 724 = 556 px of column; the widest title is a two-digit game on a two-digit grid.
     expect(measureText('FUTARCHY SNAKE', 4)).toBeLessThanOrEqual(556);
     expect(measureText('GAME 12  15X15  THE MARKET PICKS EVERY MOVE', 2)).toBeLessThanOrEqual(556);
-    // The next-move line shares its row with the countdown ("IN 58S" at scale 3, about 130 px).
-    for (const a of Object.keys(NEXT_LABEL)) expect(measureText(`NEXT: ${NEXT_LABEL[a]} > RIGHT`, 3), a).toBeLessThanOrEqual(532 - 130);
+    // The next-move line shares its row with the countdown ("58S" at scale 3, 51 px).
+    for (const a of Object.keys(NEXT_LABEL)) expect(measureText(`NEXT: ${NEXT_LABEL[a]} > RIGHT`, 3), a).toBeLessThanOrEqual(532 - 60);
   });
 
   it('draws the next move: a frame with a left leader differs from one with a right leader, cards aside', () => {

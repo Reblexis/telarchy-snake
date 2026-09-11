@@ -142,9 +142,9 @@ export function renderFrame(s: any): Buffer {
   const next = s.next ?? null;
   if (next) {
     const dir = String(next.direction).toUpperCase();
-    drawText(buf, X, y, clip(`NEXT: ${NEXT_LABEL[next.action] ?? '?'} ${ARROW[next.direction] ?? ''} ${dir}`, 3, W - 130), 3, LEAD);
-    const secs = next.decided ? 'DECIDED' : `IN ${s.secondsToDecision ?? next.seconds}S`;
-    drawText(buf, X + W - measureText(secs, 3), y, secs, 3, next.decided ? LEAD : FG);
+    // Decided: the line turns green and the countdown goes (the commentary says "Decided: ...").
+    drawText(buf, X, y, clip(`NEXT: ${NEXT_LABEL[next.action] ?? '?'} ${ARROW[next.direction] ?? ''} ${dir}`, 3, W - 60), 3, next.decided ? SNAKE : LEAD);
+    if (!next.decided) { const secs = `${s.secondsToDecision ?? next.seconds}S`; drawText(buf, X + W - measureText(secs, 3), y, secs, 3, FG); }
     y += 26;
   } else if (s.complete) {
     drawText(buf, X, y, 'COMPLETE: THE SNAKE FILLED THE GRID', 3, LEAD); y += 26;
