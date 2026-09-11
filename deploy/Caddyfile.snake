@@ -1,5 +1,6 @@
-# Append to /etc/caddy/Caddyfile on the box. snake.telarchy.com needs an A
-# record at Namecheap (-> 5.75.140.10); the nip.io name works without one.
-snake.telarchy.com, snake.5-75-140-10.nip.io {
+# /etc/caddy/Caddyfile on the snake's own server (docs/snake.md, "Operation").
+# snake.telarchy.com needs an A record at Namecheap (-> 167.233.147.90); the
+# nip.io name works without one.
+snake.telarchy.com, snake.167-233-147-90.nip.io {
 	reverse_proxy 127.0.0.1:8802
 }
