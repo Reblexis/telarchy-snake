@@ -22,8 +22,10 @@ are free within it.
 
 ## The game
 
-- Grid 12 by 12. The snake starts at the centre with length 2, heading
-  right, one food on a free cell. Classic rules: the snake moves one cell
+- The first game is on a grid 12 by 12; each later game is one cell
+  wider and taller than the last (13 by 13, then 14 by 14, and so on).
+  The snake starts at the centre with length 2, heading right, one food
+  on a free cell. Classic rules: the snake moves one cell
   per step in its heading, eating food grows it by one and spawns new food
   on a random free cell, hitting a wall or its own body kills it.
 - One step per minute, at the top of each UTC minute. The step's action
@@ -34,18 +36,24 @@ are free within it.
 - On death the snake respawns at once at length 2 in the starting state.
   Deaths are counted and shown, nothing else happens: the length itself is
   the penalty, because the length is what the market prices.
-- The game ends when the snake fills the grid: at length 144 it is
-  **complete**, the operator posts the final reading, posts no more
-  proposals, and the board shows the full snake and says so. Until then it
-  runs without end.
+- A game ends when the snake fills the grid (length 144 on the first
+  grid): it is **complete**, the operator posts no more proposals, keeps
+  posting the full length as the reading every minute, and the board
+  shows the full snake and says so. After a **cooldown of one hour** the
+  next game starts on the larger grid, at length 2, with the game number
+  counted up. Until a game completes it runs without end.
 
 ## The workspace
 
 One public Telarchy workspace named `Snake` (Telarchy derives the slug,
 `snake`, from the name), owned by the snake operator account. One metric,
 **Snake length**, the number of segments the snake has right now, an
-integer starting at 2. Its market range is 0 to 144, the full grid, so a
-book can price any length the snake can reach. The operator posts a
+integer starting at 2. Its market range is 0 to the full grid (144 on the
+first grid), so a book can price any length the snake can reach; when a
+new game starts on a larger grid the operator raises the range to the
+new full grid first. Telarchy refuses that while an open book on the
+metric has trades, so the operator retries every minute until it goes
+through, and the cooldown lasts that long. The operator posts a
 reading after every step, so the metric's chart is the length minute by
 minute.
 
