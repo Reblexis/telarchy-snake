@@ -36,8 +36,12 @@ export interface TelarchyClient {
   /** The pair of each proposal, for the step that opened at `openedAt`. */
   readQuotes(refs: ProposalRef[], openedAt: Date): Promise<Quotes>;
   decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void>;
-  /** A reading of Max length achieved at `at`; `final` marks the last reading of a UTC day. */
+  /** A reading of Reached length at `at`; `final` marks the last reading of a UTC day. */
   postReading(value: number, at: Date, final: boolean): Promise<void>;
+  /** The attempt ended: settle every open book on the metric at `value`
+   *  (docs/snake.md, "When the attempt ends the answer is known"). Throws
+   *  when Telarchy refuses; the operator logs it and carries on. */
+  settleMetric(value: number, at: Date, reason: string): Promise<void>;
   /** Force the workspace's rolling markets to refresh, so the step's minute
    *  cell has its baseline book before the proposals are posted
    *  (docs/snake.md, "The workspace"). */
@@ -76,7 +80,7 @@ export interface OperatorOptions {
   log?: GameLog;
 }
 
-export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the longest the snake will have been this game (max length achieved) in 60 moves. At :58 the proposal with the highest impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
+export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the length the attempt will have reached in 60 moves; when the attempt ends (a death or a full grid) every open book settles at the length it reached. At :58 the proposal with the highest impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
 
 /** One recorded move of a game, docs/snake.md "The feed" (`/replay`). */
 export interface ReplayMove {
@@ -143,6 +147,8 @@ export class Operator {
   completedAt: string | null = null;
   /** The longest the snake has been in this game (docs/snake.md, "The board"). */
   bestLength: number;
+  /** Early settlements Telarchy refused (docs/snake.md, "The workspace"); shown on /state. */
+  settleFailures = 0;
   /** The rolling trades log, newest first (persisted). */
   recentTrades: TradeRecord[] = [];
   /** Distinct handles seen trading or holding a position today (persisted). */
@@ -220,7 +226,7 @@ export class Operator {
     const description =
       `Step ${stepNo}: snake length ${g.length}, record ${this.bestLength}, heading ${g.heading} (forward = ${directions.forward}, turn left = ${directions.left}, ` +
       `turn right = ${directions.right}), head at (${g.snake[0].x},${g.snake[0].y}), food at (${g.food.x},${g.food.y}), ` +
-      `${g.deaths} deaths so far. Priced on the max length achieved this game in 60 moves (${hhmm(cells.m60)} UTC). ` +
+      `${g.deaths} deaths so far. Priced on the length attempt ${g.deaths + 1} will have reached in 60 moves (${hhmm(cells.m60)} UTC); when the attempt ends every open book settles at the length it reached. ` +
       `The highest impact is approved at :58, the others are declined with refund; ties continue forward; the snake moves at :00.${board}`;
     // All three at once, so they land in the same second and share the deadline.
     const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(proposalTitle(a, g.gameNumber ?? 1, g.deaths + 1, (g.attemptStep ?? 0) + 1), description, deadline)));
@@ -308,7 +314,7 @@ export class Operator {
         try {
           await this.client.setRange(size * size);
         } catch {
-          await this.client.postReading(this.bestLength, now, false);
+          await this.client.postReading(this.game.length, now, false);
           return; // a traded open book: try again next minute
         }
         this.game = newGame(this.rng, size, (this.game.gameNumber ?? 1) + 1);
@@ -318,11 +324,11 @@ export class Operator {
         this.completedAt = null;
         this.pending = null;
         this.open = null;
-        await this.client.postReading(this.bestLength, now, false);
+        await this.client.postReading(this.game.length, now, false);
         await this.openStep(now);
         return;
       }
-      await this.client.postReading(this.bestLength, now, false);
+      await this.client.postReading(this.game.length, now, false);
       return;
     }
     if (this.open && !this.open.decision) await this.closeStep(now);
@@ -337,13 +343,29 @@ export class Operator {
     this.log?.append(this.game.gameNumber ?? 1, this.logLine(this.game, now.toISOString(), rec && rec.step === this.game.step ? rec : null, dir), this.bestLength, this.game.complete);
     this.pending = null;
     this.open = null;
-    // The reading is the record of the game, not the current length
-    // (docs/snake.md, "What must hold"). It is stamped at the minute it was
-    // taken; the last one before midnight is marked final so the day's
-    // books settle on it.
+    // The attempt ended: the answer to every open book is known now, so
+    // they settle at the length the attempt reached, before the new
+    // attempt's reading (docs/snake.md, "When the attempt ends the answer is
+    // known"). A refusal is logged and the step carries on.
+    const died = this.game.deaths > before.deaths;
+    if (died || this.game.complete) {
+      const gameNo = before.gameNumber ?? 1;
+      const reason = died
+        ? `Game ${gameNo}, attempt ${before.deaths + 1} ended at length ${before.length}`
+        : `Game ${gameNo} complete at length ${this.game.length}`;
+      try {
+        await this.client.settleMetric(died ? before.length : this.game.length, now, reason);
+      } catch (e) {
+        this.settleFailures++;
+        console.error(`settle failed (${reason}): ${(e as Error).message}`);
+      }
+    }
+    // The reading is the snake's length (docs/snake.md, "What must hold"),
+    // stamped at the minute it was taken; the last one before midnight is
+    // marked final so the day's books settle on it.
     const next = new Date(now.getTime() + 60_000);
     const final = utcDay(next) !== utcDay(now) || this.game.complete;
-    await this.client.postReading(this.bestLength, now, final);
+    await this.client.postReading(this.game.length, now, final);
     if (this.game.complete) { this.completedAt = now.toISOString(); return; } // the cooldown begins
     await this.openStep(now);
   }
@@ -510,6 +532,7 @@ export class Operator {
     const activity = {
       next: this.next(now),
       bestLength: this.bestLength,
+      settleFailures: this.settleFailures,
       traders,
       tradersThisStep: new Set(traders.map(t => t.handle)).size,
       tradersToday: this.tradersToday.day === utcDay(now) ? this.tradersToday.handles.length : 0,

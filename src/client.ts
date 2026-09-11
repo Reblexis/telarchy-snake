@@ -194,6 +194,13 @@ export class HttpTelarchyClient implements TelarchyClient {
     }));
   }
 
+  /** docs/snake.md "The workspace", "When the attempt ends the answer is known":
+   *  Telarchy's early settlement of every open book on the metric. */
+  async settleMetric(value: number, at: Date, reason: string): Promise<void> {
+    if (!Number.isFinite(value)) throw new Error('a settlement value must be a number');
+    await this.call('POST', `/metrics/${encodeURIComponent(this.o.metricId)}/settle`, { value, asOf: at.toISOString(), reason });
+  }
+
   async postReading(value: number, at: Date, _final: boolean): Promise<void> {
     if (!Number.isFinite(value)) throw new Error('a reading must be a number');
     await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, { value, asOf: at.toISOString(), updateNote: 'step reading' });

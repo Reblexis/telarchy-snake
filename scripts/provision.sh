@@ -29,10 +29,10 @@ WS=$(curl -sf -H "X-Agent-Key: $KEY" -H 'Content-Type: application/json' -X POST
   -d '{"name":"Snake","visibility":"public"}')
 WSID=$(echo "$WS" | j "d['id']"); SLUG=$(echo "$WS" | j "d['slug']")
 
-echo "# creating metric Max length achieved" >&2
+echo "# creating metric Reached length" >&2
 METRIC=$(curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-Type: application/json' -X POST "$BASE/metrics" -d '{
-  "name": "Max length achieved",
-  "description": "The longest the snake has been in the current game. One move a minute; the market picks the direction. Priced on the record in 60 moves. A death respawns the snake at 2 but leaves the record; a new game on a larger grid starts it again at 2.",
+  "name": "Reached length",
+  "description": "The length the current attempt has reached. One move a minute; the market picks the direction. Priced on the length in 60 moves; when the attempt ends (a death or a full grid) every open book settles at the length it reached. The next attempt starts again at 2.",
   "value": 2,
   "marketRangeMax": 144,
   "timePreference": { "enabled": false, "customHorizons": ["+60min"],
@@ -44,7 +44,7 @@ echo "# settings: one-minute decision window, public" >&2
 curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-Type: application/json' -X PUT "$BASE/workspaces/$WSID/settings" -d '{
   "decisionMinutes": 1, "visibility": "public", "notificationsMuted": true,
   "description": "A snake game steered by this market: three proposals a minute, turn left, turn right or continue, the highest approved.",
-  "subjectAbout": "Every minute three proposals appear, Turn left / Turn right / Continue forward. Each is priced on the max length achieved this game in 60 moves. At second 58 the operator approves the move with the highest impact (approved minus declined) and declines the rest with a refund. The snake moves at the top of the next minute. Watch it live on the board (link in the workspace description) and trade the move you believe in."
+  "subjectAbout": "Every minute three proposals appear, Turn left / Turn right / Continue forward. Each is priced on the length this attempt will have reached in 60 moves, and when the attempt ends every open book settles at the length it reached. At second 58 the operator approves the move with the highest impact (approved minus declined) and declines the rest with a refund. The snake moves at the top of the next minute. Watch it live on the board (link in the workspace description) and trade the move you believe in."
 }' >/dev/null
 
 echo "# opening the rolling books" >&2

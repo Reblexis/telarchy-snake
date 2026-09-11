@@ -114,6 +114,17 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(reqs[0].body.value).not.toBeNull();
   });
 
+  it('settles the metric early with POST /metrics/:id/settle carrying the value, the reason and asOf, and throws on failure', async () => {
+    const { reqs, fetchImpl } = fakeFetch(() => ({ json: { settled: ['a', 'b'], count: 2 } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    await c.settleMetric(9, new Date('2026-09-11T10:01:00Z'), 'Game 1, attempt 3 ended at length 9');
+    expect(reqs[0].url).toBe('https://telarchy.com/api/metrics/m1/settle');
+    expect(reqs[0].method).toBe('POST');
+    expect(reqs[0].body).toEqual({ value: 9, asOf: '2026-09-11T10:01:00.000Z', reason: 'Game 1, attempt 3 ended at length 9' });
+    const bad = new HttpTelarchyClient(opts, fakeFetch(() => ({ status: 500, json: { error: 'boom' } })).fetchImpl as any);
+    await expect(bad.settleMetric(9, new Date(), 'x')).rejects.toThrow(/500/);
+  });
+
   it('raises the metric range with PUT /metrics/:id marketRangeMax, and throws on 409 so the operator can retry', async () => {
     const { reqs, fetchImpl } = fakeFetch(r => r.body?.marketRangeMax === 169 ? { json: { ok: true } } : { status: 409, json: { error: 'traded' } });
     const c = new HttpTelarchyClient(opts, fetchImpl as any);

@@ -5,7 +5,7 @@ import type { Quotes } from '../src/decide.js';
 
 type Call = { name: string; args: unknown[] };
 
-function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = []) {
+function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = [], settleFails = false) {
   const calls: Call[] = [];
   let n = 0;
   const client: TelarchyClient = {
@@ -23,6 +23,10 @@ function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string
     },
     async postReading(value, at, final) {
       calls.push({ name: 'postReading', args: [value, at.toISOString(), final] });
+    },
+    async settleMetric(value, at, reason) {
+      calls.push({ name: 'settleMetric', args: [value, at.toISOString(), reason] });
+      if (settleFails) throw new Error('settle -> 500');
     },
     async refreshBooks() {
       calls.push({ name: 'refreshBooks', args: [] });
@@ -91,7 +95,8 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(desc).toContain('11:00');
     expect(desc).toMatch(/60.move/i);
     expect(desc).toMatch(/record 2\b/i);
-    expect(desc).not.toMatch(/1, 5 and 60/);
+    expect(desc).toMatch(/reached|attempt/i);
+    expect(desc).not.toMatch(/1, 5 and 60|max length/i);
     expect(desc).toContain('https://snake.telarchy.com');
     expect(desc.includes('\n')).toBe(false);
     expect(desc.length).toBeLessThan(600);
@@ -558,20 +563,19 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     expect([...names].sort()).toEqual(['readActivity', 'readLeaderboard']);
   });
 
-  it('the reading is the record of the game, never the current length: a death leaves it where it was, a new game puts it back at 2', async () => {
+  /** Head one cell from the right wall, heading right, length 4: the forward move dies. */
+  const dying = () => ({ ...newGame(rng), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 }, { x: 8, y: 6 }], length: 4, food: { x: 0, y: 0 }, deaths: 2 });
+
+  it('the reading is the snake\'s length: 2 again after a death, 2 again on a new game', async () => {
     const { client, calls } = fakeClient(allTen);
-    // Head one cell from the right wall, heading right: the forward move dies.
-    const g = { ...newGame(rng), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 }, { x: 8, y: 6 }], length: 4, food: { x: 0, y: 0 } };
-    const op = new Operator(client, g, rng);
+    const op = new Operator(client, dying(), rng);
     op.bestLength = 4;
     await op.openStep(T0);
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
-    expect(op.game.deaths).toBe(1);
+    expect(op.game.deaths).toBe(3);
     expect(op.game.length).toBe(2);
-    const readings = calls.filter(c => c.name === 'postReading').map(c => c.args[0]);
-    expect(readings).toEqual([4]);
-    // A new game on the larger grid reads 2 again.
+    expect(calls.filter(c => c.name === 'postReading').map(c => c.args[0])).toEqual([2]);
     op.game = { ...op.game, complete: true };
     op.completedAt = '2026-09-11T10:01:00Z';
     await op.tick(new Date('2026-09-11T11:02:00Z'));
@@ -579,10 +583,66 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     expect(calls.filter(c => c.name === 'postReading').map(c => c.args[0]).pop()).toBe(2);
   });
 
-  it('the rule names the record on the 60-move horizon, not the length in 1, 5 and 60 moves', () => {
-    expect(RULE).toMatch(/longest|record|max length/i);
+  it('the move that ends an attempt settles the metric at the length the attempt reached, with the game and attempt named, before the new reading', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, dying(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    const names = calls.map(c => c.name);
+    const settle = calls.find(c => c.name === 'settleMetric')!;
+    expect(settle).toBeDefined();
+    expect(settle.args[0]).toBe(4);
+    expect(settle.args[1]).toBe('2026-09-11T10:01:00.000Z');
+    expect(settle.args[2]).toBe('Game 1, attempt 3 ended at length 4');
+    expect(names.indexOf('settleMetric')).toBeLessThan(names.indexOf('postReading'));
+    expect(names.filter(n => n === 'settleMetric')).toHaveLength(1);
+    // The next step still opens.
+    expect(op.open?.step).toBe(2);
+  });
+
+  it('a move that does not end the attempt never settles anything', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, { ...newGame(rng), food: { x: 7, y: 6 } }, rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z')); // eats
+    await op.closeStep(new Date('2026-09-11T10:01:58Z'));
+    await op.tick(new Date('2026-09-11T10:02:00Z'));
+    expect(calls.filter(c => c.name === 'settleMetric')).toHaveLength(0);
+  });
+
+  it('filling the grid ends the attempt too: the metric settles at the full grid', async () => {
+    const { client, calls } = fakeClient(allTen);
+    // A 2 by 2 grid: length 3 heading into the last free cell, where the food is.
+    const g = { ...newGame(rng, 2, 1), snake: [{ x: 1, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 1 }], heading: 'right' as const, length: 3, food: { x: 1, y: 1 } };
+    const op = new Operator(client, g, rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    op['pending'] = 'down';
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.game.complete).toBe(true);
+    const settle = calls.find(c => c.name === 'settleMetric')!;
+    expect(settle.args[0]).toBe(4);
+    expect(settle.args[2]).toMatch(/complete/);
+  });
+
+  it('a failed settlement is logged and the step carries on: the reading is posted and the next step opens', async () => {
+    const { client, calls } = fakeClient(allTen, {}, [], true);
+    const op = new Operator(client, dying(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(calls.filter(c => c.name === 'settleMetric')).toHaveLength(1);
+    expect(calls.filter(c => c.name === 'postReading').map(c => c.args[0])).toEqual([2]);
+    expect(op.open?.step).toBe(2);
+    expect(op.publicState(new Date('2026-09-11T10:01:01Z')).settleFailures).toBe(1);
+  });
+
+  it('the rule names the reached length of the attempt on the 60-move horizon', () => {
+    expect(RULE).toMatch(/reached|attempt/i);
     expect(RULE).toMatch(/60 moves/);
-    expect(RULE).not.toMatch(/1, 5 and 60/);
+    expect(RULE).not.toMatch(/1, 5 and 60|max length/i);
   });
 
   it('bestLength is the longest the snake has been this game, persists, and resets with a new game', async () => {
