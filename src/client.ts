@@ -187,6 +187,11 @@ export class HttpTelarchyClient implements TelarchyClient {
     await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, { marketRangeMax: max });
   }
 
+  /** docs/snake.md "The workspace": the metric's sentence names the grid. */
+  async setMetricDescription(text: string): Promise<void> {
+    await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, { description: text });
+  }
+
   /** docs/snake.md "The workspace": the attempt's cell becomes the metric's
    *  only horizon, an absolute minute; the credits the metric already has
    *  move with it. */

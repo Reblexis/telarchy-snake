@@ -20,6 +20,7 @@ function fakeClient(quotesFor: () => Quotes) {
     async refreshBooks() {},
     async setHorizon() {},
     async setRange() {},
+    async setMetricDescription() {},
     async readActivity() { return {}; },
     async readLeaderboard() { return []; },
   };

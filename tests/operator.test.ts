@@ -42,6 +42,9 @@ function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string
     async setRange(max) {
       calls.push({ name: 'setRange', args: [max] });
     },
+    async setMetricDescription(text: string) {
+      calls.push({ name: 'setMetricDescription', args: [text] });
+    },
     async readActivity(marketIds) {
       calls.push({ name: 'readActivity', args: [marketIds] });
       const out: Record<string, MarketActivity> = {};

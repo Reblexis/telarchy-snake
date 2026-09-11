@@ -64,7 +64,10 @@ integer that starts at 2 with every attempt and, since a snake never
 shrinks while it lives, is the snake's length until the attempt ends.
 Its market range is 0 to the full grid (16 on the first grid), so a book can price any length the snake can reach; when a new
 game starts on a larger grid the operator raises the range to the new
-full grid first. Telarchy refuses that while an open book on the metric
+full grid first. **The metric's description names the grid being played**
+and the length that fills it, and the operator rewrites it whenever a game
+starts, so the sentence a trader reads is never the grid before this one;
+a refusal there costs a stale sentence, never the new game. Telarchy refuses that while an open book on the metric
 has trades, so the operator retries every minute until it goes through,
 and the cooldown lasts that long. The operator posts a reading after
 every step, so the metric's chart is the length minute by minute, back
