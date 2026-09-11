@@ -35,7 +35,7 @@ METRIC=$(curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-
   "description": "The length the current attempt has reached. One move a minute; the market picks the direction. Priced on the length in 60 moves; when the attempt ends (a death or a full grid) every open book settles at the length it reached. The next attempt starts again at 2.",
   "value": 2,
   "marketRangeMax": 144,
-  "timePreference": { "enabled": false, "customHorizons": ["+60min"],
+  "timePreference": { "enabled": false, "customHorizons": ["+60min"], "_note": "the operator replaces this with the attempt's absolute cell at its first step (docs/snake.md, The workspace)",
     "horizonCredits": { "+60min": { "book": 25, "proposal": 1000 } } }
 }')
 MID=$(echo "$METRIC" | j "d['id']")
@@ -47,7 +47,7 @@ curl -sf -H "X-Agent-Key: $KEY" -H "X-Workspace-Id: $WSID" -H 'Content-Type: app
   "subjectAbout": "Every minute three proposals appear, Turn left / Turn right / Continue forward. Each is priced on the length this attempt will have reached in 60 moves, and when the attempt ends every open book settles at the length it reached. At second 58 the operator approves the move with the highest impact (approved minus declined) and declines the rest with a refund. The snake moves at the top of the next minute. Watch it live on the board (link in the workspace description) and trade the move you believe in."
 }' >/dev/null
 
-echo "# opening the rolling books" >&2
+echo "# opening the first book (the operator re-points it at the attempt's cell)" >&2
 curl -sf -H "X-API-Key: $MASTER_KEY" -H 'Content-Type: application/json' -X POST "$BASE/cron/refresh" -d "{\"workspaceId\":\"$WSID\"}" >/dev/null || echo "refresh call failed (the hourly cron will open them)" >&2
 
 cat <<ENV

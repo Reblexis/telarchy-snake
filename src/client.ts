@@ -135,8 +135,8 @@ export class HttpTelarchyClient implements TelarchyClient {
 
   /** The three proposals are read at once, and a missing price says why
    *  (docs/snake.md "The step", `undecidedReason`). */
-  async readQuotes(refs: ProposalRef[], openedAt: Date): Promise<Quotes> {
-    const cells = minuteCells(openedAt);
+  async readQuotes(refs: ProposalRef[], cell: string): Promise<Quotes> {
+    const cells: Record<Horizon, string> = { m60: cell };
     const out = {} as Quotes;
     await Promise.all(refs.map(async ref => {
       const action = actionOfTitle(ref.title);
@@ -180,6 +180,19 @@ export class HttpTelarchyClient implements TelarchyClient {
 
   async setRange(max: number): Promise<void> {
     await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, { marketRangeMax: max });
+  }
+
+  /** docs/snake.md "The workspace": the attempt's cell becomes the metric's
+   *  only horizon, an absolute minute; the credits the metric already has
+   *  move with it. */
+  async setHorizon(cell: string): Promise<void> {
+    const m = await this.call('GET', `/metrics/${encodeURIComponent(this.o.metricId)}`);
+    const credits: Record<string, unknown> = m?.timePreference?.horizonCredits ?? {};
+    const first = Object.values(credits)[0] as { book?: number; proposal?: number } | undefined;
+    const entry = { book: first?.book ?? 25, proposal: first?.proposal ?? 40 };
+    await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, {
+      timePreference: { enabled: false, customHorizons: [cell], horizonCredits: { [cell]: entry } },
+    });
   }
 
   async refreshBooks(): Promise<void> {

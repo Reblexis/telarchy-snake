@@ -33,8 +33,8 @@ export interface NextMove { action: Action; direction: Direction; decided: boole
 export interface TelarchyClient {
   /** Post one proposal with an explicit deadline (docs/snake.md, "The step"). */
   postProposal(title: string, description: string, decideBy: Date): Promise<ProposalRef>;
-  /** The pair of each proposal, for the step that opened at `openedAt`. */
-  readQuotes(refs: ProposalRef[], openedAt: Date): Promise<Quotes>;
+  /** The pair of each proposal on the attempt's cell. */
+  readQuotes(refs: ProposalRef[], cell: string): Promise<Quotes>;
   decideProposal(ref: ProposalRef, verdict: Verdict): Promise<void>;
   /** A reading of Reached length at `at`; `final` marks the last reading of a UTC day. */
   postReading(value: number, at: Date, final: boolean): Promise<void>;
@@ -42,10 +42,13 @@ export interface TelarchyClient {
    *  (docs/snake.md, "When the attempt ends the answer is known"). Throws
    *  when Telarchy refuses; the operator logs it and carries on. */
   settleMetric(value: number, at: Date, reason: string): Promise<void>;
-  /** Force the workspace's rolling markets to refresh, so the step's minute
-   *  cell has its baseline book before the proposals are posted
-   *  (docs/snake.md, "The workspace"). */
+  /** Force the workspace's markets to refresh, so the attempt's cell has
+   *  its baseline book before the proposals are posted (docs/snake.md,
+   *  "The workspace"). */
   refreshBooks(): Promise<void>;
+  /** Make `cell` (YYYY-MM-DDTHH:MM) the metric's only horizon: one book per
+   *  attempt (docs/snake.md, "The workspace"). Throws when Telarchy refuses. */
+  setHorizon(cell: string): Promise<void>;
   /** Raise the metric's market range to `max` (the new full grid). Throws when
    *  Telarchy refuses (an open traded book), so the caller retries later. */
   setRange(max: number): Promise<void>;
@@ -84,7 +87,7 @@ export interface OperatorOptions {
   decideReadTimeoutMs?: number;
 }
 
-export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the length the attempt will have reached in 60 moves; when the attempt ends (a death or a full grid) every open book settles at the length it reached. At :58 the proposal with the highest impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
+export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the attempt\'s one book: the length the attempt will have reached one hour after it started (or at the next hour mark while it lives); when the attempt ends (a death or a full grid) the book settles at the length it reached. At :58 the proposal with the highest impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
 
 /** One recorded move of a game, docs/snake.md "The feed" (`/replay`). */
 export interface ReplayMove {
@@ -179,6 +182,9 @@ export class Operator {
   bestLength: number;
   /** Early settlements Telarchy refused (docs/snake.md, "The workspace"); shown on /state. */
   settleFailures = 0;
+  /** The attempt's cell, the metric's only horizon (docs/snake.md, "The
+   *  workspace"); null until set, cleared when the attempt ends. */
+  cell: string | null = null;
   /** The rolling trades log, newest first (persisted). */
   recentTrades: TradeRecord[] = [];
   /** Distinct handles seen trading or holding a position today (persisted). */
@@ -241,7 +247,20 @@ export class Operator {
     if (this.open) throw new Error(`step ${this.open.step} is already open`);
     if (this.game.complete) throw new Error('the game is complete');
     if (!this.canOpen(now)) throw new Error('too close to the deadline to open a step');
-    // Every step: make sure the minute cell has its baseline book.
+    // One cell per attempt (docs/snake.md, "The workspace"): set when the
+    // attempt starts or its cell's minute has passed; a refusal leaves it
+    // unset so the next step tries again, and this step runs on whatever
+    // pair Telarchy gives it (the undecided path covers none).
+    if (!this.cell || Date.parse(`${this.cell}:00Z`) + 60_000 <= now.getTime()) {
+      const cell = minuteCells(now).m60;
+      try {
+        await this.client.setHorizon(cell);
+        this.cell = cell;
+      } catch (e) {
+        console.error(`set horizon ${cell} failed: ${(e as Error).message}`);
+      }
+    }
+    // Every step: make sure the attempt's cell has its baseline book.
     // A failure here only costs this step's prices (the undecided path).
     try { await this.client.refreshBooks(); } catch { /* undecided path covers it */ }
     const stepNo = this.game.step + 1;
@@ -249,14 +268,14 @@ export class Operator {
     const openedAt = isoMinute(now);
     const deadline = new Date(openedAt.getTime() + 60_000);
     const decideAt = new Date(openedAt.getTime() + DECIDE_SECOND * 1000);
-    const cells = minuteCells(now);
+    const cells: Record<Horizon, string> = { m60: this.cell ?? minuteCells(now).m60 };
     const directions = directionsFrom(g.heading);
     const hhmm = (c: string) => c.slice(11);
     const board = this.opts.boardUrl ? ` Board: ${this.opts.boardUrl}.` : '';
     const description =
       `Step ${stepNo}: snake length ${g.length}, record ${this.bestLength}, heading ${g.heading} (forward = ${directions.forward}, turn left = ${directions.left}, ` +
       `turn right = ${directions.right}), head at (${g.snake[0].x},${g.snake[0].y}), food at (${g.food.x},${g.food.y}), ` +
-      `${g.deaths} deaths so far. Priced on the length attempt ${g.deaths + 1} will have reached in 60 moves (${hhmm(cells.m60)} UTC); when the attempt ends every open book settles at the length it reached. ` +
+      `${g.deaths} deaths so far. Priced on the length attempt ${g.deaths + 1} will have reached at ${hhmm(cells.m60)} UTC, the attempt's one book; when the attempt ends every open book settles at the length it reached. ` +
       `The highest impact is approved at :58, the others are declined with refund; ties continue forward; the snake moves at :00.${board}`;
     // All three at once, so they land in the same second and share the deadline.
     const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(proposalTitle(a, g.gameNumber ?? 1, g.deaths + 1, (g.attemptStep ?? 0) + 1), description, deadline)));
@@ -292,7 +311,7 @@ export class Operator {
     const open = this.open;
     if (!open || open.decision || !this.pollAllowed(now)) return;
     try {
-      open.quotes = await within(this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), new Date(open.openedAt)), this.pollTimeout());
+      open.quotes = await within(this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), open.cells.m60), this.pollTimeout());
     } catch {
       // keep the last quotes
     }
@@ -307,7 +326,7 @@ export class Operator {
     // prices last polled during the minute (docs/snake.md, "The step").
     let quotes: Quotes;
     try {
-      quotes = await within(this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), new Date(open.openedAt)), this.opts.decideReadTimeoutMs ?? DECIDE_READ_TIMEOUT_MS);
+      quotes = await within(this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), open.cells.m60), this.opts.decideReadTimeoutMs ?? DECIDE_READ_TIMEOUT_MS);
     } catch (e) {
       quotes = open.quotes ?? emptyQuotes();
       if (!open.quotes) for (const a of ACTIONS) quotes[a].m60.reason = (e as Error).message;
@@ -406,6 +425,7 @@ export class Operator {
         this.settleFailures++;
         console.error(`settle failed (${reason}): ${(e as Error).message}`);
       }
+      this.cell = null; // the next step sets the new attempt's cell
     }
     // The reading is the snake's length (docs/snake.md, "What must hold"),
     // stamped at the minute it was taken; the last one before midnight is
@@ -581,6 +601,7 @@ export class Operator {
       next: this.next(now),
       bestLength: this.bestLength,
       settleFailures: this.settleFailures,
+      cell: this.cell,
       traders,
       tradersThisStep: new Set(traders.map(t => t.handle)).size,
       tradersToday: this.tradersToday.day === utcDay(now) ? this.tradersToday.handles.length : 0,
@@ -595,7 +616,7 @@ export class Operator {
     return {
       game: this.game, open: this.open, decisions: this.decisions, pending: this.pending, completedAt: this.completedAt,
       bestLength: this.bestLength, recentTrades: this.recentTrades, tradersToday: this.tradersToday,
-      games: this.games,
+      games: this.games, cell: this.cell,
     };
   }
 
@@ -625,6 +646,7 @@ export class Operator {
     op.pending = raw.pending ?? null;
     op.completedAt = raw.completedAt ?? null;
     op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;
+    op.cell = typeof raw.cell === 'string' ? raw.cell : null;
     op.log?.noteBest(op.game.gameNumber ?? 1, op.bestLength);
     op.recentTrades = Array.isArray(raw.recentTrades) ? raw.recentTrades : [];
     op.tradersToday = raw.tradersToday && Array.isArray(raw.tradersToday.handles) ? raw.tradersToday : { day: '', handles: [] };

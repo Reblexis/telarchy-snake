@@ -5,7 +5,7 @@ import type { Quotes } from '../src/decide.js';
 
 type Call = { name: string; args: unknown[] };
 
-function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = [], settleFails = false) {
+function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = [], settleFails = false, horizonFails = false) {
   const calls: Call[] = [];
   let n = 0;
   const client: TelarchyClient = {
@@ -13,8 +13,8 @@ function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string
       calls.push({ name: 'postProposal', args: [title, description, decideBy.toISOString()] });
       return { id: `p${++n}`, title, url: `https://telarchy.com/snake/p/${n}` };
     },
-    async readQuotes(refs: ProposalRef[], openedAt: Date) {
-      calls.push({ name: 'readQuotes', args: [refs.map(r => r.id), openedAt.toISOString()] });
+    async readQuotes(refs: ProposalRef[], cell: string) {
+      calls.push({ name: 'readQuotes', args: [refs.map(r => r.id), cell] });
       const step = Number(calls.filter(c => c.name === 'readQuotes').length);
       return quotesFor(step);
     },
@@ -30,6 +30,10 @@ function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string
     },
     async refreshBooks() {
       calls.push({ name: 'refreshBooks', args: [] });
+    },
+    async setHorizon(cell: string) {
+      calls.push({ name: 'setHorizon', args: [cell] });
+      if (horizonFails) throw new Error('horizon -> 500');
     },
     async setRange(max) {
       calls.push({ name: 'setRange', args: [max] });
@@ -61,6 +65,7 @@ const trade = (id: string, handle: string, at: string, cost = 5, kind: 'buy' | '
 const pos = (handle: string, cost = 5) => ({ handle, direction: 'higher' as const, shares: 2, cost, worth: 6 });
 
 const h = (a: number | null, d: number | null) => ({ m60: { approved: a, declined: d } });
+const T0 = new Date('2026-09-11T10:00:00Z');
 const allTen = (): Quotes => ({ forward: h(10, 10), left: h(10, 10), right: h(10, 10) });
 const upWins = (): Quotes => ({ ...allTen(), left: h(12, 10) }); // the snake heads right at the start, so 'left' turns it up
 const none = (): Quotes => ({ forward: h(null, null), left: h(null, null), right: h(null, null) });
@@ -93,7 +98,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(desc).not.toContain('10:01');
     expect(desc).not.toContain('10:05');
     expect(desc).toContain('11:00');
-    expect(desc).toMatch(/60.move/i);
+    expect(desc).toMatch(/attempt 1\b/);
     expect(desc).toMatch(/record 2\b/i);
     expect(desc).toMatch(/reached|attempt/i);
     expect(desc).not.toMatch(/1, 5 and 60|max length/i);
@@ -213,7 +218,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     const names = new Set(calls.map(c => c.name));
-    expect([...names].sort()).toEqual(['decideProposal', 'postProposal', 'postReading', 'readQuotes', 'refreshBooks']);
+    expect([...names].sort()).toEqual(['decideProposal', 'postProposal', 'postReading', 'readQuotes', 'refreshBooks', 'setHorizon']);
     expect(Object.keys(client).some(k => /trade|order/i.test(k))).toBe(false);
   });
 
@@ -221,8 +226,8 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
-    expect(calls[0].name).toBe('refreshBooks');
-    expect(calls[1].name).toBe('postProposal');
+    expect(calls.map(c => c.name).slice(0, 2)).toEqual(['setHorizon', 'refreshBooks']);
+    expect(calls[2].name).toBe('postProposal');
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     expect(calls.filter(c => c.name === 'refreshBooks').length).toBe(2);
@@ -230,12 +235,78 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls[second + 1].name).toBe('postProposal');
   });
 
-  it('the quotes are read for the minute the step opened in, so the client can name its cells', async () => {
+  it('one cell per attempt: the first step sets the horizon to the minute sixty ahead, before the proposals, and later steps of the attempt keep it', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, { ...newGame(rng), food: { x: 0, y: 0 } }, rng);
+    await op.openStep(T0);
+    const names = calls.map(c => c.name);
+    expect(calls.find(c => c.name === 'setHorizon')!.args).toEqual(['2026-09-11T11:00']);
+    expect(names.indexOf('setHorizon')).toBeLessThan(names.indexOf('postProposal'));
+    expect(names.indexOf('setHorizon')).toBeLessThan(names.lastIndexOf('refreshBooks'));
+    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:00' });
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    await op.closeStep(new Date('2026-09-11T10:01:58Z'));
+    await op.tick(new Date('2026-09-11T10:02:00Z'));
+    expect(calls.filter(c => c.name === 'setHorizon')).toHaveLength(1);
+    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:00' });
+    expect(calls.filter(c => c.name === 'readQuotes').every(c => c.args[1] === '2026-09-11T11:00')).toBe(true);
+    const desc = String(calls.filter(c => c.name === 'postProposal').pop()!.args[1]);
+    expect(desc).toContain('11:00');
+    expect(desc).not.toContain('11:02');
+  });
+
+  it('a death ends the cell: the next step sets a new one sixty minutes ahead of it', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const g = { ...newGame(rng), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }], length: 2, food: { x: 0, y: 0 } };
+    const op = new Operator(client, g, rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z')); // dies
+    expect(op.game.deaths).toBe(1);
+    expect(calls.filter(c => c.name === 'setHorizon').map(c => c.args[0])).toEqual(['2026-09-11T11:00', '2026-09-11T11:01']);
+    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:01' });
+    const names = calls.map(c => c.name);
+    expect(names.lastIndexOf('settleMetric')).toBeLessThan(names.lastIndexOf('setHorizon'));
+  });
+
+  it('when the cell\'s minute has passed with the attempt alive, the next step sets the next cell', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, { ...newGame(rng), food: { x: 0, y: 0 } }, rng);
+    await op.openStep(T0);
+    op.cell = '2026-09-11T10:00'; // as if the attempt had been running an hour
+    op.open!.cells = { m60: '2026-09-11T10:00' };
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(calls.filter(c => c.name === 'setHorizon').map(c => c.args[0]).pop()).toBe('2026-09-11T11:01');
+    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:01' });
+  });
+
+  it('the cell survives a restart', async () => {
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, { ...newGame(rng), food: { x: 0, y: 0 } }, rng);
+    await op.openStep(T0);
+    const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
+    expect(back.cell).toBe('2026-09-11T11:00');
+  });
+
+  it('if setting the cell fails the step still runs and the next step tries again', async () => {
+    const { client, calls } = fakeClient(allTen, {}, [], false, true);
+    const op = new Operator(client, { ...newGame(rng), food: { x: 0, y: 0 } }, rng);
+    await op.openStep(T0);
+    expect(calls.filter(c => c.name === 'postProposal')).toHaveLength(3);
+    expect(op.cell).toBeNull();
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(calls.filter(c => c.name === 'setHorizon')).toHaveLength(2);
+  });
+
+  it('the quotes are read for the attempt\'s cell, so the client can name it', async () => {
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00.700Z'));
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
-    expect(calls.find(c => c.name === 'readQuotes')!.args[1]).toBe('2026-09-11T10:00:00.700Z');
+    expect(calls.find(c => c.name === 'readQuotes')!.args[1]).toBe('2026-09-11T11:00');
   });
 
   it('a step never opens with under ten seconds to its deadline (a restart late in the minute waits for the next one)', async () => {
@@ -373,7 +444,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(s.complete).toBe(false);
     expect(s.secondsToDecision).toBe(38);
     expect(typeof s.rule).toBe('string');
-    expect(s.rule).toMatch(/60/);
+    expect(s.rule).toMatch(/hour/);
     expect(s.recentDecisions).toEqual([]);
     expect(s.deathsToday).toBe(0);
     expect(s.workspaceId).toBe('ws-1');
@@ -639,9 +710,9 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     expect(op.publicState(new Date('2026-09-11T10:01:01Z')).settleFailures).toBe(1);
   });
 
-  it('the rule names the reached length of the attempt on the 60-move horizon', () => {
+  it('the rule names the attempt\'s one book, an hour after it starts', () => {
     expect(RULE).toMatch(/reached|attempt/i);
-    expect(RULE).toMatch(/60 moves/);
+    expect(RULE).toMatch(/one hour|hour mark/);
     expect(RULE).not.toMatch(/1, 5 and 60|max length/i);
   });
 

@@ -120,7 +120,7 @@
 </section>
 <details id="more">
   <summary>More</summary>
-  <h2>Prices: reached length in 60 moves</h2>
+  <h2>Prices: reached length at the attempt's hour mark</h2>
   <div class="tscroll"><table><thead><tr><th>action</th><th>if approved</th><th>if declined</th><th>impact</th></tr></thead><tbody id="prices"></tbody></table></div>
   <div id="traders">
     <h2>Traders this step <span class="muted" id="tradersCount"></span></h2>
@@ -132,7 +132,7 @@
     <h2>Top traders in this workspace</h2>
     <div class="tscroll"><table><thead><tr><th>#</th><th>trader</th><th>profit</th><th>trades</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
   </div>
-  <h2>Last decisions, impact in 60 moves at decision time</h2>
+  <h2>Last decisions, impact at decision time</h2>
   <div class="tscroll"><table><thead><tr><th>step</th><th>action</th><th>moved</th><th>forward</th><th>left</th><th>right</th><th>length</th></tr></thead><tbody id="log"></tbody></table></div>
   <h2>Counters</h2>
   <div class="counters" id="counters"></div>
@@ -198,7 +198,7 @@ function draw(g, canvas = cv, size = GRID, next = null){
 }
 const embed = new URLSearchParams(location.search).get('embed') === '1';
 if (embed) document.documentElement.classList.add('embed');
-const hz = { m60: '60 moves' };
+const hz = { m60: 'the attempt\'s book' };
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toISOString().slice(11,16); };
 const clockText = secs => Math.floor(secs/60) + ':' + String(secs%60).padStart(2,'0');
