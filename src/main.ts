@@ -7,6 +7,7 @@ import { Operator } from './operator.js';
 import { HttpTelarchyClient } from './client.js';
 import { GameLog } from './gamelog.js';
 import { createServer } from './server.js';
+import { nextAction } from './schedule.js';
 
 const env = (k: string, d?: string) => process.env[k] ?? d ?? (() => { throw new Error(`missing env ${k}`); })();
 const BASE = env('TELARCHY_BASE_URL', 'https://telarchy.com/api');
@@ -61,33 +62,55 @@ let lastTickMinute = -1;
 let lastCloseMinute = -1;
 let lastPoll = 0;
 let lastActivity = 0;
-/** docs/snake.md "The feed": the activity reads run on their own timer, every ten seconds. */
-const ACTIVITY_EVERY_MS = 10_000;
 async function loop() {
   const now = new Date();
   const minute = Math.floor(now.getTime() / 60_000);
   const sec = now.getUTCSeconds();
   if (busy) return;
   busy = true;
+  const wasComplete = op.game.complete;
   try {
-    if (!op.open && lastTickMinute !== minute && op.canOpen(now)) {
+    const action = nextAction({
+      complete: op.game.complete,
+      hasOpen: !!op.open,
+      decided: !!op.open?.decision,
+      canOpen: op.canOpen(now),
+      sec,
+      minute,
+      lastTickMinute,
+      lastCloseMinute,
+      sinceLastPoll: now.getTime() - lastPoll,
+      sinceLastActivity: now.getTime() - lastActivity,
+    });
+    if (action === 'cooldown') {
+      // The pause between games: tick posts the full length every minute and
+      // starts the next game, on the next grid, once the pause is up.
+      lastTickMinute = minute;
+      await op.tick(now);
+      save(op);
+      if (wasComplete && !op.game.complete) {
+        console.log(`game ${op.game.gameNumber} starts on ${op.game.size}x${op.game.size}`);
+      }
+    } else if (action === 'open') {
       lastTickMinute = minute;
       await op.openStep(now);
       save(op);
-    } else if (sec >= 58 && op.open && !op.open.decision && lastCloseMinute !== minute) {
+    } else if (action === 'close') {
       lastCloseMinute = minute;
       await op.closeStep(now);
       save(op);
-    } else if (op.open && !op.open.decision && sec < 58 && now.getTime() - lastPoll >= 5_000) {
+    } else if (action === 'poll') {
       lastPoll = now.getTime();
       await op.pollQuotes(now);
-    } else if (sec < 58 && op.open && op.open.decision && lastTickMinute !== minute) {
+    } else if (action === 'tick') {
       lastTickMinute = minute;
       await op.tick(now);
       save(op);
       const d = op.decisions[op.decisions.length - 1];
-      console.log(`step ${d.step} ${d.direction}${d.undecided ? ` (undecided: ${d.undecidedReason})` : ''} length ${d.lengthBefore} -> ${d.lengthAfter}`);
-    } else if (now.getTime() - lastActivity >= ACTIVITY_EVERY_MS) {
+      if (d) {
+        console.log(`step ${d.step} ${d.direction}${d.undecided ? ` (undecided: ${d.undecidedReason})` : ''} length ${d.lengthBefore} -> ${d.lengthAfter}`);
+      }
+    } else if (action === 'activity') {
       lastActivity = now.getTime();
       await op.pollActivity(now);
     }

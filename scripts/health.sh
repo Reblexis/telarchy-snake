@@ -9,21 +9,34 @@ fail() { echo "FAIL: $*"; exit 1; }
 
 S=$(curl -s --max-time 10 "$FEED/state") || fail "feed unreachable"
 [ -n "$S" ] || fail "feed returned nothing"
-read -r STEP PHASE COMPLETE LEN OPENID < <(printf '%s' "$S" | python3 -c "
-import sys,json
+read -r STEP PHASE COMPLETE LEN OPENID OVERDUE < <(printf '%s' "$S" | python3 -c "
+import sys,json,datetime
 d=json.load(sys.stdin); o=d.get('open') or {}
-print(d['game']['step'], d.get('phase'), d.get('complete'), d['game']['length'], (o.get('proposal') or {}).get('id','-'))
+nxt=d.get('nextGameAt')
+late='-'
+if nxt:
+    due=datetime.datetime.fromisoformat(nxt.replace('Z','+00:00')).timestamp()
+    late=int(datetime.datetime.now(datetime.timezone.utc).timestamp()-due)
+print(d['game']['step'], d.get('phase'), d.get('complete'), d['game']['length'], (o.get('proposal') or {}).get('id','-'), late)
 ") || fail "feed is not the shape the board reads"
 
-# The step must move: one a minute, so two minutes without one is a stall.
-PREV=$(cat "$STATE_CACHE" 2>/dev/null | cut -d' ' -f1)
-PREVAT=$(cat "$STATE_CACHE" 2>/dev/null | cut -d' ' -f2)
-NOW=$(date +%s)
-if [ -n "${PREV:-}" ] && [ "$PREV" = "$STEP" ] && [ -n "${PREVAT:-}" ] && [ $((NOW - PREVAT)) -gt 150 ]; then
-  echo "$STEP $PREVAT" > "$STATE_CACHE"
-  fail "step $STEP has not moved in $((NOW - PREVAT))s"
+# Between games the step is meant to stand still, so the pause is checked on
+# its own clock instead: the next game is due at nextGameAt and one minute
+# late is late. This is the stall that froze game 1 at 23:08 on 2026-09-11.
+if [ "$COMPLETE" = "True" ]; then
+  [ "$OVERDUE" = "-" ] || [ "$OVERDUE" -lt 90 ] || fail "the next game is ${OVERDUE}s overdue (length $LEN)"
+  rm -f "$STATE_CACHE"
+else
+  # The step must move: one a minute, so two minutes without one is a stall.
+  PREV=$(cat "$STATE_CACHE" 2>/dev/null | cut -d' ' -f1)
+  PREVAT=$(cat "$STATE_CACHE" 2>/dev/null | cut -d' ' -f2)
+  NOW=$(date +%s)
+  if [ -n "${PREV:-}" ] && [ "$PREV" = "$STEP" ] && [ -n "${PREVAT:-}" ] && [ $((NOW - PREVAT)) -gt 150 ]; then
+    echo "$STEP $PREVAT" > "$STATE_CACHE"
+    fail "step $STEP has not moved in $((NOW - PREVAT))s"
+  fi
+  [ "${PREV:-}" = "$STEP" ] || echo "$STEP $NOW" > "$STATE_CACHE"
 fi
-[ "${PREV:-}" = "$STEP" ] || echo "$STEP $NOW" > "$STATE_CACHE"
 
 # A playable step: a proposal to trade, unless the game is between games.
 # Retried once: the operator posts the step's proposal at :00, and for a
