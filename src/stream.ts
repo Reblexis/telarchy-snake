@@ -15,7 +15,7 @@ const ff = spawn('ffmpeg', [
   '-hide_banner', '-loglevel', 'warning',
   '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${WIDTH}x${HEIGHT}`, '-r', String(FPS), '-i', 'pipe:0',
   '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-  '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'stillimage', '-pix_fmt', 'yuv420p',
+  '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p',
   '-b:v', '1200k', '-maxrate', '1200k', '-bufsize', '2400k', '-g', String(FPS * 2), '-r', String(FPS),
   '-c:a', 'aac', '-b:a', '64k', '-shortest',
   '-f', OUT.startsWith('rtmp') ? 'flv' : 'mp4', OUT,
