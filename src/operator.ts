@@ -164,7 +164,7 @@ const TRADES_KEPT = 30;
 const LEADERBOARD_SIZE = 5;
 const LEADERBOARD_EVERY_MS = 60_000;
 /** docs/snake.md, "The game": the pause between a completed game and the next. */
-const COOLDOWN_MS = 60 * 60_000;
+const COOLDOWN_MS = 5 * 60_000;
 
 /** A game's record as it begins: its state now, no moves yet. */
 function startRecord(g: GameState): GameRecord {

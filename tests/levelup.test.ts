@@ -86,8 +86,9 @@ describe('A FILLED GRID LEVELS UP (docs/snake.md, "The game")', () => {
     const posts = calls.filter(c => c === 'post').length;
     await op.tick(new Date(t + 60_000));
     expect(calls.filter(c => c === 'post').length).toBe(posts);
-    // After the hour: the range is the new full grid, and the game levels up.
-    await op.tick(new Date(t + 61 * 60_000));
+    // After the five-minute cooldown: the range is the new full grid, and the
+    // game levels up.
+    await op.tick(new Date(t + 6 * 60_000));
     expect(ranges).toEqual([(GRID + 2) * (GRID + 2)]);
     expect(op.game.size).toBe(GRID + 2);
     expect(op.game.gameNumber).toBe(2);

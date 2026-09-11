@@ -48,7 +48,7 @@ are free within it.
   grid): it is **complete**, the attempt's reached length is the full grid
   and every open book settles at it, the operator posts no more proposals,
   keeps posting the full grid as the reading every minute, and the board
-  shows the full snake and says so. After a **cooldown of one hour** the
+  shows the full snake and says so. After a **cooldown of five minutes** the
   next game starts on the larger grid, at length 2, with the game number
   counted up. Until a game completes it runs without end.
 

@@ -322,29 +322,32 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
   });
 
-  it('a complete game posts the full length as its reading every minute and no proposals, for one hour', async () => {
+  it('a complete game posts the full length as its reading every minute and no proposals, through the cooldown', async () => {
     const { client, calls } = fakeClient(upWins);
     const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     expect(op.completedAt).toBe('2026-09-11T10:01:00.000Z');
     await op.tick(new Date('2026-09-11T10:02:00Z'));
-    await op.tick(new Date('2026-09-11T10:30:00Z'));
+    await op.tick(new Date('2026-09-11T10:03:00Z'));
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
     expect(calls.filter(c => c.name === 'postReading').map(c => c.args[0])).toEqual([144, 144, 144]);
     expect(op.open).toBe(null);
-    const st = op.publicState(new Date('2026-09-11T10:31:00Z'));
+    const st = op.publicState(new Date('2026-09-11T10:04:00Z'));
     expect(st.complete).toBe(true);
-    expect(st.nextGameAt).toBe('2026-09-11T11:01:00.000Z');
-    await expect(op.openStep(new Date('2026-09-11T10:32:00Z'))).rejects.toThrow(/complete/);
+    // Five minutes from the fill, not an hour (Viktor, 2026-09-11).
+    expect(st.nextGameAt).toBe('2026-09-11T10:06:00.000Z');
+    await expect(op.openStep(new Date('2026-09-11T10:04:30Z'))).rejects.toThrow(/complete/);
   });
 
-  it('after the hour, the range is raised to the new full grid and a new game starts two cells larger, numbered up', async () => {
+  it('after the cooldown, the range is raised to the new full grid and a new game starts two cells larger, numbered up', async () => {
     const { client, calls } = fakeClient(upWins);
     const g = { ...newGame(rng, 12, 1), complete: true, length: 144 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
-    await op.tick(new Date('2026-09-11T11:01:00Z'));
+    await op.tick(new Date('2026-09-11T10:05:00Z')); // four minutes in: still waiting
+    expect(calls.filter(c => c.name === 'setRange').length).toBe(0);
+    await op.tick(new Date('2026-09-11T10:06:00Z'));
     expect(calls.filter(c => c.name === 'setRange').map(c => c.args[0])).toEqual([196]);
     expect(op.game.size).toBe(14);
     expect(op.game.gameNumber).toBe(2);
@@ -355,7 +358,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const names = calls.map(c => c.name);
     expect(names.indexOf('setRange')).toBeLessThan(names.lastIndexOf('postProposal'));
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(1);
-    expect(op.publicState(new Date('2026-09-11T11:01:10Z')).grid).toBe(14);
+    expect(op.publicState(new Date('2026-09-11T10:06:10Z')).grid).toBe(14);
   });
 
   it('if the range cannot be raised yet (a traded open book), the cooldown continues and it is retried next minute', async () => {
