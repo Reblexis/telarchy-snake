@@ -58,7 +58,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const desc = String(calls.find(c => c.name === 'postProposal')!.args[1]);
     expect(desc).toMatch(/step 1\b/i);
-    expect(desc).toMatch(/length 1\b/);
+    expect(desc).toMatch(/length 2\b/);
     expect(desc).toContain('10:01');
     expect(desc).toContain('10:05');
     expect(desc).toContain('11:00');
@@ -130,7 +130,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.filter(c => c.name === 'decideProposal' && c.args[1] === 'decline').length).toBe(4);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     expect(op.game.heading).toBe('right');
-    expect(op.game.snake[0]).toEqual({ x: 11, y: 10 });
+    expect(op.game.snake[0]).toEqual({ x: 7, y: 6 });
   });
 
   it('a failing API on decide still declines the rest and logs the step as undecided', async () => {
@@ -204,7 +204,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 
   it('a complete game posts its final reading and no more proposals', async () => {
     const { client, calls } = fakeClient(upWins);
-    const g = { ...newGame(rng), complete: true, length: 400 };
+    const g = { ...newGame(rng), complete: true, length: 144 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
@@ -254,12 +254,18 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(op2.open?.step).toBe(op.open?.step);
   });
 
+  it('/state names the grid size so a board can draw it', async () => {
+    const { client } = fakeClient(upWins);
+    const op = new Operator(client, newGame(rng), rng);
+    expect(op.publicState(new Date()).grid).toBe(12);
+  });
+
   it('/state carries the game, the open proposals with prices, recent decisions and counters', async () => {
     const { client } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng, { workspaceId: 'ws-1', metricId: 'm-1' });
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const s = op.publicState(new Date('2026-09-11T10:00:20Z'));
-    expect(s.game.length).toBe(1);
+    expect(s.game.length).toBe(2);
     expect(s.open?.proposals.up.url).toMatch(/^https:/);
     expect(s.open?.decideAt).toBe('2026-09-11T10:00:58.000Z');
     expect(s.open?.deadline).toBe('2026-09-11T10:01:00.000Z');

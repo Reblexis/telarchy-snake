@@ -1,5 +1,5 @@
 // The game, docs/snake.md "The game". Pure: a state in, a state out.
-export const GRID = 20;
+export const GRID = 12;
 
 export type Direction = 'up' | 'right' | 'down' | 'left';
 export interface Cell { x: number; y: number }
@@ -25,7 +25,7 @@ const DELTA: Record<Direction, Cell> = {
 
 function startSnake(): Cell[] {
   const c = GRID / 2;
-  return [{ x: c, y: c }];
+  return [{ x: c, y: c }, { x: c - 1, y: c }];
 }
 
 function occupied(snake: Cell[], c: Cell): boolean {
@@ -51,7 +51,7 @@ export function spawnFood(snake: Cell[], rng: Rng): Cell {
 
 export function newGame(rng: Rng): GameState {
   const snake = startSnake();
-  return { snake, heading: 'right', food: spawnFood(snake, rng), length: 1, step: 0, deaths: 0, complete: false };
+  return { snake, heading: 'right', food: spawnFood(snake, rng), length: 2, step: 0, deaths: 0, complete: false };
 }
 
 export function step(g: GameState, dir: Direction, rng: Rng = Math.random): GameState {
@@ -66,7 +66,7 @@ export function step(g: GameState, dir: Direction, rng: Rng = Math.random): Game
   const hitsSelf = occupied(body, next);
   if (hitsWall || hitsSelf) {
     const snake = startSnake();
-    return { snake, heading: 'right', food: spawnFood(snake, rng), length: 1, step: g.step + 1, deaths: g.deaths + 1, complete: false };
+    return { snake, heading: 'right', food: spawnFood(snake, rng), length: 2, step: g.step + 1, deaths: g.deaths + 1, complete: false };
   }
   const snake = [next, ...body];
   const complete = snake.length >= GRID * GRID;

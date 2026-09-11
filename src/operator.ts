@@ -1,6 +1,6 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
-import { newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
+import { GRID, newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
 import { decide, DIRECTIONS, emptyQuotes, type Decision, type Quotes, type Horizon } from './decide.js';
 import { minuteCells } from './client.js';
 
@@ -200,6 +200,7 @@ export class Operator {
     const nextStepAt = open ? open.deadline : new Date(isoMinute(now).getTime() + 60_000).toISOString();
     return {
       game: this.game,
+      grid: GRID,
       workspaceId: this.opts.workspaceId ?? null,
       metricId: this.opts.metricId ?? null,
       rule: RULE,

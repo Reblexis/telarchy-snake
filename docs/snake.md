@@ -21,17 +21,17 @@ are free within it.
 
 ## The game
 
-- Grid 20 by 20. The snake starts at the centre with length 1, heading
+- Grid 12 by 12. The snake starts at the centre with length 2, heading
   right, one food on a free cell. Classic rules: the snake moves one cell
   per step in its heading, eating food grows it by one and spawns new food
   on a random free cell, hitting a wall or its own body kills it.
 - One step per minute, at the top of each UTC minute. The step's
   direction is the approved proposal's direction (below). Reversing into
   the second segment is a death like any other collision.
-- On death the snake respawns at once at length 1 in the starting state.
+- On death the snake respawns at once at length 2 in the starting state.
   Deaths are counted and shown, nothing else happens: the length itself is
   the penalty, because the length is what the market prices.
-- The game ends when the snake fills the grid: at length 400 it is
+- The game ends when the snake fills the grid: at length 144 it is
   **complete**, the operator posts the final reading, posts no more
   proposals, and the board shows the full snake and says so. Until then it
   runs without end.
@@ -41,8 +41,10 @@ are free within it.
 One public Telarchy workspace named `Snake` (Telarchy derives the slug,
 `snake`, from the name), owned by the snake operator account. One metric,
 **Snake length**, the number of segments the snake has right now, an
-integer starting at 3. The operator posts a reading after every step, so
-the metric's chart is the length minute by minute.
+integer starting at 2. Its market range is 0 to 144, the full grid, so a
+book can price any length the snake can reach. The operator posts a
+reading after every step, so the metric's chart is the length minute by
+minute.
 
 The metric is priced on three rolling horizons, each a one-minute
 period on Telarchy's clock (`+1min`, `+5min`, `+60min`): the length in

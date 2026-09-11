@@ -35,7 +35,7 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
 
   it('paints the snake green, its head lighter, the food red, and empty cells dark', () => {
     const f = renderFrame(state as any);
-    const head = cellRect(10, 10), body = cellRect(9, 10), food = cellRect(3, 4), empty = cellRect(0, 19);
+    const head = cellRect(10, 10), body = cellRect(9, 10), food = cellRect(3, 4), empty = cellRect(0, 11);
     const c = (r: { x: number; y: number; w: number; h: number }) => px(f, r.x + Math.floor(r.w / 2), r.y + Math.floor(r.h / 2));
     const [hr, hg, hb] = c(head); expect(hg).toBeGreaterThan(150); expect(hr).toBeGreaterThan(100);
     const [br, bg] = c(body); expect(bg).toBeGreaterThan(150); expect(br).toBeLessThan(120);
@@ -44,7 +44,7 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
   });
 
   it('the board is square and fits the frame height with a margin', () => {
-    const r = cellRect(19, 19);
+    const r = cellRect(11, 11);
     expect(r.x + r.w).toBeLessThanOrEqual(HEIGHT);
     expect(r.y + r.h).toBeLessThanOrEqual(HEIGHT);
     expect(cellRect(0, 0).x).toBeGreaterThan(0);

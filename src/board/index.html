@@ -66,7 +66,7 @@
   </div>
 </div>
 <script>
-const GRID = 20;
+let GRID = 12;
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 const dirs = ['up','right','down','left'];
 const arrows = { up:'↑', right:'→', down:'↓', left:'←' };
@@ -85,6 +85,7 @@ if (embed) document.documentElement.classList.add('embed');
 function impact(q){ const m = q && q.m60; if (!m || m.approved == null || m.declined == null) return null; return m.approved - m.declined; }
 function render(s){
   last = s;
+  if (s.grid) GRID = s.grid;
   draw(s.game);
   document.getElementById('len').textContent = s.game.length;
   document.getElementById('deaths').textContent = s.deathsToday;
@@ -99,7 +100,7 @@ function render(s){
       return `<a class="card ${d===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${arrows[d]} Move ${d}</div><div class="px">${imp == null ? '–' : (imp >= 0 ? '+' : '') + fmt(imp)}</div><div class="vs">impact on length in 60 moves. In 1: ${fmt(q.m1.approved)}, in 5: ${fmt(q.m5.approved)}, in 60: ${fmt(q.m60.approved)}</div></a>`;
     }).join('');
     document.getElementById('wslink').href = s.open.proposals.up.url.replace(/\/p\/.*$/, '');
-  } else cards.innerHTML = s.complete ? '<div class="card lead"><div class="dir">Complete</div><div class="vs">The snake filled the grid. The game is over and the length stays at 400.</div></div>' : '';
+  } else cards.innerHTML = s.complete ? '<div class="card lead"><div class="dir">Complete</div><div class="vs">The snake filled the grid. The game is over and the length stays at its maximum.</div></div>' : '';
   document.getElementById('log').innerHTML = s.recentDecisions.map(d =>
     `<tr><td>${d.step}</td><td>${arrows[d.direction]} ${d.direction}${d.undecided?' (undecided)':''}</td>` +
     dirs.map(x => { const v = impact(d.quotes[x]); return `<td>${v == null ? '–' : fmt(v)}</td>`; }).join('') +
