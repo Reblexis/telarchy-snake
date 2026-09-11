@@ -21,6 +21,10 @@ const ff = spawn('ffmpeg', [
   '-f', OUT.startsWith('rtmp') ? 'flv' : 'mp4', OUT,
 ], { stdio: ['pipe', 'inherit', 'inherit'] });
 ff.on('exit', code => { console.error(`ffmpeg exited ${code}`); process.exit(code ?? 1); });
+// When Twitch drops the connection ffmpeg dies and the pipe closes under us;
+// an unhandled EPIPE turned that into a crash loop. Log it and exit, systemd
+// restarts the stream after its delay.
+ff.stdin.on('error', err => { console.error(`ffmpeg pipe: ${(err as Error).message}`); process.exit(1); });
 
 let state: any = null;
 async function poll() {

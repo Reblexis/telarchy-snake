@@ -12,6 +12,7 @@ EnvironmentFile=%h/src/telarchy-snake/.env
 ExecStart=/usr/bin/node dist/stream.js
 Restart=always
 RestartSec=15
+StartLimitIntervalSec=0
 Nice=10
 StandardOutput=append:%h/logs/telarchy-snake-stream.log
 StandardError=append:%h/logs/telarchy-snake-stream.log

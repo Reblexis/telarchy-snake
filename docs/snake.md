@@ -416,6 +416,11 @@ every step so a restart continues the game. Configuration by environment:
 the Telarchy base URL, the operator API key, the workspace id, the port,
 the state file path, the liquidity per book.
 
+On the fleet box the operator's unit is weighted above its neighbours
+(CPU weight 1000, a 256 MB memory floor), because the box runs other
+agents' benches that starve it at times and a decision must fall inside
+its minute; if that is not enough the snake moves to a host of its own.
+
 It runs first against the beta store for at least one full day, and the
 site's query times under that load are recorded in the umbrella notes
 before it moves to production. On production it is a systemd unit on the
