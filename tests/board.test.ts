@@ -17,6 +17,40 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(idsIn(first)).toEqual(['first', 'c', 'next', 'clock', 'tiles', 'status', 'quiet']);
   });
 
+  it('two tabs, Live and Replay, in one row above the first screen and nothing else above it; Live is the default', () => {
+    const tabs = html.slice(html.indexOf('<nav id="tabs"'), html.indexOf('</nav>'));
+    expect(tabs.length).toBeGreaterThan(0);
+    expect(html.indexOf('<nav id="tabs"')).toBeLessThan(html.indexOf('<main id="first"'));
+    expect(html.slice(html.indexOf('<body>'), html.indexOf('<nav id="tabs"')).trim()).toBe('<body>');
+    expect(tabs.match(/<a\b/g)?.length).toBe(2);
+    expect(tabs).toMatch(/>Live</);
+    expect(tabs).toMatch(/>Replay</);
+    expect(html).toMatch(/<main id="first"(?![^>]*hidden)/);
+    expect(html).toMatch(/<section id="replay"[^>]*\shidden/);
+  });
+
+  it('the replay tab holds the grid, the timeline (slider, play, game picker) and one caption line, in that order', () => {
+    const replay = html.slice(html.indexOf('<section id="replay"'), html.indexOf('</section>', html.indexOf('<section id="replay"')));
+    expect(idsIn(replay)).toEqual(['replay', 'rc', 'timeline', 'play', 'slider', 'games', 'caption']);
+    expect(replay).toMatch(/<input[^>]*type="range"[^>]*id="slider"/);
+    expect(replay).toMatch(/<select[^>]*id="games"/);
+    expect(replay).toMatch(/<canvas[^>]*id="rc"/);
+  });
+
+  it('the replay is rebuilt from /replay with from=<moves held>, replayed through the rules, and follows the newest move', () => {
+    expect(html).toMatch(/\/replay\?game=/);
+    expect(html).toMatch(/from=/);
+    expect(html).toMatch(/died/);
+    expect(html).toContain('m.food');
+    expect(html).toMatch(/follow/);
+    expect(html).toMatch(/10 moves a second|100\b/);
+  });
+
+  it('the tab row is kept in the embed, with More and the footer still hidden', () => {
+    const embedRules = styles.split('\n').filter(l => l.includes('.embed ') && l.includes('display:none')).join('\n');
+    expect(embedRules).not.toContain('#tabs');
+  });
+
   it('everything else is behind a More section that is a details element, closed by default', () => {
     expect(more.length).toBeGreaterThan(0);
     expect(more).not.toMatch(/<details[^>]*\sopen/);

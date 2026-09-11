@@ -89,7 +89,12 @@ otherwise.
 ## The step
 
 At second 0 of each minute the operator posts three proposals at once,
-titles exactly `Turn left`, `Turn right`, `Continue forward`. Each
+titled `Game G, move N: Turn left`, `Game G, move N: Turn right` and
+`Game G, move N: Continue forward`, where G is the game number and N the
+step the proposals decide (the first proposals of a game are move 1), so
+a proposal names its place in the game wherever Telarchy lists it and a
+reader can tell one minute's `Turn left` from the thousand others. The
+action is the part after the colon, exactly one of the three. Each
 carries the same deadline, the top of the next minute, so the books
 close together and the deadline a trader sees is the real one. The
 description names the step, the state including the current heading,
@@ -131,10 +136,16 @@ watch and to tell a visitor, at a glance, what the market is doing to the
 snake right now. It polls the service's own `/state` JSON every two
 seconds and shows nothing that is not in it.
 
+The board has two tabs, **Live** and **Replay**, switched by one small
+row of two links above the content and nowhere else; Live is the default
+and the page never opens on Replay by itself. Live is the first screen
+below. Replay is "The replay" below. The tab row is the only thing shown
+above the first screen, and it is also shown in the embed.
+
 The board shows the most important thing first and as little else as
 possible. The first screen (what a visitor sees without scrolling, at
-1280 wide, at phone width and in the 16:9 embed) holds exactly these
-five elements, in this order, and nothing else:
+1280 wide, at phone width and in the 16:9 embed) holds, under the tab
+row, exactly these five elements, in this order, and nothing else:
 
 1. **The grid**, large and clean: a near-black board with soft grid
    lines, the snake as rounded green segments, its head clearly marked
@@ -191,6 +202,36 @@ alone, sized for a 16:9 frame: the More section and the footer are not
 rendered at all. A visitor of telarchy.com/snake sees the game without
 leaving the floor.
 
+### The replay
+
+The Replay tab shows the game itself, move by move, and follows it live.
+It holds, in this order and nothing else: the grid (drawn exactly as on
+Live, at the frame the timeline points to), a **timeline** (a slider
+over every recorded move of the chosen game, a play/pause control that
+plays at ten moves a second, and a game picker when more than one game
+is recorded), and **one caption line**, `Game 1 · move 120 of 171 · Turn
+left → · length 7`, the move the frame shows, the action the market
+approved for it (`undecided` when the step was), the resulting compass
+arrow and the length after it. Deaths show as the frame after them: the
+snake back at the start, length 2.
+
+While the slider sits at the newest move the tab is live: every new move
+arrives within two seconds and the frame advances with it, so the tab
+is the game in real time with the whole game behind it. Dragging the
+slider back stops following; dragging it to the end, or pressing play
+through the end, resumes it. A game that is complete replays to its full
+grid and stops. The embed shows the Replay tab the same way, sized to the
+frame.
+
+The replay is rebuilt on the page from `/replay` (below): the start
+frame and the list of moves, each replayed through the game's rules
+(one cell in the recorded direction, growth on the food, respawn on a
+death), so the page never stores a frame the service did not record.
+Recording starts when this version of the service first runs: a game
+that was already under way is recorded from that step on, its start
+frame is the state at that moment, and the caption's first move is that
+step, not 1.
+
 ### The feed
 
 `/state` is public and is the whole of the board's data and a bot's feed:
@@ -221,6 +262,22 @@ workspace endpoints, never from the operator's own books:
 - `leaderboard`: the top five `{ rank, handle, profit, trades }` of this
   workspace, or an empty list when Telarchy reports nobody.
 - `activityAt`: when the activity was last read.
+
+`/replay` is public too and is the whole of the Replay tab's data:
+`GET /replay?game=G&from=I` returns `{ games, gameNumber, size,
+complete, start, moves }`: `games`, the numbers of every recorded game,
+oldest first; `start`, the recorded start frame `{ step, snake, heading,
+food, deaths }` of game G (the newest game when `game` is absent);
+`moves`, the recorded moves of that game from index I on (all of them
+when `from` is absent), oldest first, each `{ step, at, action,
+direction, undecided, food, died }` where `food` is the food's cell after
+the move, present only when it changed, and `died` is true when the move
+killed the snake. A page that already holds I moves asks for
+`from=I` and appends, so following a game live costs one small read
+every two seconds however long the game is. An unknown game is 404.
+
+The operator records every move it applies, in the state file with the
+rest of its state, and keeps every game since recording began.
 
 The operator reads activity on its own timer, apart from the quotes: the
 six books of the open step (approved and declined per action) every ten
