@@ -157,13 +157,25 @@ describe('THE GRID SHOWS AN ARROW IN THE CELL THE SNAKE MOVES TO NEXT (docs/snak
     expect(Buffer.compare(cellOf(open, 10, 9), cellOf(decided, 10, 9))).not.toBe(0);
   });
 
-  it('a wall ahead: the arrow is pressed against the head, inside the head cell, and nothing is drawn outside the board', () => {
+  it('A MOVE INTO A WALL IS A BAR ALONG THAT WALL, AND NOTHING IS DRAWN OUTSIDE THE BOARD', () => {
     const atWall = { ...state, game: { ...state.game, snake: [{ x: 11, y: 10 }, { x: 10, y: 10 }, { x: 9, y: 10 }] } };
     const right = renderFrame({ ...atWall, next: { action: 'forward', direction: 'right', decided: false, seconds: 30 } } as any);
     const up = renderFrame({ ...atWall, next: { action: 'left', direction: 'up', decided: false, seconds: 30 } } as any);
     expect(hasAccent(right, 11, 10)).toBe(true);
     expect(hasAccent(up, 11, 10)).toBe(false);
     expect(hasAccent(up, 11, 9)).toBe(true);
+    // The bar hugs the wall: the accent sits in the cell's outer strip, not
+    // across its middle where a chevron over the head used to be.
+    const c = cellRect(11, 10, 12);
+    const strip = (buf: Buffer, x0: number, x1: number) => {
+      for (let y = c.y + 4; y < c.y + c.h - 4; y++) for (let x = x0; x < x1; x++) {
+        const i = (y * 1280 + x) * 3;
+        if (buf[i] > 150 && buf[i + 1] > 110 && buf[i + 2] < 120) return true;
+      }
+      return false;
+    };
+    expect(strip(right, c.x + c.w - Math.round(c.w * 0.25), c.x + c.w)).toBe(true);
+    expect(strip(right, c.x, c.x + Math.round(c.w * 0.4))).toBe(false);
     // Beyond the board's right edge the two frames agree pixel for pixel: the wall arrow adds nothing off the grid.
     const r = cellRect(11, 10, 12);
     for (let y = r.y - r.h; y < r.y + 2 * r.h; y++) for (let x = r.x + r.w; x < r.x + r.w + 30; x++) expect(px(right, x, y), `${x},${y}`).toEqual(px(up, x, y));

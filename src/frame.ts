@@ -121,20 +121,26 @@ function drawArrow(ctx: SKRSContext2D, head: { x: number; y: number }, N: number
   const hx = h.x + h.w / 2, hy = h.y + h.h / 2;
   ctx.save();
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const stroke = Math.max(2, CELL * 0.1);
   if (wall) {
-    const half = CELL * 0.2;
-    // The tip stops a halo's half-width short of the edge, so nothing is drawn off the grid.
-    const reach = CELL * 0.5 - half - CELL * 0.13;
-    const cx = hx + dx * reach, cy = hy + dy * reach;
-    chevronPath(ctx, cx, cy, next.direction, half, CELL * 0.3);
-    ctx.strokeStyle = BOARD; ctx.lineWidth = CELL * 0.26; ctx.stroke();
-    chevronPath(ctx, cx, cy, next.direction, half, CELL * 0.3);
+    // A wall has no cell to draw a chevron in, so the mark is a bar along
+    // that wall, a stroke in from the border (docs/snake.md, "The board"):
+    // it reads as the wall it is and nothing is painted off the grid.
+    const [px, py] = [-dy, dx];
+    // Flush inside the border: the snake's band reaches 0.36 of a cell from
+    // its centre, so a bar any further in would sit on the snake.
+    const off = CELL * 0.5 - stroke / 2;
+    const halfBar = CELL * 0.34;
+    const cx = hx + dx * off, cy = hy + dy * off;
+    ctx.beginPath();
+    ctx.moveTo(cx + px * halfBar, cy + py * halfBar);
+    ctx.lineTo(cx - px * halfBar, cy - py * halfBar);
   } else {
     const r = cellRect(ax, ay, N);
-    chevronPath(ctx, r.x + r.w / 2, r.y + r.h / 2, next.direction, CELL * 0.14, CELL * 0.2);
+    chevronPath(ctx, r.x + r.w / 2, r.y + r.h / 2, next.direction, CELL * 0.15, CELL * 0.22);
   }
   ctx.globalAlpha = next.decided ? 1 : 0.55;
-  ctx.strokeStyle = LEAD; ctx.lineWidth = Math.max(2, CELL * 0.12); ctx.stroke();
+  ctx.strokeStyle = LEAD; ctx.lineWidth = stroke; ctx.stroke();
   ctx.restore();
 }
 
