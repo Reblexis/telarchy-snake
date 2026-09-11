@@ -25,14 +25,14 @@ export interface Quote {
   approvedMarketId?: string;
   declinedMarketId?: string;
 }
-/** The three horizons: length in 1, 5 and 60 moves. */
-export type Horizon = 'm1' | 'm5' | 'm60';
-export const HORIZONS: Horizon[] = ['m1', 'm5', 'm60'];
+/** The one horizon: the record (max length achieved this game) in 60 moves. */
+export type Horizon = 'm60';
+export const HORIZONS: Horizon[] = ['m60'];
 export type DirectionQuotes = Record<Horizon, Quote>;
 export type Quotes = Record<Action, DirectionQuotes>;
 
 const nullQuote = (): Quote => ({ approved: null, declined: null });
-export const emptyDirectionQuotes = (): DirectionQuotes => ({ m1: nullQuote(), m5: nullQuote(), m60: nullQuote() });
+export const emptyDirectionQuotes = (): DirectionQuotes => ({ m60: nullQuote() });
 export const emptyQuotes = (): Quotes => ({ forward: emptyDirectionQuotes(), left: emptyDirectionQuotes(), right: emptyDirectionQuotes() });
 
 /** The predicted impact of a move on the 60-move horizon: approved minus

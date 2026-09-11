@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Operator, type TelarchyClient, type ProposalRef, type MarketActivity, type LeaderRow } from '../src/operator.js';
+import { Operator, RULE, type TelarchyClient, type ProposalRef, type MarketActivity, type LeaderRow } from '../src/operator.js';
 import { newGame } from '../src/engine.js';
 import type { Quotes } from '../src/decide.js';
 
@@ -47,7 +47,7 @@ function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string
 /** Quotes that carry market ids, as the HTTP client returns them once the books exist. */
 const withIds = (): Quotes => {
   const q = upWins();
-  for (const a of ['forward', 'left', 'right'] as const) for (const h of ['m1', 'm5', 'm60'] as const) {
+  for (const a of ['forward', 'left', 'right'] as const) for (const h of ['m60'] as const) {
     q[a][h] = { ...q[a][h], approvedMarketId: `${a}-${h}-a`, declinedMarketId: `${a}-${h}-d` };
   }
   return q;
@@ -56,7 +56,7 @@ const trade = (id: string, handle: string, at: string, cost = 5, kind: 'buy' | '
   ({ id, handle, direction: 'higher' as const, kind, shares: 2, cost, createdAt: at });
 const pos = (handle: string, cost = 5) => ({ handle, direction: 'higher' as const, shares: 2, cost, worth: 6 });
 
-const h = (a: number | null, d: number | null) => ({ m1: { approved: a, declined: d }, m5: { approved: a, declined: d }, m60: { approved: a, declined: d } });
+const h = (a: number | null, d: number | null) => ({ m60: { approved: a, declined: d } });
 const allTen = (): Quotes => ({ forward: h(10, 10), left: h(10, 10), right: h(10, 10) });
 const upWins = (): Quotes => ({ ...allTen(), left: h(12, 10) }); // the snake heads right at the start, so 'left' turns it up
 const none = (): Quotes => ({ forward: h(null, null), left: h(null, null), right: h(null, null) });
@@ -77,7 +77,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(3);
   });
 
-  it('the description names the step, the state, the three cells, the rule and the board, in one line', async () => {
+  it('the description names the step, the state, the record, the one cell, the rule and the board, in one line', async () => {
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, newGame(rng), rng, { boardUrl: 'https://snake.telarchy.com' });
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
@@ -86,16 +86,18 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(desc).toMatch(/length 2\b/);
     expect(desc).toMatch(/heading right/);
     expect(desc).toMatch(/left.*up|up.*left/i); // turning left from right goes up
-    expect(desc).toContain('10:01');
-    expect(desc).toContain('10:05');
+    expect(desc).not.toContain('10:01');
+    expect(desc).not.toContain('10:05');
     expect(desc).toContain('11:00');
     expect(desc).toMatch(/60.move/i);
+    expect(desc).toMatch(/record 2\b/i);
+    expect(desc).not.toMatch(/1, 5 and 60/);
     expect(desc).toContain('https://snake.telarchy.com');
     expect(desc.includes('\n')).toBe(false);
     expect(desc.length).toBeLessThan(600);
   });
 
-  it('the four proposals are posted concurrently, not one after another', async () => {
+  it('the three proposals are posted concurrently, not one after another', async () => {
     const { client, calls } = fakeClient(allTen);
     let inFlight = 0, maxInFlight = 0;
     const slow: TelarchyClient = {
@@ -210,7 +212,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(Object.keys(client).some(k => /trade|order/i.test(k))).toBe(false);
   });
 
-  it('forces the rolling-market refresh before the four proposals of every step', async () => {
+  it('forces the rolling-market refresh before the three proposals of every step', async () => {
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
@@ -361,7 +363,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(s.open?.directions).toEqual({ forward: 'right', left: 'up', right: 'down' });
     expect(s.open?.decideAt).toBe('2026-09-11T10:00:58.000Z');
     expect(s.open?.deadline).toBe('2026-09-11T10:01:00.000Z');
-    expect(s.open?.cells).toEqual({ m1: '2026-09-11T10:01', m5: '2026-09-11T10:05', m60: '2026-09-11T11:00' });
+    expect(s.open?.cells).toEqual({ m60: '2026-09-11T11:00' });
     expect(s.nextStepAt).toBe('2026-09-11T10:01:00.000Z');
     expect(s.complete).toBe(false);
     expect(s.secondsToDecision).toBe(38);
@@ -430,13 +432,13 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     expect(calls.filter(c => c.name === 'readActivity').length).toBe(0);
   });
 
-  it('the twelve 1-move and 5-move books are read once per step, late in the minute', async () => {
+  it('the six books of the open step are the only books read, on every call', async () => {
     const { op, calls } = await opened();
     await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
     await op.pollActivity(new Date('2026-09-11T10:00:46Z'));
     await op.pollActivity(new Date('2026-09-11T10:00:56Z'));
     const sizes = calls.filter(c => c.name === 'readActivity').map(c => (c.args[0] as string[]).length);
-    expect(sizes).toEqual([6, 18, 6]);
+    expect(sizes).toEqual([6, 6, 6]);
   });
 
   it('traders: every position in the polled books, with handle, action, horizon, branch, side, stake and worth; distinct count this step', async () => {
@@ -554,6 +556,33 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     await op.pollActivity(new Date('2026-09-11T10:00:46Z'));
     const names = new Set(calls.slice(before).map(c => c.name));
     expect([...names].sort()).toEqual(['readActivity', 'readLeaderboard']);
+  });
+
+  it('the reading is the record of the game, never the current length: a death leaves it where it was, a new game puts it back at 2', async () => {
+    const { client, calls } = fakeClient(allTen);
+    // Head one cell from the right wall, heading right: the forward move dies.
+    const g = { ...newGame(rng), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 }, { x: 8, y: 6 }], length: 4, food: { x: 0, y: 0 } };
+    const op = new Operator(client, g, rng);
+    op.bestLength = 4;
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.game.deaths).toBe(1);
+    expect(op.game.length).toBe(2);
+    const readings = calls.filter(c => c.name === 'postReading').map(c => c.args[0]);
+    expect(readings).toEqual([4]);
+    // A new game on the larger grid reads 2 again.
+    op.game = { ...op.game, complete: true };
+    op.completedAt = '2026-09-11T10:01:00Z';
+    await op.tick(new Date('2026-09-11T11:02:00Z'));
+    expect(op.game.gameNumber).toBe(2);
+    expect(calls.filter(c => c.name === 'postReading').map(c => c.args[0]).pop()).toBe(2);
+  });
+
+  it('the rule names the record on the 60-move horizon, not the length in 1, 5 and 60 moves', () => {
+    expect(RULE).toMatch(/longest|record|max length/i);
+    expect(RULE).toMatch(/60 moves/);
+    expect(RULE).not.toMatch(/1, 5 and 60/);
   });
 
   it('bestLength is the longest the snake has been this game, persists, and resets with a new game', async () => {

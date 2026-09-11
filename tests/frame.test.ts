@@ -10,9 +10,9 @@ const state = {
     proposals: { forward: { id: '1', title: 'Continue forward', url: 'https://telarchy.com/snake/p/1' }, left: { id: '2', title: 'Turn left', url: '' }, right: { id: '3', title: 'Turn right', url: '' } },
     directions: { forward: 'right', left: 'up', right: 'down' },
     quotes: {
-      forward: { m1: { approved: 3, declined: 3 }, m5: { approved: 3.1, declined: 3 }, m60: { approved: 3.2, declined: 3 } },
-      left: { m1: { approved: 3, declined: 3 }, m5: { approved: 3.4, declined: 3 }, m60: { approved: 3.9, declined: 3 } },
-      right: { m1: { approved: null, declined: null }, m5: { approved: null, declined: null }, m60: { approved: null, declined: null } },
+      forward: { m60: { approved: 3.2, declined: 3 } },
+      left: { m60: { approved: 3.9, declined: 3 } },
+      right: { m60: { approved: null, declined: null } },
     },
   },
   secondsToDecision: 30,
@@ -133,16 +133,16 @@ describe('the stream frame: the first screen and nothing more (docs/snake.md, "T
     expect(Buffer.compare(withTrade, noTrade)).not.toBe(0);
   });
 
-  it('draws no traders, leaderboard, decisions, counters or 1/5-move prices: changing them changes nothing', () => {
+  it('draws no traders, leaderboard, decisions or counters: changing them changes nothing', () => {
     const f = renderFrame(rich as any);
-    const quotes = { ...rich.open.quotes, left: { ...rich.open.quotes.left, m1: { approved: 9, declined: 1 }, m5: { approved: 9, declined: 1 } } };
-    const g = renderFrame({ ...rich, traders: [], tradersThisStep: 0, tradersToday: 0, leaderboard: [], recentDecisions: [], bestLength: 99, deathsToday: 42, game: { ...rich.game, step: 999 }, open: { ...rich.open, quotes } } as any);
+    const g = renderFrame({ ...rich, traders: [], tradersThisStep: 0, tradersToday: 0, leaderboard: [], recentDecisions: [], deathsToday: 42, game: { ...rich.game, step: 999 } } as any);
     expect(Buffer.compare(f, g)).toBe(0);
   });
 
-  it('draws the status line: length, game number and grid each change the frame', () => {
+  it('draws the status line: length, record, game number and grid each change the frame', () => {
     const f = renderFrame(rich as any);
     expect(Buffer.compare(f, renderFrame({ ...rich, game: { ...rich.game, length: 44 } } as any))).not.toBe(0);
+    expect(Buffer.compare(f, renderFrame({ ...rich, bestLength: 44 } as any))).not.toBe(0);
     expect(Buffer.compare(f, renderFrame({ ...rich, gameNumber: 7 } as any))).not.toBe(0);
   });
 

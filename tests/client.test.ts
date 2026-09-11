@@ -32,7 +32,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(ref).toEqual({ id: 'p-1', title: 'Turn left', url: 'https://telarchy.com/snake/p/41' });
   });
 
-  it('reads the three horizons by their minute cells: +1, +5 and +60 minutes after the opening minute, per action by title', async () => {
+  it('reads the one horizon by its minute cell, +60 minutes after the opening minute, per action by title; the +1 and +5 cells are not read', async () => {
     const { fetchImpl } = fakeFetch(r => {
       const id = r.url.split('/').pop()!;
       const px: Record<string, number> = { 'p-forward': 4, 'p-right': 5, 'p-left': 2 };
@@ -49,8 +49,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       { id: 'p-left', title: 'Turn left', url: '' },
     ], new Date('2026-09-11T10:00:00.400Z'));
     expect(q.right.m60).toEqual({ approved: 5, declined: 3.5, approvedMarketId: 'a-p-right', declinedMarketId: 'd-p-right' });
-    expect(q.right.m1).toEqual({ approved: 1.5, declined: 1 });
-    expect(q.right.m5).toEqual({ approved: 2.5, declined: 2 });
+    expect(Object.keys(q.right)).toEqual(['m60']);
     expect(q.left.m60.approved).toBe(2);
   });
 
@@ -63,8 +62,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
     const q = await c.readQuotes([{ id: 'p-up', title: 'Continue forward', url: '' }], new Date('2026-09-11T10:00:00Z'));
     expect(q.forward.m60).toEqual({ approved: 4.5, declined: 3 });
-    expect(q.forward.m5).toEqual({ approved: 2, declined: 2 });
-    expect(q.forward.m1).toEqual({ approved: 1, declined: 1 });
+    expect(Object.keys(q.forward)).toEqual(['m60']);
   });
 
   it('the cells roll over the hour and the day correctly', async () => {
@@ -76,7 +74,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     ] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T23:59:55Z'));
     const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }], new Date('2026-09-11T23:59:00Z'));
-    expect(q.left.m1.approved).toBe(1); expect(q.left.m5.approved).toBe(5); expect(q.left.m60.approved).toBe(60);
+    expect(q.left.m60.approved).toBe(60);
     void seen;
   });
 
@@ -87,7 +85,6 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
     const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' }], new Date('2026-09-11T10:00:00Z'));
     expect(q.left.m60).toEqual({ approved: null, declined: null });
-    expect(q.left.m1).toEqual({ approved: null, declined: null });
     expect(q.right.m60).toEqual({ approved: null, declined: null });
   });
 
@@ -133,9 +130,9 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(c)).some(n => /trade|order/i.test(n))).toBe(false);
   });
 
-  it('minute cells: the cell N minutes after the opening minute, named YYYY-MM-DDTHH:MM', () => {
-    expect(minuteCells(new Date('2026-09-11T10:00:40Z'))).toEqual({ m1: '2026-09-11T10:01', m5: '2026-09-11T10:05', m60: '2026-09-11T11:00' });
-    expect(minuteCells(new Date('2026-12-31T23:59:00Z'))).toEqual({ m1: '2027-01-01T00:00', m5: '2027-01-01T00:04', m60: '2027-01-01T00:59' });
+  it('minute cell: the one cell sixty minutes after the opening minute, named YYYY-MM-DDTHH:MM', () => {
+    expect(minuteCells(new Date('2026-09-11T10:00:40Z'))).toEqual({ m60: '2026-09-11T11:00' });
+    expect(minuteCells(new Date('2026-12-31T23:59:00Z'))).toEqual({ m60: '2027-01-01T00:59' });
   });
 });
 

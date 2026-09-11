@@ -180,7 +180,7 @@ export function renderFrame(s: any): Buffer {
     text(ctx, 'Waiting', X, y, 48, MUTE);
   }
 
-  // 3. three choice tiles: arrow, name, 60-move impact; the leader in the accent
+  // 3. three choice tiles: arrow, name, impact; the leader in the accent
   y += 40;
   const gap = 12, tw = Math.floor((W - 2 * gap) / 3), th = 150;
   if (s.open) {
@@ -207,9 +207,10 @@ export function renderFrame(s: any): Buffer {
   }
   y += th + 48;
 
-  // 4. the status line: three facts
+  // 4. the status line: four facts
   const gameNo = s.gameNumber ?? g.gameNumber ?? 1;
-  text(ctx, `Length ${g.length} · Game ${gameNo} · ${N}x${N}`, X, y, 24, FG, 400);
+  const record = typeof s.bestLength === 'number' ? s.bestLength : g.length;
+  text(ctx, `Length ${g.length} · Record ${record} · Game ${gameNo} · ${N}x${N}`, X, y, 24, FG, 400);
   y += 44;
 
   // 5. the quiet line, above the trade line at the foot of the column: the newest trade, else the commentary

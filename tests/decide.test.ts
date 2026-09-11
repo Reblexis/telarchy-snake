@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { decide, ACTIONS, turn, type Quote } from '../src/decide.js';
+import { decide, ACTIONS, turn, HORIZONS, emptyDirectionQuotes } from '../src/decide.js';
 
-const q = (approved60: number | null, declined60: number | null = 10, m1: Quote = { approved: 1, declined: 1 }, m5: Quote = { approved: 5, declined: 5 }) =>
-  ({ m1, m5, m60: { approved: approved60, declined: declined60 } });
+const q = (approved60: number | null, declined60: number | null = 10) =>
+  ({ m60: { approved: approved60, declined: declined60 } });
 
 describe('actions are relative to the heading (docs/snake.md, "The game")', () => {
   it('lists the three actions in the tie order forward, left, right', () => {
@@ -59,9 +59,9 @@ describe('the decision rule (docs/snake.md, "The step")', () => {
     expect(d.approved).toBe('left');
   });
 
-  it('the 1-move and 5-move horizons never decide anything', () => {
-    const d = decide({ forward: q(10, 10, { approved: 99, declined: 0 }, { approved: 99, declined: 0 }), left: q(11, 10), right: q(10, 10) }, 'up');
-    expect(d.approved).toBe('left');
+  it('the one horizon is 60 moves and the empty quotes carry nothing else', () => {
+    expect(HORIZONS).toEqual(['m60']);
+    expect(Object.keys(emptyDirectionQuotes())).toEqual(['m60']);
   });
 
   it('the direction to apply is the turned heading', () => {
