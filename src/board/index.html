@@ -45,6 +45,7 @@
     <p class="sub lead">Every minute the market picks the snake's next move: four proposals, one per direction, priced on the snake's length. The highest is approved.</p>
     <canvas id="c" width="720" height="720"></canvas>
     <div class="stats">
+      <div class="stat"><b id="gametitle" style="font-size:16px">–</b><span>game</span></div>
       <div class="stat"><b id="len">–</b><span>length</span></div>
       <div class="stat"><b id="heading">–</b><span>heading</span></div>
       <div class="stat"><b id="deaths">–</b><span>deaths today</span></div>
@@ -95,6 +96,7 @@ function render(s){
   last = s;
   if (s.grid) GRID = s.grid;
   draw(s.game);
+  document.getElementById('gametitle').textContent = 'Game ' + (s.gameNumber || 1) + ', ' + GRID + ' by ' + GRID;
   document.getElementById('len').textContent = s.game.length;
   document.getElementById('heading').textContent = arrows[s.game.heading] + ' ' + s.game.heading;
   document.getElementById('deaths').textContent = s.deathsToday;
@@ -109,7 +111,7 @@ function render(s){
       return `<a class="card ${a===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${actTitle[a]}${d ? ' ' + arrows[d] + ' ' + d : ''}</div><div class="px">${imp == null ? '–' : (imp >= 0 ? '+' : '') + fmt(imp)}</div><div class="vs">impact on length in 60 moves. In 1: ${fmt(q.m1.approved)}, in 5: ${fmt(q.m5.approved)}, in 60: ${fmt(q.m60.approved)}</div></a>`;
     }).join('');
     document.getElementById('wslink').href = s.open.proposals.forward.url.replace(/\/p\/.*$/, '');
-  } else cards.innerHTML = s.complete ? '<div class="card lead"><div class="dir">Complete</div><div class="vs">The snake filled the grid. The game is over and the length stays at its maximum.</div></div>' : '';
+  } else cards.innerHTML = s.complete ? '<div class="card lead"><div class="dir">Complete</div><div class="vs">The snake filled the grid. The next game starts on a ' + (GRID+1) + ' by ' + (GRID+1) + ' grid ' + (s.nextGameAt ? 'at ' + new Date(s.nextGameAt).toUTCString().slice(17,22) + ' UTC' : 'after an hour') + '.</div></div>' : '';
   document.getElementById('log').innerHTML = s.recentDecisions.map(d =>
     `<tr><td>${d.step}</td><td>${actTitle[d.action] || '–'}${d.undecided?' (undecided)':''}</td><td>${arrows[d.direction]} ${d.direction}</td>` +
     acts.map(x => { const v = impact(d.quotes[x]); return `<td>${v == null ? '–' : fmt(v)}</td>`; }).join('') +

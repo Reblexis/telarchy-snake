@@ -19,6 +19,9 @@ export interface TelarchyClient {
    *  minute cells have their baseline books before the proposals are posted
    *  (docs/snake.md, "The workspace"). */
   refreshBooks(): Promise<void>;
+  /** Raise the metric's market range to `max` (the new full grid). Throws when
+   *  Telarchy refuses (an open traded book), so the caller retries later. */
+  setRange(max: number): Promise<void>;
 }
 
 export interface OpenStep {
@@ -61,6 +64,8 @@ export interface DecisionRecord {
 }
 
 const DECIDE_SECOND = 58;
+/** docs/snake.md, "The game": the pause between a completed game and the next. */
+const COOLDOWN_MS = 60 * 60_000;
 
 function utcDay(d: Date): string { return d.toISOString().slice(0, 10); }
 function isoMinute(d: Date): Date { const c = new Date(d); c.setUTCSeconds(0, 0); return c; }
@@ -69,6 +74,8 @@ export class Operator {
   game: GameState;
   open: OpenStep | null = null;
   decisions: DecisionRecord[] = [];
+  /** When the current game completed; null while a game is running. */
+  completedAt: string | null = null;
   private pending: Direction | null = null; // decided, waiting for the top of minute
 
   constructor(private client: TelarchyClient, game: GameState, private rng: Rng, private opts: OperatorOptions = {}) {
@@ -184,6 +191,30 @@ export class Operator {
 
   /** Top of minute: apply the decided move, post the reading, open the next step. */
   async tick(now: Date): Promise<void> {
+    if (this.game.complete) {
+      // The cooldown: the full length is the reading every minute; after an
+      // hour the range is raised to the next grid and a new game starts.
+      if (!this.completedAt) this.completedAt = now.toISOString();
+      const due = Date.parse(this.completedAt) + COOLDOWN_MS;
+      if (now.getTime() >= due) {
+        const size = (this.game.size ?? GRID) + 1;
+        try {
+          await this.client.setRange(size * size);
+        } catch {
+          await this.client.postReading(this.game.length, now, false);
+          return; // a traded open book: try again next minute
+        }
+        this.game = newGame(this.rng, size, (this.game.gameNumber ?? 1) + 1);
+        this.completedAt = null;
+        this.pending = null;
+        this.open = null;
+        await this.client.postReading(this.game.length, now, false);
+        await this.openStep(now);
+        return;
+      }
+      await this.client.postReading(this.game.length, now, false);
+      return;
+    }
     if (this.open && !this.open.decision) await this.closeStep(now);
     const dir = this.pending ?? this.game.heading;
     const before = this.game;
@@ -197,7 +228,7 @@ export class Operator {
     const next = new Date(now.getTime() + 60_000);
     const final = utcDay(next) !== utcDay(now) || this.game.complete;
     await this.client.postReading(this.game.length, now, final);
-    if (this.game.complete) return; // the final reading; no more proposals
+    if (this.game.complete) { this.completedAt = now.toISOString(); return; } // the cooldown begins
     await this.openStep(now);
   }
 
@@ -215,7 +246,10 @@ export class Operator {
     const nextStepAt = open ? open.deadline : new Date(isoMinute(now).getTime() + 60_000).toISOString();
     return {
       game: this.game,
-      grid: GRID,
+      grid: this.game.size ?? GRID,
+      gameNumber: this.game.gameNumber ?? 1,
+      completedAt: this.completedAt,
+      nextGameAt: this.completedAt ? new Date(Date.parse(this.completedAt) + COOLDOWN_MS).toISOString() : null,
       workspaceId: this.opts.workspaceId ?? null,
       metricId: this.opts.metricId ?? null,
       rule: RULE,
@@ -242,7 +276,7 @@ export class Operator {
   }
 
   toJSON() {
-    return { game: this.game, open: this.open, decisions: this.decisions, pending: this.pending };
+    return { game: this.game, open: this.open, decisions: this.decisions, pending: this.pending, completedAt: this.completedAt };
   }
 
   static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
@@ -250,7 +284,9 @@ export class Operator {
     op.open = raw.open ?? null;
     op.decisions = raw.decisions ?? [];
     op.pending = raw.pending ?? null;
+    op.completedAt = raw.completedAt ?? null;
     if (op.game.complete === undefined) op.game = { ...op.game, complete: false };
+    if (op.game.size === undefined) op.game = { ...op.game, size: GRID, gameNumber: 1 };
     return op;
   }
 }

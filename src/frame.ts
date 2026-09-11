@@ -20,10 +20,10 @@ const CARD: RGB = [34, 38, 44];
 
 const MARGIN = 24;
 const BOARD_PX = HEIGHT - 2 * MARGIN; // 672
-const CELL = Math.floor(BOARD_PX / GRID); // 33
 
-export function cellRect(x: number, y: number) {
-  return { x: MARGIN + x * CELL, y: MARGIN + y * CELL, w: CELL, h: CELL };
+export function cellRect(x: number, y: number, size: number = GRID) {
+  const cell = Math.floor(BOARD_PX / size);
+  return { x: MARGIN + x * cell, y: MARGIN + y * cell, w: cell, h: cell };
 }
 
 function fill(buf: Buffer, x: number, y: number, w: number, h: number, c: RGB) {
@@ -81,22 +81,24 @@ const ARROW: Record<string, string> = { up: '^', right: '>', down: 'v', left: '<
 export function renderFrame(s: any): Buffer {
   const buf = Buffer.alloc(WIDTH * HEIGHT * 3);
   fill(buf, 0, 0, WIDTH, HEIGHT, BG);
-  // board
-  fill(buf, MARGIN, MARGIN, CELL * GRID, CELL * GRID, BOARD);
-  for (let i = 0; i <= GRID; i++) {
-    fill(buf, MARGIN + i * CELL, MARGIN, 1, CELL * GRID, GRIDLINE);
-    fill(buf, MARGIN, MARGIN + i * CELL, CELL * GRID, 1, GRIDLINE);
-  }
   const g = s.game;
-  const fr = cellRect(g.food.x, g.food.y);
+  const N: number = s.grid ?? g.size ?? GRID;
+  const CELL = Math.floor(BOARD_PX / N);
+  // board
+  fill(buf, MARGIN, MARGIN, CELL * N, CELL * N, BOARD);
+  for (let i = 0; i <= N; i++) {
+    fill(buf, MARGIN + i * CELL, MARGIN, 1, CELL * N, GRIDLINE);
+    fill(buf, MARGIN, MARGIN + i * CELL, CELL * N, 1, GRIDLINE);
+  }
+  const fr = cellRect(g.food.x, g.food.y, N);
   fill(buf, fr.x + 8, fr.y + 8, fr.w - 16, fr.h - 16, FOOD);
   g.snake.forEach((c: { x: number; y: number }, i: number) => {
-    const r = cellRect(c.x, c.y);
+    const r = cellRect(c.x, c.y, N);
     fill(buf, r.x + 2, r.y + 2, r.w - 4, r.h - 4, i === 0 ? HEAD : SNAKE);
   });
-  // The heading, marked on the head: a dark bar on the edge the snake is moving towards.
+  // The heading, marked on the head: a bar on the edge the snake is moving towards.
   {
-    const h = cellRect(g.snake[0].x, g.snake[0].y);
+    const h = cellRect(g.snake[0].x, g.snake[0].y, N);
     const t = Math.max(3, Math.floor(h.w / 6));
     if (g.heading === 'up') fill(buf, h.x + 4, h.y + 2, h.w - 8, t, LEAD);
     if (g.heading === 'down') fill(buf, h.x + 4, h.y + h.h - 2 - t, h.w - 8, t, LEAD);
@@ -107,7 +109,7 @@ export function renderFrame(s: any): Buffer {
   // right column
   const X = MARGIN + CELL * GRID + 40; // 724
   let y = MARGIN + 8;
-  drawText(buf, X, y, 'FUTARCHY SNAKE', 4, FG); y += 40;
+  drawText(buf, X, y, `FUTARCHY SNAKE  GAME ${s.gameNumber ?? g.gameNumber ?? 1}  ${N}X${N}`, 4, FG); y += 40;
   drawText(buf, X, y, 'THE MARKET PICKS EVERY MOVE', 2, MUTE); y += 36;
   drawText(buf, X, y, `LENGTH ${g.length}`, 5, FG);
   drawText(buf, X + 270, y + 2, `HEADING ${ARROW[g.heading]} ${String(g.heading).toUpperCase()}`, 3, LEAD);
@@ -135,7 +137,9 @@ export function renderFrame(s: any): Buffer {
     });
     y += 3 * (chh + 10) + 8;
   } else if (s.complete) {
-    drawText(buf, X, y, 'COMPLETE: THE SNAKE FILLED THE GRID', 2, LEAD); y += 40;
+    drawText(buf, X, y, 'COMPLETE: THE SNAKE FILLED THE GRID', 2, LEAD); y += 24;
+    if (s.nextGameAt) { const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000)); drawText(buf, X, y, `NEXT GAME ON A ${N + 1}X${N + 1} GRID IN ${m} MIN`, 2, MUTE); }
+    y += 24;
   } else {
     drawText(buf, X, y, 'WAITING FOR THE NEXT STEP', 2, MUTE); y += 40;
   }

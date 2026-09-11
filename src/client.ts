@@ -139,6 +139,10 @@ export class HttpTelarchyClient implements TelarchyClient {
     else await this.call('POST', `/proposals/${encodeURIComponent(ref.id)}/decline`, { refund: true });
   }
 
+  async setRange(max: number): Promise<void> {
+    await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, { marketRangeMax: max });
+  }
+
   async refreshBooks(): Promise<void> {
     await this.call('POST', '/predictions/markets/refresh', { force: true });
   }

@@ -10,6 +10,8 @@ describe('the game (docs/snake.md, "The game")', () => {
   it('starts at the centre with length 2, heading right, one food on a free cell', () => {
     const g = newGame(rng([0]));
     expect(GRID).toBe(12);
+    expect(g.size).toBe(12);
+    expect(g.gameNumber).toBe(1);
     expect(g.snake).toEqual([{ x: 6, y: 6 }, { x: 5, y: 6 }]);
     expect(g.heading).toBe('right');
     expect(g.snake.some(s => s.x === g.food.x && s.y === g.food.y)).toBe(false);
@@ -105,6 +107,28 @@ describe('the game (docs/snake.md, "The game")', () => {
     expect(g2.deaths).toBe(3);
     expect(g2.step).toBe(8);
     expect(g2.length).toBe(2);
+  });
+
+  it('a later game is one cell larger, numbered, starts at the centre at length 2', () => {
+    const g = newGame(rng([0]), 13, 2);
+    expect(g.size).toBe(13);
+    expect(g.gameNumber).toBe(2);
+    expect(g.snake[0]).toEqual({ x: 6, y: 6 });
+    expect(g.length).toBe(2);
+    // the far wall is at 12 on a 13-grid
+    let h = { ...g, snake: [{ x: 12, y: 6 }, { x: 11, y: 6 }], heading: 'right' as Direction };
+    expect(step(h, 'right').deaths).toBe(1);
+    h = { ...g, snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }], heading: 'right' as Direction };
+    expect(step(h, 'right').deaths).toBe(0);
+  });
+
+  it('death on a larger grid respawns on the same grid, not the first one', () => {
+    let g = newGame(rng([0]), 13, 2);
+    g = { ...g, snake: [{ x: 12, y: 6 }, { x: 11, y: 6 }], heading: 'right' };
+    const g2 = step(g, 'right');
+    expect(g2.size).toBe(13);
+    expect(g2.gameNumber).toBe(2);
+    expect(g2.snake[0]).toEqual({ x: 6, y: 6 });
   });
 
   it('filling the grid completes the game: length 144, complete, and further steps change nothing', () => {

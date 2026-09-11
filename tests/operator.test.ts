@@ -27,6 +27,9 @@ function fakeClient(quotesFor: (step: number) => Quotes) {
     async refreshBooks() {
       calls.push({ name: 'refreshBooks', args: [] });
     },
+    async setRange(max) {
+      calls.push({ name: 'setRange', args: [max] });
+    },
   };
   return { client, calls };
 }
@@ -182,6 +185,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     const names = new Set(calls.map(c => c.name));
     expect([...names].sort()).toEqual(['decideProposal', 'postProposal', 'postReading', 'readQuotes', 'refreshBooks']);
+    expect(Object.keys(client).some(k => /trade|order/i.test(k))).toBe(false);
   });
 
   it('forces the rolling-market refresh before the four proposals of every step', async () => {
@@ -214,16 +218,66 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
   });
 
-  it('a complete game posts its final reading and no more proposals', async () => {
+  it('a complete game posts the full length as its reading every minute and no proposals, for one hour', async () => {
     const { client, calls } = fakeClient(upWins);
     const g = { ...newGame(rng), complete: true, length: 144 };
     const op = new Operator(client, g as any, rng);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.completedAt).toBe('2026-09-11T10:01:00.000Z');
+    await op.tick(new Date('2026-09-11T10:02:00Z'));
+    await op.tick(new Date('2026-09-11T10:30:00Z'));
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
-    expect(calls.filter(c => c.name === 'postReading').length).toBe(1);
+    expect(calls.filter(c => c.name === 'postReading').map(c => c.args[0])).toEqual([144, 144, 144]);
     expect(op.open).toBe(null);
-    expect(op.publicState(new Date('2026-09-11T10:01:05Z')).complete).toBe(true);
-    await expect(op.openStep(new Date('2026-09-11T10:02:00Z'))).rejects.toThrow(/complete/);
+    const st = op.publicState(new Date('2026-09-11T10:31:00Z'));
+    expect(st.complete).toBe(true);
+    expect(st.nextGameAt).toBe('2026-09-11T11:01:00.000Z');
+    await expect(op.openStep(new Date('2026-09-11T10:32:00Z'))).rejects.toThrow(/complete/);
+  });
+
+  it('after the hour, the range is raised to the new full grid and a new game starts one cell larger, numbered up', async () => {
+    const { client, calls } = fakeClient(upWins);
+    const g = { ...newGame(rng), complete: true, length: 144 };
+    const op = new Operator(client, g as any, rng);
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    await op.tick(new Date('2026-09-11T11:01:00Z'));
+    expect(calls.filter(c => c.name === 'setRange').map(c => c.args[0])).toEqual([169]);
+    expect(op.game.size).toBe(13);
+    expect(op.game.gameNumber).toBe(2);
+    expect(op.game.length).toBe(2);
+    expect(op.game.complete).toBe(false);
+    expect(op.completedAt).toBe(null);
+    // the range is raised before the new game's proposals are posted
+    const names = calls.map(c => c.name);
+    expect(names.indexOf('setRange')).toBeLessThan(names.lastIndexOf('postProposal'));
+    expect(calls.filter(c => c.name === 'postProposal').length).toBe(3);
+    expect(op.publicState(new Date('2026-09-11T11:01:10Z')).grid).toBe(13);
+  });
+
+  it('if the range cannot be raised yet (a traded open book), the cooldown continues and it is retried next minute', async () => {
+    const { client, calls } = fakeClient(upWins);
+    let fails = 1;
+    const blocked: TelarchyClient = { ...client, async setRange(max) { if (fails-- > 0) throw new Error('409'); return client.setRange(max); } };
+    const g = { ...newGame(rng), complete: true, length: 144 };
+    const op = new Operator(blocked, g as any, rng);
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    await op.tick(new Date('2026-09-11T11:01:00Z'));
+    expect(op.game.size).toBe(12);
+    expect(op.game.complete).toBe(true);
+    expect(calls.filter(c => c.name === 'postProposal').length).toBe(0);
+    await op.tick(new Date('2026-09-11T11:02:00Z'));
+    expect(op.game.size).toBe(13);
+    expect(calls.filter(c => c.name === 'setRange').length).toBe(1);
+  });
+
+  it('the completion instant and game number survive a restart', async () => {
+    const { client } = fakeClient(upWins);
+    const g = { ...newGame(rng), complete: true, length: 144 };
+    const op = new Operator(client, g as any, rng);
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    const op2 = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
+    expect(op2.completedAt).toBe(op.completedAt);
+    expect(op2.game.gameNumber).toBe(1);
   });
 
   it('a failing refresh does not stop the three proposals', async () => {
@@ -271,6 +325,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     const { client } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng), rng);
     expect(op.publicState(new Date()).grid).toBe(12);
+    expect(op.publicState(new Date()).gameNumber).toBe(1);
   });
 
   it('/state carries the game, the open proposals with prices, recent decisions and counters', async () => {

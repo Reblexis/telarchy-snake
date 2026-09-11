@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { renderFrame, WIDTH, HEIGHT, cellRect, drawText, measureText } from '../src/frame.js';
 
 const state = {
-  game: { snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }], heading: 'right', food: { x: 3, y: 4 }, length: 3, step: 12, deaths: 1, complete: false },
+  game: { snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }], heading: 'right', food: { x: 3, y: 4 }, length: 3, step: 12, deaths: 1, complete: false, size: 12, gameNumber: 1 },
+  grid: 12,
   complete: false,
   open: {
     step: 13, openedAt: '', decideAt: new Date(Date.now() + 30_000).toISOString(),
@@ -81,6 +82,14 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
     const a = Buffer.alloc(WIDTH * HEIGHT * 3); drawText(a, 0, 0, '+', 2, [255, 255, 255]);
     const b = Buffer.alloc(WIDTH * HEIGHT * 3); drawText(b, 0, 0, '?', 2, [255, 255, 255]);
     expect(Buffer.compare(a, b)).not.toBe(0);
+  });
+
+  it('draws the grid at the state\'s size: on a 13-grid the last cell is inside the board', () => {
+    const f = renderFrame({ ...state, grid: 13, game: { ...state.game, size: 13, snake: [{ x: 12, y: 12 }] } } as any);
+    const r = cellRect(12, 12, 13);
+    const [, g] = px(f, r.x + Math.floor(r.w / 2), r.y + Math.floor(r.h / 2));
+    expect(g).toBeGreaterThan(150);
+    expect(r.x + r.w).toBeLessThanOrEqual(HEIGHT);
   });
 
   it('a complete game renders without an open step and without crashing', () => {

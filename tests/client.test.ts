@@ -117,6 +117,16 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(reqs[0].body.value).not.toBeNull();
   });
 
+  it('raises the metric range with PUT /metrics/:id marketRangeMax, and throws on 409 so the operator can retry', async () => {
+    const { reqs, fetchImpl } = fakeFetch(r => r.body?.marketRangeMax === 169 ? { json: { ok: true } } : { status: 409, json: { error: 'traded' } });
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    await c.setRange(169);
+    expect(reqs[0].url).toBe('https://telarchy.com/api/metrics/m1');
+    expect(reqs[0].method).toBe('PUT');
+    expect(reqs[0].body).toEqual({ marketRangeMax: 169 });
+    await expect(c.setRange(196)).rejects.toThrow(/409/);
+  });
+
   it('the client has no trade method', () => {
     const c = new HttpTelarchyClient(opts);
     expect((c as any).trade).toBeUndefined();
