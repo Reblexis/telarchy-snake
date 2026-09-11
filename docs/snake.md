@@ -395,7 +395,7 @@ The operator account still never trades.
 ## The stream
 
 The board rendered as a 1280 by 720 frame in-process and pushed to Twitch
-as a continuous stream, from the fleet box. The channel is
+as a continuous stream, from the snake's own server. The channel is
 https://www.twitch.tv/telarchy (account agents@telarchy.com; credentials
 and the stream key in the keyring, `telarchy/twitch.env`). The stream is
 a link on the board and the floor; it is not expected to find viewers on
@@ -426,15 +426,21 @@ every step so a restart continues the game. Configuration by environment:
 the Telarchy base URL, the operator API key, the workspace id, the port,
 the state file path, the liquidity per book.
 
-On the fleet box the operator's unit is weighted above its neighbours
-(CPU weight 1000, a 256 MB memory floor), because the box runs other
-agents' benches that starve it at times and a decision must fall inside
-its minute; if that is not enough the snake moves to a host of its own.
+The snake runs on a server of its own (Hetzner `telarchy-snake`,
+167.233.147.90, 2 vCPU, 4 GB, user `telarchy`): nothing else runs there, so
+a decision always falls inside its minute. It shared the fleet box first
+and was starved by that box's benches (load above 100 on two cores, steps
+lapsing, the site's proxy answering 502 for the feed), which is why it
+moved. The operator and the stream are the two `systemd --user` units of
+`deploy/`, installed by `deploy/install.sh`; Caddy on the same server
+serves the board on `snake.telarchy.com` (an A record pointing at the
+server) and on the server's nip.io name, `deploy/Caddyfile.snake`. The
+site reaches the feed through the workspace's `liveFeed` url, which names
+whichever of the two hosts resolves.
 
-It runs first against the beta store for at least one full day, and the
-site's query times under that load are recorded in the umbrella notes
-before it moves to production. On production it is a systemd unit on the
-fleet box.
+It ran first against the beta store for a full day, and the site's query
+times under that load are recorded in the umbrella notes, before it moved
+to production.
 
 ## What must hold
 

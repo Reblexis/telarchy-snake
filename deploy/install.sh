@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install or refresh the snake on the box. Run as telarchy: bash deploy/install.sh
+# Install or refresh the snake on its server (docs/snake.md, "Operation"). Run as telarchy: bash deploy/install.sh
 # Idempotent. Expects ~/src/telarchy-snake to be this checkout with a filled .env.
 set -euo pipefail
 cd "$(dirname "$0")/.."

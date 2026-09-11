@@ -1,5 +1,5 @@
 # systemd --user unit for the snake service (docs/snake.md, "Operation").
-# Install on the box as the telarchy user: bash deploy/install.sh
+# Install on the snake's server as the telarchy user: bash deploy/install.sh
 [Unit]
 Description=telarchy-snake: the futarchy snake operator and board
 After=network-online.target
@@ -12,10 +12,9 @@ EnvironmentFile=%h/src/telarchy-snake/.env
 ExecStart=/usr/bin/node dist/main.js
 Restart=always
 RestartSec=5
-# The fleet box runs benches and scans that starve a 2-core host at times
-# (2026-09-11: load 34, timers firing minutes late, steps lapsing). The
-# operator must decide inside its minute, so it outweighs its neighbours
-# within the user's cgroup and keeps a memory floor.
+# Kept from the fleet-box days, when neighbours starved the operator; on a
+# server of its own these are harmless and keep the operator first if
+# anything else is ever added.
 CPUWeight=1000
 IOWeight=500
 MemoryLow=256M
