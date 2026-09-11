@@ -26,7 +26,16 @@ fi
 [ "${PREV:-}" = "$STEP" ] || echo "$STEP $NOW" > "$STATE_CACHE"
 
 # A playable step: a proposal to trade, unless the game is between games.
-if [ "$COMPLETE" != "True" ]; then
+# Retried once: the operator posts the step's proposal at :00, and for a
+# second or two either the feed or the floor payload can be a beat behind.
+if [ "$COMPLETE" != "True" ] && { [ "$OPENID" = "-" ] || [ "$OPENID" = "None" ]; }; then
+  sleep 6
+  OPENID=$(curl -s --max-time 10 "$FEED/state" | python3 -c "
+import sys,json
+try: d=json.load(sys.stdin)
+except Exception: print('-'); raise SystemExit
+print(((d.get('open') or {}).get('proposal') or {}).get('id','-'))
+")
   [ "$OPENID" != "-" ] && [ "$OPENID" != "None" ] || fail "no open proposal on the feed (phase $PHASE)"
 fi
 
@@ -46,7 +55,19 @@ if not ps: print(0); raise SystemExit
 m=(ps[0].get('markets') or [{}])[0]
 print(len(m.get('options') or []))
 " 2>/dev/null) || fail "floor payload unreadable"
-if [ "$COMPLETE" != "True" ]; then
+if [ "$COMPLETE" != "True" ] && [ "${OPTS:-0}" -lt 3 ]; then
+  # Same beat: the proposal is created before its option books are, and the
+  # floor payload is cached for a moment. Ask once more before calling it.
+  sleep 8
+  OPTS=$(curl -s --max-time 10 "$FLOOR/api/marketplace/snake" | python3 -c "
+import sys,json
+try: d=json.load(sys.stdin)
+except Exception: print(0); raise SystemExit
+ps=[p for p in d.get('proposals',[]) if not p.get('closedAt') and not p.get('resolvedAt')]
+if not ps: print(0); raise SystemExit
+m=(ps[0].get('markets') or [{}])[0]
+print(len(m.get('options') or []))
+" 2>/dev/null)
   [ "${OPTS:-0}" -ge 3 ] || fail "the open proposal has $OPTS option books, not three"
 fi
 
