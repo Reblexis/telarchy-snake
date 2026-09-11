@@ -153,6 +153,17 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
     expect(log.games()[0].steps).toBe(4);
   });
 
+  it('a partial start carries the game record (bestLength), not the current length', async () => {
+    const log = new GameLog(tmp());
+    const op = new Operator(fakeClient(upWins), { ...newGame(rng), food: { x: 6, y: 5 } }, rng);
+    await playSteps(op, 1); // eats: length 3
+    op.game = { ...op.game, snake: [{ x: 6, y: 6 }, { x: 5, y: 6 }], length: 2, deaths: 1, step: 5 }; // died since
+    expect(op.bestLength).toBe(3);
+    Operator.fromJSON(fakeClient(upWins), JSON.parse(JSON.stringify(op.toJSON())), rng, { log });
+    expect(log.games()[0]).toMatchObject({ partial: true, bestLength: 3, steps: 5, deaths: 1 });
+    expect((await log.history(1))!.steps[0].length).toBe(2);
+  });
+
   it('a log that already exists for the running game is continued on restart, not started again', async () => {
     const dir = tmp();
     const op = new Operator(fakeClient(upWins), newGame(rng), rng, { log: new GameLog(dir) });

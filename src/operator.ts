@@ -553,6 +553,7 @@ export class Operator {
     op.pending = raw.pending ?? null;
     op.completedAt = raw.completedAt ?? null;
     op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;
+    op.log?.noteBest(op.game.gameNumber ?? 1, op.bestLength);
     op.recentTrades = Array.isArray(raw.recentTrades) ? raw.recentTrades : [];
     op.tradersToday = raw.tradersToday && Array.isArray(raw.tradersToday.handles) ? raw.tradersToday : { day: '', handles: [] };
     // A state file from before recording began: the record starts from the

@@ -130,6 +130,13 @@ export class GameLog {
     this.writeIndex();
   }
 
+  /** Raise a game's record when the operator knows a higher one (a partial
+   *  start records the current length; the record lives in the state file). */
+  noteBest(number: number, bestLength: number) {
+    const g = this.index.games.find(x => x.number === number);
+    if (g && bestLength > g.bestLength) { g.bestLength = bestLength; this.writeIndex(); }
+  }
+
   /** Mark a game ended at `at` (a game found complete when the log begins). */
   end(number: number, at: string) {
     const g = this.index.games.find(x => x.number === number);
