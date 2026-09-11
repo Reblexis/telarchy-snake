@@ -301,6 +301,14 @@ read them from the browser and never sees a stale copy. `/state` is the
 present, `/games` and `/history` are the record; together they are what
 a page needs to show the game live and replay any of it.
 
+
+**The feed never blanks between steps.** The step the operator has just
+ruled on stays on `/state` until the next step's proposals are posted, so
+a watcher never sees the board without a step for the seconds those posts
+take. `phase` says which moment it is: `open` while the step is trading,
+`decided` from its ruling until the next step replaces it, `idle` only
+when there is no step at all (a complete game's cooldown).
+
 `/state` is the whole of the board's data and a bot's feed: the game
 state, the workspace and metric ids, the open step with its three
 proposals, and for each action the approved and declined market ids and

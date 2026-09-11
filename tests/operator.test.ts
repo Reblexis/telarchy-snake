@@ -883,3 +883,72 @@ describe('bounded calls and the reason a step is undecided (docs/snake.md, "The 
     expect(maxInFlight).toBe(2);
   });
 });
+
+describe('the feed never blanks between steps (docs/snake.md, "The feed")', () => {
+  const rng = () => 0;
+  const h = (a: number | null, d: number | null) => ({ m1: { approved: a, declined: d }, m5: { approved: a, declined: d }, m60: { approved: a, declined: d } });
+  const upWins = (): Quotes => ({ forward: h(10, 10), left: h(12, 10), right: h(10, 10) });
+
+  it('THE FEED NEVER BLANKS THE OPEN STEP BETWEEN STEPS', async () => {
+    const { client } = fakeClient(upWins);
+    const seen: Array<{ step: number | null; phase: string }> = [];
+    const op = new Operator(client, newGame(rng), rng);
+    // Sample the feed from inside the slow call that posts the next step's
+    // proposals: that is the window in which the step used to read null.
+    const slow: TelarchyClient = {
+      ...client,
+      async postProposal(t, d, by) {
+        const s = op.publicState(new Date('2026-09-11T10:01:00Z'));
+        seen.push({ step: s.open ? s.open.step : null, phase: s.phase });
+        return client.postProposal(t, d, by);
+      },
+    };
+    const op2 = new Operator(slow, newGame(rng), rng);
+    // openStep on op2 uses the slow client too, so seed the first step first.
+    await op2.openStep(new Date('2026-09-11T10:00:00Z'));
+    seen.length = 0;
+    await op2.closeStep(new Date('2026-09-11T10:00:58Z'));
+    // During the move the feed must keep the step it just ruled on.
+    const slow2: TelarchyClient = {
+      ...client,
+      async postProposal(t, d, by) {
+        const s = op2.publicState(new Date('2026-09-11T10:01:00Z'));
+        seen.push({ step: s.open ? s.open.step : null, phase: s.phase });
+        return client.postProposal(t, d, by);
+      },
+    };
+    (op2 as unknown as { client: TelarchyClient }).client = slow2;
+    await op2.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(seen.length).toBe(3);
+    expect(seen.every(s => s.step !== null)).toBe(true);
+    expect(seen.every(s => s.phase === 'decided')).toBe(true);
+    const after = op2.publicState(new Date('2026-09-11T10:01:01Z'));
+    expect(after.open?.step).toBe(2);
+    expect(after.phase).toBe('open');
+    void op;
+  });
+
+  it('A DECIDED STEP IS REPLACED, NOT CLEARED', async () => {
+    const { client } = fakeClient(upWins);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:59Z')).phase).toBe('decided');
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.open?.step).toBe(2);
+    expect(op.open?.decision).toBe(null);
+  });
+
+  it('AN UNDECIDED OPEN STEP STILL REFUSES A SECOND OPEN', async () => {
+    const { client } = fakeClient(upWins);
+    const op = new Operator(client, newGame(rng), rng);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    await expect(op.openStep(new Date('2026-09-11T10:00:10Z'))).rejects.toThrow(/already open/);
+  });
+
+  it('with no step at all the phase says so', () => {
+    const { client } = fakeClient(upWins);
+    const op = new Operator(client, newGame(rng), rng);
+    expect(op.publicState(new Date('2026-09-11T10:00:00Z')).phase).toBe('idle');
+  });
+});

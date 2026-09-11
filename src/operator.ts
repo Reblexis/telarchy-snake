@@ -244,7 +244,10 @@ export class Operator {
 
   /** Second 0: post the three proposals for the next step. */
   async openStep(now: Date): Promise<OpenStep> {
-    if (this.open) throw new Error(`step ${this.open.step} is already open`);
+    // A step whose ruling is in may be replaced (the feed keeps showing it
+    // until the new one is posted, docs/snake.md "The feed"); one still
+    // trading may not.
+    if (this.open && !this.open.decision) throw new Error(`step ${this.open.step} is already open`);
     if (this.game.complete) throw new Error('the game is complete');
     if (!this.canOpen(now)) throw new Error('too close to the deadline to open a step');
     // One cell per attempt (docs/snake.md, "The workspace"): set when the
@@ -396,7 +399,7 @@ export class Operator {
         this.bestLength = this.game.length;
         this.completedAt = null;
         this.pending = null;
-        this.open = null;
+        this.open = null; // the finished game's step goes with it
         await this.client.postReading(this.game.length, now, false);
         await this.openStep(now);
         return;
@@ -412,10 +415,12 @@ export class Operator {
     const rec = this.decisions[this.decisions.length - 1];
     if (rec && rec.lengthAfter === null) rec.lengthAfter = this.game.length;
     this.recordMove(before, this.game, dir, now, rec);
+    // `this.open` is NOT cleared here: the feed keeps the step it just ruled
+    // on until openStep swaps the next one in, so a watcher never sees the
+    // board without a step for the seconds the posts take.
     // docs/snake.md "The feed": the state after the move, right after it is applied.
     this.log?.append(this.game.gameNumber ?? 1, this.logLine(this.game, now.toISOString(), rec && rec.step === this.game.step ? rec : null, dir), this.bestLength, this.game.complete);
     this.pending = null;
-    this.open = null;
     // The attempt ended: the answer to every open book is known now, so
     // they settle at the length the attempt reached, before the new
     // attempt's reading (docs/snake.md, "When the attempt ends the answer is
@@ -440,7 +445,9 @@ export class Operator {
     const next = new Date(now.getTime() + 60_000);
     const final = utcDay(next) !== utcDay(now) || this.game.complete;
     await this.client.postReading(this.game.length, now, final);
-    if (this.game.complete) { this.completedAt = now.toISOString(); return; } // the cooldown begins
+    // The cooldown begins: there is no step to show for an hour, so the feed
+    // says idle rather than holding the finished game's last one.
+    if (this.game.complete) { this.completedAt = now.toISOString(); this.open = null; return; }
     await this.openStep(now);
   }
 
@@ -583,6 +590,10 @@ export class Operator {
       workspaceId: this.opts.workspaceId ?? null,
       metricId: this.opts.metricId ?? null,
       rule: RULE,
+      // 'open' while the step is trading, 'decided' from its ruling until the
+      // next step is posted (the feed keeps the ruled step through the move),
+      // 'idle' when there is no step at all (a complete game's cooldown).
+      phase: open ? (open.decision ? 'decided' : 'open') : 'idle',
       nextStepAt,
       open: open
         ? {
