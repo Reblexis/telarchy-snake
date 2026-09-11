@@ -66,6 +66,7 @@ describe('A FILLED GRID LEVELS UP (docs/snake.md, "The game")', () => {
       async refreshBooks() {},
       async setHorizon() {},
       async setRange(max) { ranges.push(max); },
+      async setMetricDescription() {},
       async readActivity() { return {}; },
       async readLeaderboard() { return []; },
     };

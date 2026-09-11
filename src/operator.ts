@@ -54,6 +54,9 @@ export interface TelarchyClient {
   /** Raise the metric's market range to `max` (the new full grid). Throws when
    *  Telarchy refuses (an open traded book), so the caller retries later. */
   setRange(max: number): Promise<void>;
+  /** Rewrite the metric's description, which names the grid being played
+   *  (docs/snake.md, "The workspace"). Throws when Telarchy refuses. */
+  setMetricDescription(text: string): Promise<void>;
   /** Public activity (positions and newest trades) of the given books, keyed
    *  by market id; a book that cannot be read is left out. Read-only. */
   readActivity(marketIds: string[]): Promise<Record<string, MarketActivity>>;
@@ -163,6 +166,20 @@ function noPriceReason(quotes: Quotes): string {
 const TRADES_KEPT = 30;
 const LEADERBOARD_SIZE = 5;
 const LEADERBOARD_EVERY_MS = 60_000;
+/** docs/snake.md, "The workspace": what the metric says it measures. It names
+ *  the grid being played and the length that fills it, so the sentence a
+ *  trader reads is never the grid before this one. */
+export function metricDescription(size: number): string {
+  const full = size * size;
+  return (
+    `The length the current attempt has reached, on a ${size} by ${size} grid. ` +
+    'One move a minute; the market picks the direction. ' +
+    `Priced on the length in 60 moves; when the attempt ends (a death, or the grid filled at ${full}) ` +
+    'every open book settles at the length it reached. ' +
+    'The next attempt starts again at 2, and each new game is played on a grid two cells larger.'
+  );
+}
+
 /** docs/snake.md, "The game": the pause between a completed game and the next. */
 const COOLDOWN_MS = 5 * 60_000;
 
@@ -399,6 +416,13 @@ export class Operator {
         } catch {
           await this.client.postReading(this.game.length, now, false);
           return; // a traded open book: try again next minute
+        }
+        // The metric's own sentence names the grid; a refusal here costs a
+        // stale sentence, never the new game.
+        try {
+          await this.client.setMetricDescription(metricDescription(size));
+        } catch (e) {
+          console.error(`metric description failed: ${(e as Error).message}`);
         }
         this.game = newGame(this.rng, size, (this.game.gameNumber ?? 1) + 1);
         this.games.push(startRecord(this.game));
