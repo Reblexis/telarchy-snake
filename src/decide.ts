@@ -43,7 +43,7 @@ export interface Quote {
    *  priced pair. */
   reason?: string;
 }
-/** The one horizon: the length the attempt will have reached in 60 moves. */
+/** The one horizon: the attempt's cell, an hour after it starts (docs/snake.md, "The workspace"). */
 export type Horizon = 'm60';
 export const HORIZONS: Horizon[] = ['m60'];
 export type DirectionQuotes = Record<Horizon, Quote>;

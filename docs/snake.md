@@ -61,14 +61,19 @@ and the cooldown lasts that long. The operator posts a reading after
 every step, so the metric's chart is the length minute by minute, back
 to 2 at every death.
 
-The metric is priced on one rolling horizon, a one-minute period on
-Telarchy's clock sixty minutes out (`+60min`): the length the attempt
-will have reached in **60 moves**. A book for a minute settles on the last
-reading whose timestamp falls inside that minute; the operator's reading
-at the top of each minute, posted right after the move, is that minute's
-fixing, so the book for minute M+60 settles on the length after sixty
-more moves, while the attempt lasts that long. No other horizon and no
-calendar horizon is priced.
+The metric is priced on **one book at a time, fixed for the attempt**.
+When an attempt starts the operator sets the metric's only horizon to the
+one-minute cell sixty minutes ahead (an absolute `YYYY-MM-DDTHH:MM` in
+`customHorizons`, not a rolling `+60min`, so the cell does not move with
+the clock) and refreshes the workspace's markets, which opens that cell's
+baseline book. Every proposal of the attempt is priced on that same cell:
+the question on the floor is "what length will this attempt have reached
+at HH:MM", asked once, not a new question every minute. The book settles
+on the last reading inside its minute if the attempt is still alive then,
+or at the attempt's end (below), whichever comes first. When the cell's
+minute has passed with the attempt alive, the next step sets the next
+cell, sixty minutes ahead again, and the attempt carries on under it.
+No other horizon and no calendar horizon is priced.
 
 **When the attempt ends the answer is known.** Right after the move that
 kills the snake (or fills the grid), before it posts the new attempt's
@@ -76,18 +81,18 @@ reading, the operator settles the metric
 (`POST /api/metrics/:id/settle`, Telarchy's early settlement, see the
 app's `docs/market-integrity.md`) at the length the attempt reached,
 with the reason `Game G, attempt A ended at length L`. That settles every
-open book on the metric at once, the baseline cells of the next sixty
-minutes and the approved branches of past proposals alike, so a trader is
-paid the moment the question is answered rather than an hour later on a
-number from the next attempt. The books the next steps open are fresh
-cells and price the new attempt. If the call fails the operator logs it
-and carries on; those books then settle on the readings inside their own
-minutes.
+open book on the metric at once, the attempt's baseline book and the
+approved branches of its proposals alike, so a trader is paid the moment
+the question is answered rather than an hour later on a number from the
+next attempt. The next step sets the new attempt's cell and opens its
+book. If the call fails the operator logs it and carries on; those books
+then settle on the readings inside their own minute.
 
-A rolling minute cell exists only once the workspace's rolling markets
-are refreshed, so the operator forces that refresh at every step, before
-posting the three proposals; the baseline book for the step's cell is
-then open and every proposal gets its pair.
+The operator forces the workspace's market refresh at every step, before
+posting the three proposals, so the attempt's baseline book exists and
+every proposal gets its pair. If setting the cell fails the step still
+runs (the undecided path covers a missing pair) and the next step tries
+again.
 
 Liquidity: every pair book a proposal opens is funded by the workspace
 owner through the metric's proposal credits on the 60-move horizon (1,000
@@ -452,5 +457,8 @@ to production.
 - The move that ends an attempt settles the metric at the length the
   attempt reached, before the new attempt's reading is posted, and never
   otherwise.
+- One cell per attempt: the metric's horizon is set when an attempt
+  starts and when its cell's minute has passed, never in between; every
+  proposal of a step is priced on the current cell.
 - The operator never trades.
 - The board never shows a price the workspace did not report.

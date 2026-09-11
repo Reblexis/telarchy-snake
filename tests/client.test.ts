@@ -47,7 +47,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     const q = await c.readQuotes([
       { id: 'p-forward', title: 'Game 1, move 7: Continue forward', url: '' }, { id: 'p-right', title: 'Game 1, move 7: Turn right', url: '' },
       { id: 'p-left', title: 'Game 1, move 7: Turn left', url: '' },
-    ], new Date('2026-09-11T10:00:00.400Z'));
+    ], minuteCells(new Date('2026-09-11T10:00:00.400Z')).m60);
     expect(q.right.m60).toEqual({ approved: 5, declined: 3.5, approvedMarketId: 'a-p-right', declinedMarketId: 'd-p-right' });
     expect(Object.keys(q.right)).toEqual(['m60']);
     expect(q.left.m60.approved).toBe(2);
@@ -60,7 +60,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       { resolvesOn: '2026-09-11T10:02:00Z', approved: { consensus: 1 }, declined: { consensus: 1 } },
     ] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Continue forward', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Continue forward', url: '' }], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
     expect(q.forward.m60).toEqual({ approved: 4.5, declined: 3 });
     expect(Object.keys(q.forward)).toEqual(['m60']);
   });
@@ -73,7 +73,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       { targetDate: '2026-09-12T00:59', approved: { consensus: 60 }, declined: { consensus: 60 } },
     ] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T23:59:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }], new Date('2026-09-11T23:59:00Z'));
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }], minuteCells(new Date('2026-09-11T23:59:00Z')).m60);
     expect(q.left.m60.approved).toBe(60);
     void seen;
   });
@@ -83,7 +83,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       ? { json: { markets: [{ targetDate: '2026-09-11T11:00', approved: { consensus: null }, declined: { consensus: null } }] } }
       : { status: 500, json: { error: 'boom' } });
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' }], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
     expect(q.left.m60).toEqual({ approved: null, declined: null, reason: 'no consensus' });
     expect(q.right.m60).toEqual({ approved: null, declined: null, reason: expect.stringMatching(/500/) });
   });
@@ -139,6 +139,19 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     const c = new HttpTelarchyClient(opts);
     expect((c as any).trade).toBeUndefined();
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(c)).some(n => /trade|order/i.test(n))).toBe(false);
+  });
+
+  it('sets the attempt\'s cell as the metric\'s only horizon, an absolute minute, carrying the credits the metric already has', async () => {
+    const { reqs, fetchImpl } = fakeFetch(r => r.method === 'GET'
+      ? { json: { id: 'm1', timePreference: { enabled: false, customHorizons: ['2026-09-11T10:30'], horizonCredits: { '2026-09-11T10:30': { book: 1000, proposal: 1000 } } } } }
+      : { json: { ok: true } });
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    await c.setHorizon('2026-09-11T11:00');
+    const put = reqs.find(r => r.method === 'PUT')!;
+    expect(put.url).toBe('https://telarchy.com/api/metrics/m1');
+    expect(put.body).toEqual({ timePreference: { enabled: false, customHorizons: ['2026-09-11T11:00'], horizonCredits: { '2026-09-11T11:00': { book: 1000, proposal: 1000 } } } });
+    const bare = new HttpTelarchyClient(opts, fakeFetch(r => r.method === 'GET' ? { json: { id: 'm1', timePreference: null } } : { json: { ok: true } }).fetchImpl as any);
+    await bare.setHorizon('2026-09-11T11:00');
   });
 
   it('minute cell: the one cell sixty minutes after the opening minute, named YYYY-MM-DDTHH:MM', () => {
@@ -251,7 +264,7 @@ describe('bounded calls (docs/snake.md, "The step": "No call to Telarchy waits w
   it('a read that does not answer within the bound is abandoned: readQuotes returns null prices with the reason "no answer"', async () => {
     const c = new HttpTelarchyClient(bounded, hungFetch() as any);
     const t = Date.now();
-    const q = await c.readQuotes([{ id: 'p-left', title: 'Turn left', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    const q = await c.readQuotes([{ id: 'p-left', title: 'Turn left', url: '' }], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
     expect(Date.now() - t).toBeLessThan(1000);
     expect(q.left.m60.approved).toBe(null);
     expect(q.left.m60.reason).toMatch(/no answer/);
@@ -276,7 +289,7 @@ describe('bounded calls (docs/snake.md, "The step": "No call to Telarchy waits w
     const seen: any[] = [];
     const fetchImpl = async (_url: string, init: any = {}) => { seen.push(init.signal); return new Response('{"markets":[]}', { status: 200 }); };
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    await c.readQuotes([{ id: 'p', title: 'Turn left', url: '' }], new Date());
+    await c.readQuotes([{ id: 'p', title: 'Turn left', url: '' }], minuteCells(new Date()).m60);
     await c.refreshBooks();
     expect(seen.length).toBe(2);
     expect(seen.every(s => s instanceof AbortSignal)).toBe(true);
@@ -292,7 +305,7 @@ describe('bounded calls (docs/snake.md, "The step": "No call to Telarchy waits w
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
     const q = await c.readQuotes([
       { id: 'p-forward', title: 'Continue forward', url: '' }, { id: 'p-left', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' },
-    ], new Date('2026-09-11T10:00:00Z'));
+    ], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
     expect(q.forward.m60.reason).toBe('no pair on 2026-09-11T11:00');
     expect(q.left.m60.reason).toBe('no consensus');
     expect(q.left.m60.approved).toBe(3);
@@ -302,7 +315,7 @@ describe('bounded calls (docs/snake.md, "The step": "No call to Telarchy waits w
   it('a priced pair carries no reason', async () => {
     const { fetchImpl } = fakeFetch(() => ({ json: { markets: [{ resolvesOn: '2026-09-11T11:01:00Z', approved: { consensus: 3 }, declined: { consensus: 2 } }] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    const q = await c.readQuotes([{ id: 'p', title: 'Turn left', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    const q = await c.readQuotes([{ id: 'p', title: 'Turn left', url: '' }], minuteCells(new Date('2026-09-11T10:00:00Z')).m60);
     expect(q.left.m60.reason).toBeUndefined();
   });
 
@@ -317,7 +330,7 @@ describe('bounded calls (docs/snake.md, "The step": "No call to Telarchy waits w
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
     await c.readQuotes([
       { id: 'a', title: 'Continue forward', url: '' }, { id: 'b', title: 'Turn left', url: '' }, { id: 'c', title: 'Turn right', url: '' },
-    ], new Date());
+    ], minuteCells(new Date()).m60);
     expect(maxInFlight).toBe(3);
   });
 });
