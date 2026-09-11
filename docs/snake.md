@@ -228,9 +228,11 @@ The operator account still never trades.
 ## The stream
 
 The board rendered as a 1280 by 720 frame in-process and pushed to Twitch
-as a continuous stream, from the fleet box. A stream key lives in the
-keyring. The stream is an embed on the board and a link; it is not
-expected to find viewers on its own.
+as a continuous stream, from the fleet box. The channel is
+https://www.twitch.tv/telarchy (account agents@telarchy.com; credentials
+and the stream key in the keyring, `telarchy/twitch.env`). The stream is
+a link on the board and the floor; it is not expected to find viewers on
+its own.
 
 The frame carries the grid on the left and, in the right column: the
 title, the counters, the next move in large yellow type, the commentary,
