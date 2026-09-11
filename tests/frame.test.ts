@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderFrame, WIDTH, HEIGHT, cellRect, drawText, measureText } from '../src/frame.js';
+import { renderFrame, WIDTH, HEIGHT, cellRect, drawText, measureText, NEXT_LABEL } from '../src/frame.js';
 
 const state = {
   game: { snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }], heading: 'right', food: { x: 3, y: 4 }, length: 3, step: 12, deaths: 1, complete: false, size: 12, gameNumber: 1 },
@@ -115,6 +115,8 @@ describe('the stream frame: activity (docs/snake.md, "The stream")', () => {
     // 1280 - 724 = 556 px of column; the widest title is a two-digit game on a two-digit grid.
     expect(measureText('FUTARCHY SNAKE', 4)).toBeLessThanOrEqual(556);
     expect(measureText('GAME 12  15X15  THE MARKET PICKS EVERY MOVE', 2)).toBeLessThanOrEqual(556);
+    // The next-move line shares its row with the countdown ("IN 58S" at scale 3, about 130 px).
+    for (const a of Object.keys(NEXT_LABEL)) expect(measureText(`NEXT: ${NEXT_LABEL[a]} > RIGHT`, 3), a).toBeLessThanOrEqual(532 - 130);
   });
 
   it('draws the next move: a frame with a left leader differs from one with a right leader, cards aside', () => {

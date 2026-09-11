@@ -80,6 +80,8 @@ export function drawText(buf: Buffer, x: number, y: number, s: string, scale: nu
 
 const fmt = (v: number | null | undefined) => (v === null || v === undefined ? '-' : (Math.round(v * 10) / 10).toString());
 const ARROW: Record<string, string> = { up: '^', right: '>', down: 'v', left: '<' };
+/** The next-move line's action words: short enough to fit beside the countdown at scale 3. */
+export const NEXT_LABEL: Record<string, string> = { forward: 'FORWARD', left: 'TURN LEFT', right: 'TURN RIGHT' };
 
 export function renderFrame(s: any): Buffer {
   const buf = Buffer.alloc(WIDTH * HEIGHT * 3);
@@ -140,7 +142,7 @@ export function renderFrame(s: any): Buffer {
   const next = s.next ?? null;
   if (next) {
     const dir = String(next.direction).toUpperCase();
-    drawText(buf, X, y, clip(`NEXT: ${ACTION_TITLE[next.action as keyof typeof ACTION_TITLE]?.toUpperCase() ?? '?'} ${ARROW[next.direction] ?? ''} ${dir}`, 3, W - 130), 3, LEAD);
+    drawText(buf, X, y, clip(`NEXT: ${NEXT_LABEL[next.action] ?? '?'} ${ARROW[next.direction] ?? ''} ${dir}`, 3, W - 130), 3, LEAD);
     const secs = next.decided ? 'DECIDED' : `IN ${s.secondsToDecision ?? next.seconds}S`;
     drawText(buf, X + W - measureText(secs, 3), y, secs, 3, next.decided ? LEAD : FG);
     y += 26;
