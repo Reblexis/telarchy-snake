@@ -1,8 +1,7 @@
 // The Telarchy client the operator uses. Deliberately has no trade method:
 // docs/snake.md, "The operator account never trades."
 import type { ProposalRef, TelarchyClient, Verdict } from './operator.js';
-import { emptyDirectionQuotes, type Quotes, type Horizon } from './decide.js';
-import type { Direction } from './engine.js';
+import { emptyDirectionQuotes, TITLE_ACTION, type Quotes, type Horizon } from './decide.js';
 
 export interface SessionAuth {
   /** A browser account (the platform admin on the beta, which is admin-gated
@@ -105,7 +104,8 @@ export class HttpTelarchyClient implements TelarchyClient {
     const cells = minuteCells(openedAt);
     const out = {} as Quotes;
     for (const ref of refs) {
-      const dir = ref.title.replace(/^Move /, '') as Direction;
+      const action = TITLE_ACTION[ref.title];
+      if (!action) continue;
       const q = emptyDirectionQuotes();
       try {
         const r = await this.call('GET', `/proposals/${encodeURIComponent(ref.id)}`);
@@ -129,7 +129,7 @@ export class HttpTelarchyClient implements TelarchyClient {
       } catch {
         // unreadable: null prices, the decision rule handles it
       }
-      out[dir] = q;
+      out[action] = q;
     }
     return out;
   }

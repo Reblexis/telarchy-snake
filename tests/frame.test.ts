@@ -6,12 +6,12 @@ const state = {
   complete: false,
   open: {
     step: 13, openedAt: '', decideAt: new Date(Date.now() + 30_000).toISOString(),
-    proposals: { up: { id: '1', title: 'Move up', url: 'https://telarchy.com/snake/p/1' }, right: { id: '2', title: 'Move right', url: '' }, down: { id: '3', title: 'Move down', url: '' }, left: { id: '4', title: 'Move left', url: '' } },
+    proposals: { forward: { id: '1', title: 'Continue forward', url: 'https://telarchy.com/snake/p/1' }, left: { id: '2', title: 'Turn left', url: '' }, right: { id: '3', title: 'Turn right', url: '' } },
+    directions: { forward: 'right', left: 'up', right: 'down' },
     quotes: {
-      up: { m1: { approved: 3, declined: 3 }, m5: { approved: 3.1, declined: 3 }, m60: { approved: 3.2, declined: 3 } },
-      right: { m1: { approved: 3, declined: 3 }, m5: { approved: 3.4, declined: 3 }, m60: { approved: 3.9, declined: 3 } },
-      down: { m1: { approved: null, declined: null }, m5: { approved: null, declined: null }, m60: { approved: null, declined: null } },
-      left: { m1: { approved: 3, declined: 3 }, m5: { approved: 2.5, declined: 3 }, m60: { approved: 2.1, declined: 3 } },
+      forward: { m1: { approved: 3, declined: 3 }, m5: { approved: 3.1, declined: 3 }, m60: { approved: 3.2, declined: 3 } },
+      left: { m1: { approved: 3, declined: 3 }, m5: { approved: 3.4, declined: 3 }, m60: { approved: 3.9, declined: 3 } },
+      right: { m1: { approved: null, declined: null }, m5: { approved: null, declined: null }, m60: { approved: null, declined: null } },
     },
   },
   secondsToDecision: 30,
@@ -65,8 +65,16 @@ describe('the stream frame (docs/snake.md, "The stream")', () => {
 
   it('the leading direction is marked: its card differs from a non-leading one at the marker pixel', () => {
     const f = renderFrame(state as any);
-    const g = renderFrame({ ...state, open: { ...state.open, quotes: { ...state.open.quotes, right: { ...state.open.quotes.right, m60: { approved: 1, declined: 3 } }, up: { ...state.open.quotes.up, m60: { approved: 9, declined: 3 } } } } } as any);
+    const g = renderFrame({ ...state, open: { ...state.open, quotes: { ...state.open.quotes, left: { ...state.open.quotes.left, m60: { approved: 1, declined: 3 } }, forward: { ...state.open.quotes.forward, m60: { approved: 9, declined: 3 } } } } } as any);
     expect(Buffer.compare(f, g)).not.toBe(0);
+  });
+
+  it('the heading is marked on the head: a snake heading right and one heading up render different head cells', () => {
+    const a = renderFrame(state as any);
+    const b = renderFrame({ ...state, game: { ...state.game, heading: 'up' } } as any);
+    const r = cellRect(10, 10);
+    const slice = (buf: Buffer) => buf.subarray((r.y * WIDTH + r.x) * 3, ((r.y + r.h) * WIDTH + r.x + r.w) * 3);
+    expect(Buffer.compare(slice(a), slice(b))).not.toBe(0);
   });
 
   it('the plus sign has a glyph, so a positive impact never renders as a question mark', () => {

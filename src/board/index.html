@@ -16,7 +16,7 @@
   .stats { display:flex; gap:20px; flex-wrap:wrap; margin:12px 0; }
   .stat b { display:block; font-size:28px; font-weight:600; line-height:1.1; }
   .stat span { color:var(--mute); font-size:13px; }
-  .cards { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
+  .cards { display:grid; grid-template-columns: 1fr; gap:10px; }
   .card { border:1px solid var(--line); border-radius:8px; padding:10px 12px; text-decoration:none; color:inherit; display:block; }
   .card.lead { border-color:var(--lead); }
   .card .dir { font-weight:600; }
@@ -46,6 +46,7 @@
     <canvas id="c" width="720" height="720"></canvas>
     <div class="stats">
       <div class="stat"><b id="len">–</b><span>length</span></div>
+      <div class="stat"><b id="heading">–</b><span>heading</span></div>
       <div class="stat"><b id="deaths">–</b><span>deaths today</span></div>
       <div class="stat"><b id="step">–</b><span>step</span></div>
       <div class="stat"><b id="clock" class="count">–</b><span>seconds to decision</span></div>
@@ -57,7 +58,7 @@
     <div class="cards" id="cards"></div>
     <div class="tscroll">
     <table>
-      <thead><tr><th>step</th><th>moved</th><th>up</th><th>right</th><th>down</th><th>left</th><th>length</th></tr></thead>
+      <thead><tr><th>step</th><th>action</th><th>moved</th><th>forward</th><th>left</th><th>right</th><th>length</th></tr></thead>
       <caption style="caption-side:top;text-align:left;color:var(--mute);padding:4px 6px">Impact in 60 moves at decision time</caption>
       <tbody id="log"></tbody>
     </table>
@@ -68,7 +69,8 @@
 <script>
 let GRID = 12;
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
-const dirs = ['up','right','down','left'];
+const acts = ['forward','left','right'];
+const actTitle = { forward: 'Continue forward', left: 'Turn left', right: 'Turn right' };
 const arrows = { up:'↑', right:'→', down:'↓', left:'←' };
 let last = null;
 function fmt(v){ return v == null ? '–' : (Math.round(v*10)/10).toString(); }
@@ -79,6 +81,12 @@ function draw(g){
   for (let i=0;i<=GRID;i++){ ctx.beginPath(); ctx.moveTo(i*cell,0); ctx.lineTo(i*cell,cv.height); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i*cell); ctx.lineTo(cv.width,i*cell); ctx.stroke(); }
   ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc((g.food.x+0.5)*cell,(g.food.y+0.5)*cell,cell*0.32,0,Math.PI*2); ctx.fill();
   g.snake.forEach((s,i)=>{ ctx.fillStyle = i===0 ? '#bbf7d0' : '#4ade80'; ctx.fillRect(s.x*cell+2, s.y*cell+2, cell-4, cell-4); });
+  // heading marker: a dark bar on the edge of the head the snake moves towards
+  const h = g.snake[0], t = Math.max(3, cell/6); ctx.fillStyle = '#101318';
+  if (g.heading==='up') ctx.fillRect(h.x*cell+4, h.y*cell+2, cell-8, t);
+  if (g.heading==='down') ctx.fillRect(h.x*cell+4, (h.y+1)*cell-2-t, cell-8, t);
+  if (g.heading==='left') ctx.fillRect(h.x*cell+2, h.y*cell+4, t, cell-8);
+  if (g.heading==='right') ctx.fillRect((h.x+1)*cell-2-t, h.y*cell+4, t, cell-8);
 }
 const embed = new URLSearchParams(location.search).get('embed') === '1';
 if (embed) document.documentElement.classList.add('embed');
@@ -88,22 +96,23 @@ function render(s){
   if (s.grid) GRID = s.grid;
   draw(s.game);
   document.getElementById('len').textContent = s.game.length;
+  document.getElementById('heading').textContent = arrows[s.game.heading] + ' ' + s.game.heading;
   document.getElementById('deaths').textContent = s.deathsToday;
   document.getElementById('step').textContent = s.game.step;
   document.getElementById('openstep').textContent = s.open ? s.open.step : '–';
   const cards = document.getElementById('cards');
   if (s.open) {
     let best = null, bp = -Infinity;
-    for (const d of dirs) { const p = impact(s.open.quotes[d]); if (p != null && p > bp) { bp = p; best = d; } }
-    cards.innerHTML = dirs.map(d => {
-      const q = s.open.quotes[d]; const p = s.open.proposals[d]; const imp = impact(q);
-      return `<a class="card ${d===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${arrows[d]} Move ${d}</div><div class="px">${imp == null ? '–' : (imp >= 0 ? '+' : '') + fmt(imp)}</div><div class="vs">impact on length in 60 moves. In 1: ${fmt(q.m1.approved)}, in 5: ${fmt(q.m5.approved)}, in 60: ${fmt(q.m60.approved)}</div></a>`;
+    for (const a of acts) { const p = impact(s.open.quotes[a]); if (p != null && p > bp) { bp = p; best = a; } }
+    cards.innerHTML = acts.map(a => {
+      const q = s.open.quotes[a]; const p = s.open.proposals[a]; const imp = impact(q); const d = s.open.directions ? s.open.directions[a] : null;
+      return `<a class="card ${a===best?'lead':''}" href="${p.url}" target="_blank" rel="noopener"><div class="dir">${actTitle[a]}${d ? ' ' + arrows[d] + ' ' + d : ''}</div><div class="px">${imp == null ? '–' : (imp >= 0 ? '+' : '') + fmt(imp)}</div><div class="vs">impact on length in 60 moves. In 1: ${fmt(q.m1.approved)}, in 5: ${fmt(q.m5.approved)}, in 60: ${fmt(q.m60.approved)}</div></a>`;
     }).join('');
-    document.getElementById('wslink').href = s.open.proposals.up.url.replace(/\/p\/.*$/, '');
+    document.getElementById('wslink').href = s.open.proposals.forward.url.replace(/\/p\/.*$/, '');
   } else cards.innerHTML = s.complete ? '<div class="card lead"><div class="dir">Complete</div><div class="vs">The snake filled the grid. The game is over and the length stays at its maximum.</div></div>' : '';
   document.getElementById('log').innerHTML = s.recentDecisions.map(d =>
-    `<tr><td>${d.step}</td><td>${arrows[d.direction]} ${d.direction}${d.undecided?' (undecided)':''}</td>` +
-    dirs.map(x => { const v = impact(d.quotes[x]); return `<td>${v == null ? '–' : fmt(v)}</td>`; }).join('') +
+    `<tr><td>${d.step}</td><td>${actTitle[d.action] || '–'}${d.undecided?' (undecided)':''}</td><td>${arrows[d.direction]} ${d.direction}</td>` +
+    acts.map(x => { const v = impact(d.quotes[x]); return `<td>${v == null ? '–' : fmt(v)}</td>`; }).join('') +
     `<td>${d.lengthBefore} → ${d.lengthAfter ?? '…'}</td></tr>`).join('');
 }
 async function poll(){ try { const r = await fetch('/state', {cache:'no-store'}); render(await r.json()); } catch(e){} }

@@ -1,7 +1,22 @@
 // The decision rule, docs/snake.md "The step".
 import type { Direction } from './engine.js';
 
-export const DIRECTIONS: Direction[] = ['up', 'right', 'down', 'left'];
+/** The three actions, relative to the heading; the order is the tie order and forward is the default. */
+export type Action = 'forward' | 'left' | 'right';
+export const ACTIONS: Action[] = ['forward', 'left', 'right'];
+export const ACTION_TITLE: Record<Action, string> = { forward: 'Continue forward', left: 'Turn left', right: 'Turn right' };
+export const TITLE_ACTION: Record<string, Action> = { 'Continue forward': 'forward', 'Turn left': 'left', 'Turn right': 'right' };
+
+const COMPASS: Direction[] = ['up', 'right', 'down', 'left'];
+/** The compass direction an action takes from a heading. */
+export function turn(heading: Direction, action: Action): Direction {
+  const i = COMPASS.indexOf(heading);
+  if (action === 'forward') return heading;
+  return COMPASS[(i + (action === 'right' ? 1 : 3)) % 4];
+}
+export function directionsFrom(heading: Direction): Record<Action, Direction> {
+  return { forward: turn(heading, 'forward'), left: turn(heading, 'left'), right: turn(heading, 'right') };
+}
 
 export interface Quote {
   approved: number | null;
@@ -14,11 +29,11 @@ export interface Quote {
 export type Horizon = 'm1' | 'm5' | 'm60';
 export const HORIZONS: Horizon[] = ['m1', 'm5', 'm60'];
 export type DirectionQuotes = Record<Horizon, Quote>;
-export type Quotes = Record<Direction, DirectionQuotes>;
+export type Quotes = Record<Action, DirectionQuotes>;
 
 const nullQuote = (): Quote => ({ approved: null, declined: null });
 export const emptyDirectionQuotes = (): DirectionQuotes => ({ m1: nullQuote(), m5: nullQuote(), m60: nullQuote() });
-export const emptyQuotes = (): Quotes => ({ up: emptyDirectionQuotes(), right: emptyDirectionQuotes(), down: emptyDirectionQuotes(), left: emptyDirectionQuotes() });
+export const emptyQuotes = (): Quotes => ({ forward: emptyDirectionQuotes(), left: emptyDirectionQuotes(), right: emptyDirectionQuotes() });
 
 /** The predicted impact of a move on the 60-move horizon: approved minus
  *  declined, or null when either side has no price. */
@@ -32,25 +47,24 @@ export function impact60(q: DirectionQuotes | undefined): number | null {
 }
 
 export interface Decision {
-  approved: Direction | null;
-  declined: Direction[];
-  /** The direction the snake moves: the approved one, or the heading. */
+  approved: Action | null;
+  declined: Action[];
+  /** The compass direction the snake moves: the approved action from the heading, or straight on. */
   direction: Direction;
   undecided: boolean;
 }
 
 export function decide(quotes: Quotes, heading: Direction): Decision {
-  let best: Direction | null = null;
+  let best: Action | null = null;
   let bestPrice = -Infinity;
-  // Heading first so an exact tie keeps the course; then the published order.
-  const order = [heading, ...DIRECTIONS.filter(d => d !== heading)];
-  for (const d of order) {
-    const p = impact60(quotes[d]);
+  // Forward first, then left, then right: an exact tie continues forward.
+  for (const a of ACTIONS) {
+    const p = impact60(quotes[a]);
     if (p === null) continue;
-    if (p > bestPrice) { best = d; bestPrice = p; }
+    if (p > bestPrice) { best = a; bestPrice = p; }
   }
   if (best === null) {
-    return { approved: null, declined: [...DIRECTIONS], direction: heading, undecided: true };
+    return { approved: null, declined: [...ACTIONS], direction: heading, undecided: true };
   }
-  return { approved: best, declined: DIRECTIONS.filter(d => d !== best), direction: best, undecided: false };
+  return { approved: best, declined: ACTIONS.filter(a => a !== best), direction: turn(heading, best), undecided: false };
 }

@@ -1,7 +1,7 @@
 // The stream frame, docs/snake.md "The stream": the board drawn straight into
 // an RGB buffer, no browser. A 5x7 bitmap font carries the numbers and labels.
 import { GRID } from './engine.js';
-import { impact60 } from './decide.js';
+import { impact60, ACTIONS, ACTION_TITLE } from './decide.js';
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
@@ -94,6 +94,15 @@ export function renderFrame(s: any): Buffer {
     const r = cellRect(c.x, c.y);
     fill(buf, r.x + 2, r.y + 2, r.w - 4, r.h - 4, i === 0 ? HEAD : SNAKE);
   });
+  // The heading, marked on the head: a dark bar on the edge the snake is moving towards.
+  {
+    const h = cellRect(g.snake[0].x, g.snake[0].y);
+    const t = Math.max(3, Math.floor(h.w / 6));
+    if (g.heading === 'up') fill(buf, h.x + 4, h.y + 2, h.w - 8, t, BG);
+    if (g.heading === 'down') fill(buf, h.x + 4, h.y + h.h - 2 - t, h.w - 8, t, BG);
+    if (g.heading === 'left') fill(buf, h.x + 2, h.y + 4, t, h.h - 8, BG);
+    if (g.heading === 'right') fill(buf, h.x + h.w - 2 - t, h.y + 4, t, h.h - 8, BG);
+  }
 
   // right column
   const X = MARGIN + CELL * GRID + 40; // 724
@@ -101,39 +110,41 @@ export function renderFrame(s: any): Buffer {
   drawText(buf, X, y, 'FUTARCHY SNAKE', 4, FG); y += 40;
   drawText(buf, X, y, 'THE MARKET PICKS EVERY MOVE', 2, MUTE); y += 36;
   drawText(buf, X, y, `LENGTH ${g.length}`, 5, FG);
-  drawText(buf, X + 300, y, `DEATHS ${s.deathsToday ?? 0}`, 3, MUTE);
-  drawText(buf, X + 300, y + 22, `STEP ${g.step}`, 3, MUTE); y += 56;
+  drawText(buf, X + 300, y, `HEADING ${ARROW[g.heading]} ${String(g.heading).toUpperCase()}`, 3, FG);
+  drawText(buf, X + 300, y + 22, `DEATHS ${s.deathsToday ?? 0}  STEP ${g.step}`, 3, MUTE); y += 56;
 
   if (s.open) {
     const secs = s.secondsToDecision ?? Math.max(0, Math.round((Date.parse(s.open.decideAt) - Date.now()) / 1000));
     drawText(buf, X, y, `STEP ${s.open.step}: WHICH WAY? DECIDES IN ${secs}S`, 2, FG); y += 28;
     let best: string | null = null, bp = -Infinity;
-    for (const d of ['up', 'right', 'down', 'left']) {
-      const p = impact60(s.open.quotes?.[d]);
-      if (p !== null && p > bp) { bp = p; best = d; }
+    for (const a of ACTIONS) {
+      const p = impact60(s.open.quotes?.[a]);
+      if (p !== null && p > bp) { bp = p; best = a; }
     }
-    const cw = 250, chh = 96;
-    (['up', 'right', 'down', 'left'] as const).forEach((d, i) => {
-      const cx = X + (i % 2) * (cw + 16), cy = y + Math.floor(i / 2) * (chh + 12);
+    const cw = 516, chh = 62;
+    ACTIONS.forEach((a, i) => {
+      const cx = X, cy = y + i * (chh + 10);
       fill(buf, cx, cy, cw, chh, CARD);
-      if (d === best) { fill(buf, cx, cy, cw, 4, LEAD); fill(buf, cx, cy, 4, chh, LEAD); }
-      const q = s.open.quotes?.[d] ?? {};
+      if (a === best) { fill(buf, cx, cy, 4, chh, LEAD); }
+      const q = s.open.quotes?.[a] ?? {};
       const imp = impact60(q);
-      drawText(buf, cx + 12, cy + 12, `${ARROW[d]} MOVE ${d.toUpperCase()}`, 2, d === best ? LEAD : FG);
-      drawText(buf, cx + 12, cy + 38, imp === null ? '-' : `${imp >= 0 ? '+' : ''}${fmt(imp)}`, 5, FG);
-      drawText(buf, cx + 12, cy + 78, `IN 60  1:${fmt(q.m1?.approved)}  5:${fmt(q.m5?.approved)}  60:${fmt(q.m60?.approved)}`, 1, MUTE);
+      const dir = s.open.directions?.[a];
+      drawText(buf, cx + 14, cy + 10, `${ACTION_TITLE[a].toUpperCase()}${dir ? `  ${ARROW[dir]} ${String(dir).toUpperCase()}` : ''}`, 2, a === best ? LEAD : FG);
+      drawText(buf, cx + 14, cy + 32, `IN 1: ${fmt(q.m1?.approved)}   IN 5: ${fmt(q.m5?.approved)}   IN 60: ${fmt(q.m60?.approved)}`, 1, MUTE);
+      drawText(buf, cx + cw - 130, cy + 14, imp === null ? '-' : `${imp >= 0 ? '+' : ''}${fmt(imp)}`, 5, FG);
     });
-    y += 2 * (chh + 12) + 8;
+    y += 3 * (chh + 10) + 8;
   } else if (s.complete) {
     drawText(buf, X, y, 'COMPLETE: THE SNAKE FILLED THE GRID', 2, LEAD); y += 40;
   } else {
     drawText(buf, X, y, 'WAITING FOR THE NEXT STEP', 2, MUTE); y += 40;
   }
 
-  drawText(buf, X, y, 'LAST MOVES  IMPACT ^    >    v    <   LENGTH', 2, MUTE); y += 22;
-  const fi = (q: any) => { const v = impact60(q); return (v === null ? '-' : fmt(v)).padStart(4); };
+  drawText(buf, X, y, 'LAST MOVES        IMPACT FWD  LEFT RIGHT  LENGTH', 2, MUTE); y += 22;
+  const fi = (q: any) => { const v = impact60(q); return (v === null ? '-' : fmt(v)).padStart(5); };
+  const ACT: Record<string, string> = { forward: 'FWD  ', left: 'LEFT ', right: 'RIGHT' };
   for (const d of (s.recentDecisions ?? []).slice(0, 8)) {
-    const row = `${String(d.step).padStart(5)} ${ARROW[d.direction]}${d.undecided ? '?' : ' '} ${fi(d.quotes.up)} ${fi(d.quotes.right)} ${fi(d.quotes.down)} ${fi(d.quotes.left)}  ${d.lengthBefore}>${d.lengthAfter ?? '..'}`;
+    const row = `${String(d.step).padStart(5)} ${ACT[d.action] ?? '?    '} ${ARROW[d.direction]}${d.undecided ? '?' : ' '} ${fi(d.quotes.forward)} ${fi(d.quotes.left)} ${fi(d.quotes.right)}  ${d.lengthBefore}>${d.lengthAfter ?? '..'}`;
     drawText(buf, X, y, row, 2, FG); y += 20;
     if (y > HEIGHT - 40) break;
   }

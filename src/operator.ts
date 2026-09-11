@@ -1,7 +1,7 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
 import { GRID, newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
-import { decide, DIRECTIONS, emptyQuotes, type Decision, type Quotes, type Horizon } from './decide.js';
+import { decide, ACTIONS, ACTION_TITLE, directionsFrom, emptyQuotes, type Action, type Decision, type Quotes, type Horizon } from './decide.js';
 import { minuteCells } from './client.js';
 
 export interface ProposalRef { id: string; title: string; url: string }
@@ -30,7 +30,9 @@ export interface OpenStep {
   deadline: string;
   /** The three minute cells the proposals are priced on. */
   cells: Record<Horizon, string>;
-  proposals: Record<Direction, ProposalRef>;
+  /** The compass direction each action takes from the heading at this step. */
+  directions: Record<Action, Direction>;
+  proposals: Record<Action, ProposalRef>;
   quotes: Quotes | null;
   decision: Decision | null;
 }
@@ -41,16 +43,18 @@ export interface OperatorOptions {
   metricId?: string;
 }
 
-export const RULE = 'Every minute four proposals, one per direction, each priced on the snake length in 1, 5 and 60 moves. At :58 the proposal with the highest 60-move impact (approved minus declined) is approved and the other three are declined with refund; ties keep the heading. The snake moves at :00.';
+export const RULE = 'Every minute three proposals, turn left, turn right and continue forward, each priced on the snake length in 1, 5 and 60 moves. At :58 the proposal with the highest 60-move impact (approved minus declined) is approved and the other two are declined with refund; ties and unreadable prices continue forward. The snake moves at :00.';
 
 export interface DecisionRecord {
   step: number;
   at: string;
+  /** The approved action, or forward when undecided. */
+  action: Action;
   direction: Direction;
-  approved: Direction | null;
+  approved: Action | null;
   undecided: boolean;
   quotes: Quotes;
-  proposals: Record<Direction, ProposalRef>;
+  proposals: Record<Action, ProposalRef>;
   lengthBefore: number;
   lengthAfter: number | null;
   deathsBefore: number;
@@ -88,23 +92,25 @@ export class Operator {
     const deadline = new Date(openedAt.getTime() + 60_000);
     const decideAt = new Date(openedAt.getTime() + DECIDE_SECOND * 1000);
     const cells = minuteCells(now);
+    const directions = directionsFrom(g.heading);
     const hhmm = (c: string) => c.slice(11);
     const board = this.opts.boardUrl ? ` Board: ${this.opts.boardUrl}.` : '';
     const description =
-      `Step ${stepNo}: snake length ${g.length}, heading ${g.heading}, head at (${g.snake[0].x},${g.snake[0].y}), ` +
-      `food at (${g.food.x},${g.food.y}), ${g.deaths} deaths so far. Priced on the length in 1, 5 and 60 moves ` +
-      `(${hhmm(cells.m1)}, ${hhmm(cells.m5)}, ${hhmm(cells.m60)} UTC). The highest 60-move impact is approved at :58, ` +
-      `the others are declined with refund; the snake moves at :00.${board}`;
-    // All four at once, so they land in the same second and share the deadline.
-    const refs = await Promise.all(DIRECTIONS.map(d => this.client.postProposal(`Move ${d}`, description, deadline)));
-    const proposals = {} as Record<Direction, ProposalRef>;
-    DIRECTIONS.forEach((d, i) => { proposals[d] = refs[i]; });
+      `Step ${stepNo}: snake length ${g.length}, heading ${g.heading} (forward = ${directions.forward}, turn left = ${directions.left}, ` +
+      `turn right = ${directions.right}), head at (${g.snake[0].x},${g.snake[0].y}), food at (${g.food.x},${g.food.y}), ` +
+      `${g.deaths} deaths so far. Priced on the length in 1, 5 and 60 moves (${hhmm(cells.m1)}, ${hhmm(cells.m5)}, ${hhmm(cells.m60)} UTC). ` +
+      `The highest 60-move impact is approved at :58, the others are declined with refund; ties continue forward; the snake moves at :00.${board}`;
+    // All three at once, so they land in the same second and share the deadline.
+    const refs = await Promise.all(ACTIONS.map(a => this.client.postProposal(ACTION_TITLE[a], description, deadline)));
+    const proposals = {} as Record<Action, ProposalRef>;
+    ACTIONS.forEach((a, i) => { proposals[a] = refs[i]; });
     this.open = {
       step: stepNo,
       openedAt: now.toISOString(),
       decideAt: decideAt.toISOString(),
       deadline: deadline.toISOString(),
       cells,
+      directions,
       proposals,
       quotes: null,
       decision: null,
@@ -117,7 +123,7 @@ export class Operator {
     const open = this.open;
     if (!open || open.decision) return;
     try {
-      open.quotes = await this.client.readQuotes(DIRECTIONS.map(d => open.proposals[d]), new Date(open.openedAt));
+      open.quotes = await this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), new Date(open.openedAt));
     } catch {
       // keep the last quotes
     }
@@ -130,7 +136,7 @@ export class Operator {
     if (open.decision) return open.decision;
     let quotes: Quotes;
     try {
-      quotes = await this.client.readQuotes(DIRECTIONS.map(d => open.proposals[d]), new Date(open.openedAt));
+      quotes = await this.client.readQuotes(ACTIONS.map(a => open.proposals[a]), new Date(open.openedAt));
     } catch {
       quotes = emptyQuotes();
     }
@@ -142,12 +148,12 @@ export class Operator {
       try {
         await this.client.decideProposal(open.proposals[decision.approved], 'approve');
       } catch {
-        decision = { approved: null, declined: [...DIRECTIONS], direction: this.game.heading, undecided: true };
+        decision = { approved: null, declined: [...ACTIONS], direction: this.game.heading, undecided: true };
       }
     }
-    for (const d of decision.declined) {
-      if (d === decision.approved) continue;
-      try { await this.client.decideProposal(open.proposals[d], 'decline'); } catch { /* logged below as undecided */ }
+    for (const a of decision.declined) {
+      if (a === decision.approved) continue;
+      try { await this.client.decideProposal(open.proposals[a], 'decline'); } catch { /* logged below as undecided */ }
     }
     open.quotes = quotes;
     open.decision = decision;
@@ -155,6 +161,7 @@ export class Operator {
     this.decisions.push({
       step: open.step,
       at: now.toISOString(),
+      action: decision.approved ?? 'forward',
       direction: decision.direction,
       approved: decision.approved,
       undecided: decision.undecided,
@@ -212,6 +219,7 @@ export class Operator {
             decideAt: open.decideAt,
             deadline: open.deadline,
             cells: open.cells,
+            directions: open.directions,
             proposals: open.proposals,
             quotes: open.quotes ?? emptyQuotes(),
           }

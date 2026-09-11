@@ -20,22 +20,22 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
   it('posts a proposal with the agent key and workspace header, no subsidy, the given deadline, and returns its public url', async () => {
     const { reqs, fetchImpl } = fakeFetch(() => ({ status: 201, json: { id: 'p-1', number: 41, conditionalMarketIds: [] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:00.400Z'));
-    const ref = await c.postProposal('Move up', 'Step 1: ...', new Date('2026-09-11T10:01:00Z'));
+    const ref = await c.postProposal('Turn left', 'Step 1: ...', new Date('2026-09-11T10:01:00Z'));
     expect(reqs[0].url).toBe('https://telarchy.com/api/proposals');
     expect(reqs[0].method).toBe('POST');
     expect(reqs[0].headers['X-Agent-Key']).toBe('k');
     expect(reqs[0].headers['X-Workspace-Id']).toBe('ws1');
-    expect(reqs[0].body.title).toBe('Move up');
+    expect(reqs[0].body.title).toBe('Turn left');
     expect(reqs[0].body.description).toBe('Step 1: ...');
     expect('liquiditySubsidy' in reqs[0].body).toBe(false);
     expect(reqs[0].body.decideBy).toBe('2026-09-11T10:01:00.000Z'); // the deadline is given, not derived from posting time
-    expect(ref).toEqual({ id: 'p-1', title: 'Move up', url: 'https://telarchy.com/snake/p/41' });
+    expect(ref).toEqual({ id: 'p-1', title: 'Turn left', url: 'https://telarchy.com/snake/p/41' });
   });
 
-  it('reads the three horizons by their minute cells: +1, +5 and +60 minutes after the opening minute, per direction by title', async () => {
+  it('reads the three horizons by their minute cells: +1, +5 and +60 minutes after the opening minute, per action by title', async () => {
     const { fetchImpl } = fakeFetch(r => {
       const id = r.url.split('/').pop()!;
-      const px: Record<string, number> = { 'p-up': 4, 'p-right': 5, 'p-down': 3, 'p-left': 2 };
+      const px: Record<string, number> = { 'p-forward': 4, 'p-right': 5, 'p-left': 2 };
       return { json: { id, markets: [
         { targetDate: '2026-09-11T10:01', approved: { consensus: 1.5 }, declined: { consensus: 1 } },
         { targetDate: '2026-09-11T10:05', approved: { consensus: 2.5 }, declined: { consensus: 2 } },
@@ -45,8 +45,8 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     });
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
     const q = await c.readQuotes([
-      { id: 'p-up', title: 'Move up', url: '' }, { id: 'p-right', title: 'Move right', url: '' },
-      { id: 'p-down', title: 'Move down', url: '' }, { id: 'p-left', title: 'Move left', url: '' },
+      { id: 'p-forward', title: 'Continue forward', url: '' }, { id: 'p-right', title: 'Turn right', url: '' },
+      { id: 'p-left', title: 'Turn left', url: '' },
     ], new Date('2026-09-11T10:00:00.400Z'));
     expect(q.right.m60).toEqual({ approved: 5, declined: 3.5, approvedMarketId: 'a-p-right', declinedMarketId: 'd-p-right' });
     expect(q.right.m1).toEqual({ approved: 1.5, declined: 1 });
@@ -61,10 +61,10 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       { resolvesOn: '2026-09-11T10:02:00Z', approved: { consensus: 1 }, declined: { consensus: 1 } },
     ] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }], new Date('2026-09-11T10:00:00Z'));
-    expect(q.up.m60).toEqual({ approved: 4.5, declined: 3 });
-    expect(q.up.m5).toEqual({ approved: 2, declined: 2 });
-    expect(q.up.m1).toEqual({ approved: 1, declined: 1 });
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Continue forward', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    expect(q.forward.m60).toEqual({ approved: 4.5, declined: 3 });
+    expect(q.forward.m5).toEqual({ approved: 2, declined: 2 });
+    expect(q.forward.m1).toEqual({ approved: 1, declined: 1 });
   });
 
   it('the cells roll over the hour and the day correctly', async () => {
@@ -75,8 +75,8 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       { targetDate: '2026-09-12T00:59', approved: { consensus: 60 }, declined: { consensus: 60 } },
     ] } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T23:59:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }], new Date('2026-09-11T23:59:00Z'));
-    expect(q.up.m1.approved).toBe(1); expect(q.up.m5.approved).toBe(5); expect(q.up.m60.approved).toBe(60);
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }], new Date('2026-09-11T23:59:00Z'));
+    expect(q.left.m1.approved).toBe(1); expect(q.left.m5.approved).toBe(5); expect(q.left.m60.approved).toBe(60);
     void seen;
   });
 
@@ -85,17 +85,17 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       ? { json: { markets: [{ targetDate: '2026-09-11T11:00', approved: { consensus: null }, declined: { consensus: null } }] } }
       : { status: 500, json: { error: 'boom' } });
     const c = new HttpTelarchyClient(opts, fetchImpl as any, () => new Date('2026-09-11T10:00:55Z'));
-    const q = await c.readQuotes([{ id: 'p-up', title: 'Move up', url: '' }, { id: 'p-right', title: 'Move right', url: '' }], new Date('2026-09-11T10:00:00Z'));
-    expect(q.up.m60).toEqual({ approved: null, declined: null });
-    expect(q.up.m1).toEqual({ approved: null, declined: null });
+    const q = await c.readQuotes([{ id: 'p-up', title: 'Turn left', url: '' }, { id: 'p-right', title: 'Turn right', url: '' }], new Date('2026-09-11T10:00:00Z'));
+    expect(q.left.m60).toEqual({ approved: null, declined: null });
+    expect(q.left.m1).toEqual({ approved: null, declined: null });
     expect(q.right.m60).toEqual({ approved: null, declined: null });
   });
 
   it('approve posts to /approve; decline posts to /decline with refund: true so both branches void', async () => {
     const { reqs, fetchImpl } = fakeFetch(() => ({ json: { ok: true } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    await c.decideProposal({ id: 'p-1', title: 'Move up', url: '' }, 'approve');
-    await c.decideProposal({ id: 'p-2', title: 'Move down', url: '' }, 'decline');
+    await c.decideProposal({ id: 'p-1', title: 'Turn left', url: '' }, 'approve');
+    await c.decideProposal({ id: 'p-2', title: 'Turn right', url: '' }, 'decline');
     expect(reqs[0].url).toBe('https://telarchy.com/api/proposals/p-1/approve');
     expect(reqs[1].url).toBe('https://telarchy.com/api/proposals/p-2/decline');
     expect(reqs[1].body).toEqual({ refund: true });
@@ -104,7 +104,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
   it('a failed decision throws with the status so the operator can take the undecided path', async () => {
     const { fetchImpl } = fakeFetch(() => ({ status: 409, json: { error: 'no' } }));
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
-    await expect(c.decideProposal({ id: 'p-1', title: 'Move up', url: '' }, 'approve')).rejects.toThrow(/409/);
+    await expect(c.decideProposal({ id: 'p-1', title: 'Turn left', url: '' }, 'approve')).rejects.toThrow(/409/);
   });
 
   it('posts a reading as PUT /metrics/:id with the value and its timestamp, and never null', async () => {
