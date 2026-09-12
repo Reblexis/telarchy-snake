@@ -12,12 +12,47 @@ const CORS_PREFLIGHT = {
   'access-control-allow-headers': 'content-type',
   'access-control-max-age': '86400',
 };
-/** Reads per client address per minute (docs/snake.md, "The feed"): the HTTP
- *  server shares its event loop with the decision at :58, so no reader may
- *  push that late. A minute's window, counted per address, cleared as it ages. */
-const RATE_LIMIT = 60;
+/**
+ * Reads per READER per minute (docs/snake.md, "The feed"): the HTTP server
+ * shares its event loop with the decision at :58, so no one reader may push
+ * that late. A minute's window, cleared as it ages.
+ *
+ * The number is high because it exists to stop one client hammering, not to
+ * ration ordinary reading: the board polls twice a second between its state
+ * and its replay, and the floor's proxy reads for every visitor it serves.
+ * At 60 a single board tab reached the cap by itself, which is how the feed
+ * came to answer 429 to the public on 2026-09-12.
+ */
+const RATE_LIMIT = 600;
 const RATE_WINDOW_MS = 60_000;
 const hits = new Map<string, number[]>();
+
+/** Loopback, i.e. this host: the stream and the operator's own tooling. */
+function isLoopback(addr: string): boolean {
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+/**
+ * Who to count this read against, or null for a reader that is never counted.
+ *
+ * Every public read arrives from Caddy on this same host, so the socket
+ * address is the proxy's for all of them and counting it put the stream, the
+ * floor's proxy and every visitor into one bucket. The forwarded chain names
+ * the reader; its FIRST entry is the client, the rest are hops. A forwarded
+ * header is only believed from loopback, because otherwise anyone could lift
+ * their own limit by claiming to be a proxy.
+ *
+ * A loopback socket with no forwarded header is this host's own stream,
+ * polling once a second forever, and is not counted at all.
+ */
+function readerKey(remote: string, forwardedFor: string | string[] | undefined): string | null {
+  const local = isLoopback(remote);
+  const raw = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  const first = (raw ?? '').split(',')[0].trim();
+  if (local) return first || null;
+  return remote;
+}
+
 function overRate(addr: string, now: number): number | null {
   const seen = (hits.get(addr) ?? []).filter(t => now - t < RATE_WINDOW_MS);
   seen.push(now);
@@ -55,7 +90,8 @@ async function handle(op: Operator, boardHtml: Buffer, req: http.IncomingMessage
     return json(405, { error: 'method not allowed' }, { allow: ALLOW });
   }
   if (url.pathname !== '/' && url.pathname !== '/index.html') {
-    const retry = overRate(req.socket.remoteAddress ?? 'unknown', Date.now());
+    const key = readerKey(req.socket.remoteAddress ?? 'unknown', req.headers['x-forwarded-for']);
+    const retry = key === null ? null : overRate(key, Date.now());
     if (retry !== null) return json(429, { error: 'too many requests' }, { 'retry-after': String(retry) });
   }
   if (url.pathname === '/state') {

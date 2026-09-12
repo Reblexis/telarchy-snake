@@ -330,10 +330,20 @@ same headers, never plain text, so a cross-origin bot reads a 404 rather
 than an opaque failure. Any method other than `GET` or `HEAD` answers
 `405 { "error": "method not allowed" }` with `allow: GET, HEAD, OPTIONS`;
 an `OPTIONS` request answers `204` with the allow headers, so a
-preflighted request works. The data endpoints are capped per client
-address (60 reads a minute, `429 { "error": "too many requests" }` with
+preflighted request works. The data endpoints are capped **per reader**
+(600 reads a minute, `429 { "error": "too many requests" }` with
 `retry-after`), because the HTTP server shares its event loop with the
-decision at `:58` and no reader may push that late.
+decision at `:58` and no one reader may push that late.
+
+**The reader is the client, not the proxy.** Every public read arrives
+from Caddy on this same host, so the socket address is the proxy's for all
+of them; the reader is the first entry of `x-forwarded-for`, believed only
+when the socket is loopback, since otherwise anyone could lift their own
+limit by claiming to be a proxy. A loopback socket with no forwarded
+header is the host's own stream, polling once a second forever, and is not
+counted at all. The cap is set to stop one client hammering and never to
+ration ordinary reading: a single board tab polls its state and its replay
+every two seconds, so a minute of one open tab is around 120 reads.
 
 
 **The feed never blanks between steps.** The step the operator has just
