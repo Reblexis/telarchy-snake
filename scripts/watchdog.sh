@@ -7,6 +7,9 @@
 set -uo pipefail
 LOG=${LOG:-$HOME/logs/telarchy-snake-watchdog.log}
 LAST=${LAST:-$HOME/state/watchdog-last-restart}
+# How many consecutive unhealthy minutes a self-healing fault needs before the
+# operator is restarted (docs/snake.md, "Operation").
+STREAK=${STREAK:-$HOME/state/watchdog-streak}
 COOLDOWN=${COOLDOWN:-300}
 cd "$(dirname "$0")/.." || exit 1
 say() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
@@ -18,12 +21,33 @@ mkdir -p "$(dirname "$LOG")"
 OUT=$(./scripts/health.sh 2>&1); RC=$?
 if [ $RC -eq 0 ]; then
   # A heartbeat, so silence means "not running" rather than "all well".
-  say "$OUT" 
+  say "$OUT"
+  rm -f "$STREAK"
   systemctl --user is-active --quiet telarchy-snake-stream.service || {
     say "stream is down, starting it"; systemctl --user start telarchy-snake-stream.service; }
   exit 0
 fi
 say "unhealthy: $OUT"
+
+mkdir -p "$(dirname "$STREAK")"
+N=$(( $(cat "$STREAK" 2>/dev/null || echo 0) + 1 ))
+echo "$N" > "$STREAK"
+
+# A fault that heals itself must not be answered with a restart. The books of
+# a new attempt's cell exist a beat after the cell is set, so the first step
+# of an attempt can read as unplayable and be well again the next minute; a
+# restart neither creates a book nor waits for one, and five of them in forty
+# minutes is churn, not repair (2026-09-12). These wait for a second
+# consecutive minute. A stalled step or a dead feed is answered at once,
+# because there a restart is the repair.
+case "$OUT" in
+  *"option books"*|*"no open proposal"*)
+    if [ "$N" -lt 2 ]; then
+      say "waiting: this heals itself within a minute, and a restart does not fix it (strike $N)"
+      exit 1
+    fi
+    ;;
+esac
 
 NOW=$(date +%s); PREV=$(cat "$LAST" 2>/dev/null || echo 0)
 if [ $((NOW - PREV)) -lt "$COOLDOWN" ]; then say "not restarting: last restart $((NOW - PREV))s ago"; exit 1; fi
