@@ -199,7 +199,14 @@ export class HttpTelarchyClient implements TelarchyClient {
     const m = await this.call('GET', `/metrics/${encodeURIComponent(this.o.metricId)}`);
     const credits: Record<string, unknown> = m?.timePreference?.horizonCredits ?? {};
     const first = Object.values(credits)[0] as { book?: number; proposal?: number } | undefined;
-    const entry = { book: first?.book ?? 25, proposal: first?.proposal ?? 40 };
+    /* The documented depth (docs/snake.md, "The workspace"): 1,000 credits an
+       option, so a five-credit trade is an opinion and a hundred-credit one
+       does not pin the book. These are the numbers `scripts/provision.sh`
+       creates the workspace with, and this fallback is the only other place
+       they are written. It had been left at 40 an option: once used, every
+       book on the floor opened forty times too shallow and two credits moved
+       a price from 2.00 to 6.58, with nothing reporting an error. */
+    const entry = { book: first?.book ?? 25, proposal: first?.proposal ?? 1000 };
     await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, {
       timePreference: { enabled: false, customHorizons: [cell], horizonCredits: { [cell]: entry } },
     });

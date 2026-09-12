@@ -204,6 +204,30 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     await bare.setHorizon('2026-09-11T11:00');
   });
 
+  /**
+   * A METRIC WITH NO CREDITS YET STILL GETS THE DOCUMENTED DEPTH
+   * (docs/snake.md, "The workspace": 1,000 credits an option).
+   *
+   * This fallback is the only place the number is written down in code, and
+   * it had been left at 40. Once it was used, every option book on the floor
+   * opened with 40 credits instead of 1,000, so two credits moved a price
+   * from 2.00 to 6.58 and the market could not be traded seriously. Nothing
+   * reported an error: the books existed, they were just shallow.
+   */
+  it('a metric carrying no credits gets the documented 1,000 an option, not a thin fallback', async () => {
+    for (const tp of [null, undefined, {}, { enabled: false, customHorizons: [] }, { horizonCredits: {} }]) {
+      const { reqs, fetchImpl } = fakeFetch(r =>
+        r.method === 'GET' ? { json: { id: 'm1', timePreference: tp } } : { json: { ok: true } },
+      );
+      const c = new HttpTelarchyClient(opts, fetchImpl as any);
+      await c.setHorizon('2026-09-11T11:00');
+      const put = reqs.find(r => r.method === 'PUT')!;
+      const entry = (put.body as any).timePreference.horizonCredits['2026-09-11T11:00'];
+      expect(entry.proposal).toBe(1000);
+      expect(entry.book).toBe(25);
+    }
+  });
+
   it('minute cell: the one cell sixty minutes after the opening minute, named YYYY-MM-DDTHH:MM', () => {
     expect(minuteCells(new Date('2026-09-11T10:00:40Z'))).toEqual({ m60: '2026-09-11T11:00' });
     expect(minuteCells(new Date('2026-12-31T23:59:00Z'))).toEqual({ m60: '2027-01-01T00:59' });
