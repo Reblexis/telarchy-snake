@@ -549,7 +549,13 @@ within three steps of the feed, that telarchy.com/snake serves, and that
 the open proposal carries its three option books. A stalled operator is
 restarted, at most once in five minutes; a stopped stream is started; a
 fault on the floor's side is logged and left alone, because the host
-cannot fix it. Every action is logged with its reason to
+cannot fix it. **A fault that heals itself is not answered with a
+restart.** The books of a new attempt's cell exist a beat after the cell is
+set, so the first step of an attempt can read as unplayable and be well
+again the next minute; a missing book and a missing proposal therefore wait
+for a second consecutive unhealthy minute, because a restart neither creates
+a book nor waits for one. A stalled step, a dead feed and an overdue next
+game are answered at once, since there a restart is the repair. Every action is logged with its reason to
 `~/logs/telarchy-snake-watchdog.log`. Configuration by environment:
 the Telarchy base URL, the operator API key, the workspace id, the port,
 the state file path, the liquidity per book.
