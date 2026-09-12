@@ -1,7 +1,9 @@
 // The operator loop, docs/snake.md "The step". Talks to Telarchy only through
 // TelarchyClient, which has no trade call: the operator never trades.
 import { GRID, newGame, step as applyStep, type Direction, type GameState, type Rng } from './engine.js';
-import { decide, ACTIONS, proposalTitle, proposalOptions, HORIZONS, directionsFrom, emptyQuotes, priceOf, pricesOf, type Action, type Decision, type Quotes, type Horizon, type ProposalOption } from './decide.js';
+import { decide, ACTIONS, proposalTitle, proposalOptions, HORIZONS, directionsFrom, emptyQuotes, priceOf, pricesOf, type Action, type Decision, type Quotes, type Horizon, type ProposalOption,
+  mergeQuotes,
+} from './decide.js';
 import type { GameLog, LogStep } from './gamelog.js';
 import { minuteCells } from './client.js';
 import { commentary } from './commentary.js';
@@ -83,6 +85,8 @@ export interface OpenStep {
 
 export interface OperatorOptions {
   boardUrl?: string;
+  /** What `/state.trade.base` tells a bot to call; the public API by default. */
+  apiBase?: string;
   workspaceId?: string;
   metricId?: string;
   /** The on-disk game record behind /games and /history (docs/snake.md "The feed"); none in tests that do not need it. */
@@ -92,6 +96,20 @@ export interface OperatorOptions {
   pollTimeoutMs?: number;
   decideReadTimeoutMs?: number;
 }
+
+/** The feed's version, raised whenever a field changes meaning or leaves
+ *  (docs/snake.md, "The feed"). */
+export const FEED_SCHEMA = 2;
+
+/** The same rule as RULE, for a program (docs/snake.md, "The rule in machine form"). */
+export const RULES = {
+  decideSecond: 58,
+  moveSecond: 0,
+  horizonMinutes: 60,
+  tieBreak: ['forward', 'left', 'right'],
+  voidRefund: true,
+  settlesEarlyOnDeath: true,
+};
 
 export const RULE = 'Every minute one proposal with three options, continue forward, turn left and turn right, each option priced by its own book on the attempt\'s cell: the length the attempt will have reached one hour after it started (or at the next hour mark while it lives); when the attempt ends (a death or a full grid) the books settle at the length it reached. At :58 the option with the highest price is chosen and the other two void with refund; ties and unreadable prices continue forward. The snake moves at :00.';
 
@@ -343,9 +361,11 @@ export class Operator {
     const open = this.open;
     if (!open || open.decision || !this.pollAllowed(now)) return;
     try {
-      open.quotes = await within(this.client.readQuotes(open.proposal, open.cells.m60), this.pollTimeout());
+      const fresh = await within(this.client.readQuotes(open.proposal, open.cells.m60), this.pollTimeout());
+      open.quotes = mergeQuotes(open.quotes, fresh);
+      this.quotesAt = now.toISOString();
     } catch {
-      // keep the last quotes
+      // keep the last quotes, ids and all: a failed read is not a blank book
     }
   }
 
@@ -608,6 +628,10 @@ export class Operator {
     return this.decisions.filter(d => d.at.slice(0, 10) === day && d.lengthAfter !== null && d.lengthAfter < d.lengthBefore).length;
   }
 
+  /** When the option prices on the open step were last read (docs/snake.md,
+   *  "The feed"), so a bot can tell a fresh price from a held one. */
+  private quotesAt: string | null = null;
+
   publicState(now: Date) {
     const open = this.open;
     const nextStepAt = open ? open.deadline : new Date(isoMinute(now).getTime() + 60_000).toISOString();
@@ -620,6 +644,18 @@ export class Operator {
       workspaceId: this.opts.workspaceId ?? null,
       metricId: this.opts.metricId ?? null,
       rule: RULE,
+      // The same rule a program can read, and where to act on it.
+      schema: FEED_SCHEMA,
+      rules: RULES,
+      trade: {
+        base: this.opts.apiBase ?? 'https://telarchy.com/api',
+        endpoint: 'POST /api/predictions/trade',
+        auth: 'X-Agent-Key',
+        workspaceHeader: 'X-Workspace-Id',
+        workspaceId: this.opts.workspaceId ?? null,
+        rangeMin: 0,
+        rangeMax: (this.game.size ?? GRID) ** 2,
+      },
       // 'open' while the step is trading, 'decided' from its ruling until the
       // next step is posted (the feed keeps the ruled step through the move),
       // 'idle' when there is no step at all (a complete game's cooldown).
@@ -634,6 +670,9 @@ export class Operator {
             cells: open.cells,
             directions: open.directions,
             proposal: open.proposal,
+            // Open AND still ahead of its deadline: the feed keeps a ruled step
+            // on screen, and a restart can restore one (docs/snake.md, "The feed").
+            tradeable: !open.decision && Date.parse(open.deadline) > now.getTime(),
             quotes: open.quotes ?? emptyQuotes(),
           }
         : null,
@@ -650,6 +689,10 @@ export class Operator {
       bestLength: this.bestLength,
       settleFailures: this.settleFailures,
       cell: this.cell,
+      // The same moment as an instant, so nothing parses a string with no zone.
+      cellEndsAt: this.cell ? `${this.cell}:00Z` : null,
+      attempt: this.game.deaths + 1,
+      quotesAt: this.quotesAt,
       traders,
       tradersThisStep: new Set(traders.map(t => t.handle)).size,
       tradersToday: this.tradersToday.day === utcDay(now) ? this.tradersToday.handles.length : 0,
@@ -668,7 +711,7 @@ export class Operator {
     };
   }
 
-  static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random, opts: OperatorOptions = {}): Operator {
+  static fromJSON(client: TelarchyClient, raw: any, rng: Rng = Math.random, opts: OperatorOptions = {}, now: Date = new Date()): Operator {
     let game: GameState = raw.game;
     if (game.complete === undefined) game = { ...game, complete: false };
     if (game.size === undefined) game = { ...game, size: GRID, gameNumber: 1 };
@@ -691,7 +734,11 @@ export class Operator {
     // A step from before options (three proposals, `open.proposals`) cannot be
     // decided by this code: it is not resumed, its proposals lapse at their
     // deadline (voiding with refund), and the next tick opens a fresh step.
-    op.open = raw.open && raw.open.proposal ? raw.open : null;
+    const restored = raw.open && raw.open.proposal ? raw.open : null;
+    // A step whose deadline has passed is over at Telarchy whatever this file
+    // says; serving it would offer a bot a market that no longer trades
+    // (docs/snake.md, "The feed"). The next tick opens a fresh one.
+    op.open = restored && Date.parse(restored.deadline) > now.getTime() ? restored : null;
     op.decisions = decisions.map(d => {
       const out: any = { ...d };
       // A record from before the reason was kept: undecided with no reason known.

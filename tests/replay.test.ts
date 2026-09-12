@@ -91,7 +91,9 @@ describe('proposal titles (docs/snake.md, "The step")', () => {
     await playSteps(op, 8); // death at step 6, then two moves of attempt 2
     const raw = JSON.parse(JSON.stringify(op.toJSON()));
     delete raw.game.attemptStep;
-    const back = Operator.fromJSON(client, raw, rng);
+    // Restored while the step is still live: a step past its deadline is
+    // dropped rather than served (docs/snake.md, "The feed").
+    const back = Operator.fromJSON(client, raw, rng, {}, new Date('2026-09-11T10:08:30Z'));
     expect(back.game.attemptStep).toBe(2);
     await back.closeStep(new Date('2026-09-11T10:08:58Z'));
     await back.tick(new Date('2026-09-11T10:09:00Z'));

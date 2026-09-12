@@ -428,7 +428,10 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     const json = JSON.stringify(op.toJSON());
-    const op2 = Operator.fromJSON(client, JSON.parse(json), rng);
+    // Restored inside the open step's window: a step whose deadline has passed
+    // is dropped rather than served (docs/snake.md, "The feed"), so the restart
+    // that continues a game is one that happens while the step is still live.
+    const op2 = Operator.fromJSON(client, JSON.parse(json), rng, {}, new Date('2026-09-11T10:01:30Z'));
     expect(op2.game).toEqual(op.game);
     expect(op2.decisions).toEqual(op.decisions);
     expect(op2.open?.step).toBe(op.open?.step);
@@ -969,5 +972,138 @@ describe('the feed never blanks between steps (docs/snake.md, "The feed")', () =
     const { client } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     expect(op.publicState(new Date('2026-09-11T10:00:00Z')).phase).toBe('idle');
+  });
+});
+
+/**
+ * The feed a bot trades from (docs/snake.md, "The feed", 2026-09-12, from
+ * notes/snake-agent-readiness-2026-09-12.md in the telarchy umbrella): one
+ * read says what is open, what it is worth, whether it can still be bet on,
+ * and how to bet on it.
+ */
+describe('THE FEED IS TRADEABLE FROM ONE READ', () => {
+  const opts = { boardUrl: 'https://snake.telarchy.com', workspaceId: 'ws-1', metricId: 'metric-1' };
+
+  it('/state names its schema, the attempt, the cell as an instant, when the prices were read, and how to trade', async () => {
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, newGame(rng), rng, opts);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    const s = op.publicState(new Date('2026-09-11T10:00:20Z')) as Record<string, any>;
+    expect(typeof s.schema).toBe('number');
+    expect(s.attempt).toBe(1);
+    // The cell key keeps its display form; the instant is a real instant.
+    expect(s.cell).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(s.cellEndsAt).toBe(`${s.cell}:00Z`);
+    expect(Number.isNaN(Date.parse(s.cellEndsAt))).toBe(false);
+    expect(s.rules).toEqual({
+      decideSecond: 58,
+      moveSecond: 0,
+      horizonMinutes: 60,
+      tieBreak: ['forward', 'left', 'right'],
+      voidRefund: true,
+      settlesEarlyOnDeath: true,
+    });
+    expect(s.rule).toBe(RULE);
+    expect(s.trade).toEqual({
+      base: 'https://telarchy.com/api',
+      endpoint: 'POST /api/predictions/trade',
+      auth: 'X-Agent-Key',
+      workspaceHeader: 'X-Workspace-Id',
+      workspaceId: 'ws-1',
+      rangeMin: 0,
+      rangeMax: op.publicState(new Date()).grid ** 2,
+    });
+  });
+
+  it('open.tradeable is true only while the step is open and its deadline is ahead', async () => {
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, newGame(rng), rng, opts);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:20Z')).open?.tradeable).toBe(true);
+    // Past the deadline, the step is still shown but is not tradeable.
+    expect(op.publicState(new Date('2026-09-11T10:01:30Z')).open?.tradeable).toBe(false);
+  });
+
+  it('a price poll that fails leaves the market id and the last price standing', async () => {
+    let calls = 0;
+    const { client } = fakeClient(step => {
+      calls++;
+      if (calls > 1) throw new Error('quotes -> 500');
+      return allTen(step);
+    });
+    const op = new Operator(client, newGame(rng), rng, opts);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    await op.pollQuotes(new Date('2026-09-11T10:00:06Z'));
+    const first = op.publicState(new Date('2026-09-11T10:00:07Z')).open!.quotes.left.m60;
+    expect(first.price).toBe(10);
+    await op.pollQuotes(new Date('2026-09-11T10:00:12Z'));
+    const after = op.publicState(new Date('2026-09-11T10:00:13Z')).open!.quotes.left.m60;
+    expect(after.marketId).toBe(first.marketId);
+    expect(after.price).toBe(10);
+  });
+
+  it('before the first poll every quote says why it has no price', async () => {
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, newGame(rng), rng, opts);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    const q = op.publicState(new Date('2026-09-11T10:00:01Z')).open!.quotes.forward.m60;
+    expect(q.price).toBe(null);
+    expect(q.reason).toBe('not polled yet');
+    expect(op.publicState(new Date('2026-09-11T10:00:01Z')).quotesAt).toBe(null);
+  });
+
+  it('a restored step whose deadline has passed is dropped, never served as open', async () => {
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, newGame(rng), rng, opts);
+    await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    const saved = JSON.parse(JSON.stringify(op.toJSON()));
+    const back = Operator.fromJSON(client, saved, rng, opts, new Date('2026-09-11T10:30:00Z'));
+    expect(back.publicState(new Date('2026-09-11T10:30:00Z')).open).toBe(null);
+    const still = Operator.fromJSON(client, saved, rng, opts, new Date('2026-09-11T10:00:30Z'));
+    expect(still.publicState(new Date('2026-09-11T10:00:30Z')).open?.step).toBe(1);
+  });
+});
+
+describe('THE HTTP SURFACE ANSWERS A BOT IN JSON', () => {
+  async function serve() {
+    const { createServer } = await import('../src/server.js');
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, newGame(rng), rng, { boardUrl: 'https://snake.telarchy.com' });
+    const server = createServer(op, Buffer.from('<html></html>'));
+    await new Promise<void>(r => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    return { base: `http://127.0.0.1:${port}`, close: () => new Promise<void>(r => server.close(() => r())) };
+  }
+
+  it('an unknown path is JSON and carries the CORS header', async () => {
+    const { base, close } = await serve();
+    const res = await fetch(`${base}/nope`);
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    expect(await res.json()).toEqual({ error: 'not found' });
+    await close();
+  });
+
+  it('a write method is refused with 405 and an allow header; OPTIONS answers the preflight', async () => {
+    const { base, close } = await serve();
+    const post = await fetch(`${base}/state`, { method: 'POST' });
+    expect(post.status).toBe(405);
+    expect(post.headers.get('allow')).toBe('GET, HEAD, OPTIONS');
+    expect((await post.json()).error).toBe('method not allowed');
+    const pre = await fetch(`${base}/state`, { method: 'OPTIONS' });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get('access-control-allow-methods')).toBe('GET, HEAD, OPTIONS');
+    await close();
+  });
+
+  it('a reader that hammers the feed is capped, with retry-after', async () => {
+    const { base, close } = await serve();
+    let last = new Response();
+    for (let i = 0; i < 65; i++) last = await fetch(`${base}/state`);
+    expect(last.status).toBe(429);
+    expect(last.headers.get('retry-after')).toBeTruthy();
+    expect((await last.json()).error).toBe('too many requests');
+    await close();
   });
 });

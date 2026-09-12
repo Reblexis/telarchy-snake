@@ -108,7 +108,10 @@ describe('THE OPTION WITH THE HIGHEST PRICE IS THE ONE CHOSEN (docs/snake.md, "T
   it('the one horizon is 60 moves and the empty quotes carry a null price and lead', () => {
     expect(HORIZONS).toEqual(['m60']);
     expect(Object.keys(emptyDirectionQuotes())).toEqual(['m60']);
-    expect(emptyDirectionQuotes().m60).toEqual({ price: null, lead: null });
+    // Since 2026-09-12 the placeholder says WHY it has no price, which is what
+    // tells a bot "not read yet" from "this option has no book"
+    // (docs/snake.md, "What a bot trades on is never dropped").
+    expect(emptyDirectionQuotes().m60).toEqual({ price: null, lead: null, reason: 'not polled yet' });
   });
 
   it('the direction to apply is the turned heading', () => {
