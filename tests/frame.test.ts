@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextGridLabel, renderFrame, WIDTH, HEIGHT, cellRect, measureText, NEXT_LABEL, FONT } from '../src/frame.js';
+import { nextGridLabel, renderFrame, WIDTH, HEIGHT, cellRect, measureText, NEXT_LABEL, FONT, isDrawableState } from '../src/frame.js';
 
 const state = {
   game: { snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }], heading: 'right', food: { x: 3, y: 4 }, length: 3, step: 12, deaths: 1, complete: false, size: 12, gameNumber: 1 },
@@ -268,5 +268,44 @@ describe('THE NEXT GRID IS NAMED AS IT WILL BE (docs/snake.md, "The game")', () 
     expect(Buffer.compare(f, five)).not.toBe(0);
     expect(nextGridLabel(4)).toBe('6x6');
     expect(nextGridLabel(6)).toBe('8x8');
+  });
+});
+
+/**
+ * THE STREAM NEVER DIES OF ONE BAD READ (docs/snake.md, "The stream").
+ *
+ * On 2026-09-12 the Twitch stream crash-looped 22 times: the feed answered
+ * with a payload carrying no game, `renderFrame` read `game.size` off
+ * undefined, and the process exited. A stream holds its last frame through a
+ * bad read; it does not go dark.
+ */
+describe('a payload the frame cannot draw', () => {
+  it('a real state is drawable', () => {
+    expect(isDrawableState(state)).toBe(true);
+  });
+
+  it('a payload with no game is not drawable, whatever else it carries', () => {
+    expect(isDrawableState({ games: [1, 2], gameNumber: 1, size: 6 })).toBe(false);
+    expect(isDrawableState({})).toBe(false);
+    expect(isDrawableState({ error: 'Not found' })).toBe(false);
+    expect(isDrawableState({ game: null })).toBe(false);
+  });
+
+  it('a payload that is not an object at all is not drawable', () => {
+    expect(isDrawableState(null)).toBe(false);
+    expect(isDrawableState(undefined)).toBe(false);
+    expect(isDrawableState('not found')).toBe(false);
+    expect(isDrawableState(7)).toBe(false);
+  });
+
+  it('a game without a grid of its own is still drawable: the default grid draws it', () => {
+    const { size, ...rest } = state.game as Record<string, unknown>;
+    expect(isDrawableState({ ...state, grid: undefined, game: rest })).toBe(true);
+  });
+
+  it('RENDERING ONE OF THEM DOES NOT THROW, so a frame cannot take the stream down', () => {
+    expect(() => renderFrame({ error: 'Not found' })).not.toThrow();
+    expect(() => renderFrame({})).not.toThrow();
+    expect(renderFrame({}).length).toBe(WIDTH * HEIGHT * 3);
   });
 });

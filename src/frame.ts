@@ -1,7 +1,7 @@
 // The stream frame, docs/snake.md "The stream": the board's first screen
 // drawn in-process with @napi-rs/canvas, no browser. Text is set in Inter,
 // bundled under fonts/ (OFL) and registered here, never a system font.
-import { createCanvas, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
+import { type Canvas, createCanvas, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
 import { fileURLToPath } from 'node:url';
 import { GRID } from './engine.js';
 import { decide, priceOf, ACTIONS, ACTION_TITLE, type Quotes } from './decide.js';
@@ -207,11 +207,40 @@ export function nextGridLabel(n: number): string {
   return `${n + 2}x${n + 2}`;
 }
 
+/**
+ * Can this payload be drawn (docs/snake.md, "The stream")?
+ *
+ * The feed answers other shapes on other paths, and a read can come back as
+ * an error object. A stream that renders one of those reads `game.size` off
+ * undefined and the process exits, which took the Twitch stream down 22 times
+ * on 2026-09-12. Everything the frame needs hangs off `game`, so that is the
+ * one thing checked, and the caller holds its last good frame instead.
+ */
+export function isDrawableState(s: unknown): boolean {
+  if (!s || typeof s !== 'object') return false;
+  const g = (s as { game?: unknown }).game;
+  return !!g && typeof g === 'object';
+}
+
+/** The RGB bytes ffmpeg takes, out of the canvas. */
+function toRgb(canvas: Canvas): Buffer {
+  const rgba = canvas.data();
+  const out = Buffer.alloc(WIDTH * HEIGHT * 3);
+  for (let i = 0, o = 0; i < rgba.length; i += 4, o += 3) { out[o] = rgba[i]; out[o + 1] = rgba[i + 1]; out[o + 2] = rgba[i + 2]; }
+  return out;
+}
+
 export function renderFrame(s: any): Buffer {
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  // A read the frame cannot draw is a held frame, never a crash.
+  if (!isDrawableState(s)) {
+    text(ctx, 'Waiting for the feed', MARGIN, MARGIN + 40, 34, MUTE, 600);
+    text(ctx, 'Trade at telarchy.com/snake', MARGIN, HEIGHT - MARGIN, 18, MUTE, 400);
+    return toRgb(canvas);
+  }
   const g = s.game;
   const N: number = s.grid ?? g.size ?? GRID;
   const dirs = ['up', 'down', 'left', 'right'];
@@ -284,9 +313,5 @@ export function renderFrame(s: any): Buffer {
 
   text(ctx, 'Trade at telarchy.com/snake', X, footY, 18, MUTE, 400);
 
-  // RGBA canvas bytes to the RGB the stream pipes into ffmpeg
-  const rgba = canvas.data();
-  const out = Buffer.alloc(WIDTH * HEIGHT * 3);
-  for (let i = 0, o = 0; i < rgba.length; i += 4, o += 3) { out[o] = rgba[i]; out[o + 1] = rgba[i + 1]; out[o + 2] = rgba[i + 2]; }
-  return out;
+  return toRgb(canvas);
 }

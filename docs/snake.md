@@ -500,6 +500,12 @@ and the stream key in the keyring, `telarchy/twitch.env`). The stream is
 a link on the board and the floor; it is not expected to find viewers on
 its own.
 
+**The stream never dies of one bad read.** A poll whose payload carries no
+game is not drawn: the last good frame stays on screen and the read is
+logged. A frame that throws is skipped, not fatal. A stream that exits
+takes a restart delay and comes back into the same payload, so a held frame
+is the only behaviour that recovers on its own.
+
 The frame is the board's first screen and nothing more: the grid on the
 left, filling the frame's height, and in the right column, top to
 bottom, the next move with its clock, the three choice tiles, the status

@@ -2,7 +2,7 @@
 // in-process, pipes raw RGB to ffmpeg, which encodes and pushes to RTMP.
 import 'dotenv/config';
 import { spawn } from 'node:child_process';
-import { renderFrame, WIDTH, HEIGHT } from './frame.js';
+import { isDrawableState, renderFrame, WIDTH, HEIGHT } from './frame.js';
 
 const STATE_URL = process.env.SNAKE_STATE_URL ?? 'http://127.0.0.1:8802/state';
 const RTMP = process.env.TWITCH_RTMP_URL ?? 'rtmp://live.twitch.tv/app';
@@ -28,7 +28,15 @@ ff.stdin.on('error', err => { console.error(`ffmpeg pipe: ${(err as Error).messa
 
 let state: any = null;
 async function poll() {
-  try { const r = await fetch(STATE_URL); state = await r.json(); } catch (e) { console.error('state poll failed', (e as Error).message); }
+  try {
+    const r = await fetch(STATE_URL);
+    const j = await r.json();
+    // A read the frame cannot draw holds the last good one on screen. The
+    // stream crash-looped 22 times on 2026-09-12 drawing a payload with no
+    // game in it (docs/snake.md, "The stream").
+    if (isDrawableState(j)) state = j;
+    else console.error('state poll returned a payload with no game; holding the last frame');
+  } catch (e) { console.error('state poll failed', (e as Error).message); }
 }
 setInterval(poll, 1000); await poll();
 
@@ -36,8 +44,15 @@ const interval = 1000 / FPS;
 let next = Date.now();
 function frame() {
   if (state) {
-    const buf = renderFrame({ ...state, secondsToDecision: state.open ? Math.max(0, Math.round((Date.parse(state.open.decideAt) - Date.now()) / 1000)) : null });
-    if (!ff.stdin.write(buf)) { ff.stdin.once('drain', schedule); return; }
+    // One frame must never take the stream down: a throw here would exit the
+    // process and systemd would restart it into the same payload.
+    let buf: Buffer | null = null;
+    try {
+      buf = renderFrame({ ...state, secondsToDecision: state.open ? Math.max(0, Math.round((Date.parse(state.open.decideAt) - Date.now()) / 1000)) : null });
+    } catch (e) {
+      console.error('frame failed, skipping it:', (e as Error).message);
+    }
+    if (buf && !ff.stdin.write(buf)) { ff.stdin.once('drain', schedule); return; }
   }
   schedule();
 }
