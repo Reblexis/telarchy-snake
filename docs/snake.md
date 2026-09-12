@@ -316,12 +316,24 @@ attempt's move at that step, not 1.
 
 ### The feed
 
-The service's data is three public JSON endpoints, `/state`, `/games`
-and `/history`, each answered with `access-control-allow-origin: *` and
-`cache-control: no-store`, so any page (telarchy.com's floor first) can
-read them from the browser and never sees a stale copy. `/state` is the
-present, `/games` and `/history` are the record; together they are what
-a page needs to show the game live and replay any of it.
+The service's data is four public JSON endpoints, `/state`, `/replay`,
+`/games` and `/history`, each answered with
+`access-control-allow-origin: *` and `cache-control: no-store`, so any
+page (telarchy.com's floor first) can read them from the browser and
+never sees a stale copy. `/state` is the present, the rest are the
+record; together they are what a page needs to show the game live and
+replay any of it.
+
+**Every answer is JSON, and the surface says no in JSON too.** A path the
+service does not serve answers `404 { "error": "not found" }` with the
+same headers, never plain text, so a cross-origin bot reads a 404 rather
+than an opaque failure. Any method other than `GET` or `HEAD` answers
+`405 { "error": "method not allowed" }` with `allow: GET, HEAD, OPTIONS`;
+an `OPTIONS` request answers `204` with the allow headers, so a
+preflighted request works. The data endpoints are capped per client
+address (60 reads a minute, `429 { "error": "too many requests" }` with
+`retry-after`), because the HTTP server shares its event loop with the
+decision at `:58` and no reader may push that late.
 
 
 **The feed never blanks between steps.** The step the operator has just
@@ -346,6 +358,46 @@ decision rule in words, recent decisions (each with the chosen option,
 every option's price at the close in `prices`, and its `undecidedReason`,
 null when the step was decided) and counters. A bot needs one read of
 `/state` per step to know what to trade.
+
+**What a bot trades on is never dropped.** An option's `marketId` is
+published from the moment the proposal is posted and kept for the life of
+the step: a price poll that fails leaves the last price and the id
+standing rather than blanking them. Before the first poll of a step the
+prices are null and each quote carries `reason: "not polled yet"`, which
+is what distinguishes "no price yet" from "this option has no book".
+`quotesAt` says when the prices were last read, so a bot can tell a fresh
+price from one held through a failed poll or through the last ten seconds
+before the ruling, when polling stops.
+
+**`open.tradeable`** is true only while the step is open and its deadline
+is still ahead. The feed deliberately keeps a ruled step on screen until
+the next one is posted, and a restart can restore a step whose deadline
+has passed; `tradeable` is how a bot tells a step it can still bet on
+from one that is only being shown. A restored step whose deadline has
+already passed is dropped rather than served.
+
+**The instants are instants.** `cell` stays the display key
+(`2026-09-12T07:15`, the clock minute the attempt settles on) and
+`cellEndsAt` carries the same moment as a full UTC instant, so nothing
+has to parse a string without a zone. `attempt` is the attempt number the
+step belongs to, as a number, beside `game.attemptStep`.
+
+**The rule in machine form.** `rule` stays the sentence a person reads;
+`rules` carries the same thing for a program:
+`{ "decideSecond": 58, "moveSecond": 0, "horizonMinutes": 60,
+"tieBreak": ["forward", "left", "right"], "voidRefund": true,
+"settlesEarlyOnDeath": true }`.
+
+**Where to trade it.** `trade` names the platform, not just the market
+ids: `{ "base": "https://telarchy.com/api", "endpoint":
+"POST /api/predictions/trade", "auth": "X-Agent-Key", "workspaceHeader":
+"X-Workspace-Id", "workspaceId": "<id>", "rangeMin": 0, "rangeMax": <the
+full grid> }`, so one read of `/state` tells a bot what is open, what it
+is worth and how to bet on it.
+
+**`schema`** is the feed's version, an integer, raised whenever a field
+changes meaning or leaves. A bot that reads a `schema` it does not know
+should keep reading the fields it recognises and say so, not guess.
 
 The activity fields on `/state`, all read from Telarchy's public
 workspace endpoints, never from the operator's own books:

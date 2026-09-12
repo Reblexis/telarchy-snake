@@ -5,6 +5,28 @@ import type { Operator } from './operator.js';
 import { HISTORY_LIMIT } from './gamelog.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' };
+const ALLOW = 'GET, HEAD, OPTIONS';
+const CORS_PREFLIGHT = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': ALLOW,
+  'access-control-allow-headers': 'content-type',
+  'access-control-max-age': '86400',
+};
+/** Reads per client address per minute (docs/snake.md, "The feed"): the HTTP
+ *  server shares its event loop with the decision at :58, so no reader may
+ *  push that late. A minute's window, counted per address, cleared as it ages. */
+const RATE_LIMIT = 60;
+const RATE_WINDOW_MS = 60_000;
+const hits = new Map<string, number[]>();
+function overRate(addr: string, now: number): number | null {
+  const seen = (hits.get(addr) ?? []).filter(t => now - t < RATE_WINDOW_MS);
+  seen.push(now);
+  hits.set(addr, seen);
+  // Cheap sweep so a long-lived process does not hold every address it ever saw.
+  if (hits.size > 1_000) for (const [k, v] of hits) if (v.every(t => now - t >= RATE_WINDOW_MS)) hits.delete(k);
+  if (seen.length <= RATE_LIMIT) return null;
+  return Math.max(1, Math.ceil((RATE_WINDOW_MS - (now - seen[0])) / 1000));
+}
 
 export function createServer(op: Operator, boardHtml: Buffer): http.Server {
   return http.createServer((req, res) => {
@@ -18,7 +40,24 @@ export function createServer(op: Operator, boardHtml: Buffer): http.Server {
 
 async function handle(op: Operator, boardHtml: Buffer, req: http.IncomingMessage, res: http.ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://x');
-  const json = (status: number, body: unknown) => { res.writeHead(status, JSON_HEADERS); res.end(JSON.stringify(body)); };
+  const json = (status: number, body: unknown, extra: Record<string, string> = {}) => {
+    res.writeHead(status, { ...JSON_HEADERS, ...extra });
+    res.end(JSON.stringify(body));
+  };
+  // The surface says no in JSON too (docs/snake.md, "The feed").
+  const method = (req.method ?? 'GET').toUpperCase();
+  if (method === 'OPTIONS') {
+    res.writeHead(204, CORS_PREFLIGHT);
+    res.end();
+    return;
+  }
+  if (method !== 'GET' && method !== 'HEAD') {
+    return json(405, { error: 'method not allowed' }, { allow: ALLOW });
+  }
+  if (url.pathname !== '/' && url.pathname !== '/index.html') {
+    const retry = overRate(req.socket.remoteAddress ?? 'unknown', Date.now());
+    if (retry !== null) return json(429, { error: 'too many requests' }, { 'retry-after': String(retry) });
+  }
   if (url.pathname === '/state') {
     json(200, op.publicState(new Date()));
   } else if (url.pathname === '/replay') {
@@ -44,6 +83,6 @@ async function handle(op: Operator, boardHtml: Buffer, req: http.IncomingMessage
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(boardHtml);
   } else {
-    res.writeHead(404); res.end('not found');
+    json(404, { error: 'not found' });
   }
 }

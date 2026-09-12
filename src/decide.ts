@@ -52,7 +52,24 @@ export const HORIZONS: Horizon[] = ['m60'];
 export type DirectionQuotes = Record<Horizon, Quote>;
 export type Quotes = Record<Action, DirectionQuotes>;
 
-const nullQuote = (): Quote => ({ price: null, lead: null });
+/** Before the first poll of a step: no price yet, and the quote says so, which
+ *  is what tells a bot "not read yet" from "this option has no book"
+ *  (docs/snake.md, "What a bot trades on is never dropped"). */
+const nullQuote = (): Quote => ({ price: null, lead: null, reason: 'not polled yet' });
+
+/** A fresh read laid over the last one: an option whose price could not be read
+ *  keeps the market id that was already published, so the one field a bot needs
+ *  to trade is never dropped once known (docs/snake.md, "The feed"). */
+export function mergeQuotes(prev: Quotes | null | undefined, fresh: Quotes): Quotes {
+  if (!prev) return fresh;
+  const out = {} as Quotes;
+  for (const a of ACTIONS) {
+    const before = prev[a]?.m60;
+    const now = fresh[a]?.m60 ?? nullQuote();
+    out[a] = { m60: { ...now, marketId: now.marketId ?? before?.marketId } };
+  }
+  return out;
+}
 export const emptyDirectionQuotes = (): DirectionQuotes => ({ m60: nullQuote() });
 export const emptyQuotes = (): Quotes => ({ forward: emptyDirectionQuotes(), left: emptyDirectionQuotes(), right: emptyDirectionQuotes() });
 
