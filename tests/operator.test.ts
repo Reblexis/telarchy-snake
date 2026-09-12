@@ -1097,13 +1097,64 @@ describe('THE HTTP SURFACE ANSWERS A BOT IN JSON', () => {
     await close();
   });
 
+  /**
+   * THE LIMIT COUNTS THE READER, NOT THE PROXY (docs/snake.md, "The feed").
+   *
+   * Every public read arrives from Caddy on the same host, so counting the
+   * socket address put the stream, the floor's proxy and every visitor in one
+   * bucket. On 2026-09-12 the stream's own once-a-second poll filled it and
+   * snake.telarchy.com answered 429 while telarchy.com/snake answered 502.
+   */
   it('a reader that hammers the feed is capped, with retry-after', async () => {
     const { base, close } = await serve();
+    const from = (ip: string) => fetch(`${base}/state`, { headers: { 'x-forwarded-for': ip } });
     let last = new Response();
-    for (let i = 0; i < 65; i++) last = await fetch(`${base}/state`);
+    for (let i = 0; i < 605; i++) last = await from('203.0.113.9');
     expect(last.status).toBe(429);
     expect(last.headers.get('retry-after')).toBeTruthy();
     expect((await last.json()).error).toBe('too many requests');
+    await close();
+  });
+
+  it('A MINUTE OF ORDINARY READING IS NEVER CAPPED: a board tab polls twice a second', async () => {
+    const { base, close } = await serve();
+    const from = (ip: string) => fetch(`${base}/state`, { headers: { 'x-forwarded-for': ip } });
+    // A board tab polls its state and its replay every two seconds, so a
+    // minute of one open tab is about 120 reads; the cap must sit far above
+    // that or the feed rations its own readers.
+    let last = new Response();
+    for (let i = 0; i < 200; i++) last = await from('203.0.113.20');
+    expect(last.status).toBe(200);
+    await close();
+  });
+
+  it('ONE READER AT THE CAP DOES NOT SPEND ANOTHER READER\'S BUDGET', async () => {
+    const { base, close } = await serve();
+    const from = (ip: string) => fetch(`${base}/state`, { headers: { 'x-forwarded-for': ip } });
+    for (let i = 0; i < 605; i++) await from('203.0.113.9');
+    const other = await from('203.0.113.10');
+    expect(other.status).toBe(200);
+    await close();
+  });
+
+  it('THE HOST\'S OWN STREAM IS NEVER CAPPED: loopback with no forwarded header', async () => {
+    const { base, close } = await serve();
+    let last = new Response();
+    for (let i = 0; i < 650; i++) last = await fetch(`${base}/state`);
+    expect(last.status).toBe(200);
+    expect((await last.json()).game).toBeTruthy();
+    await close();
+  });
+
+  it('the first address in the chain is the reader, not the hop that forwarded it', async () => {
+    const { base, close } = await serve();
+    const chain = (ip: string) =>
+      fetch(`${base}/state`, { headers: { 'x-forwarded-for': `${ip}, 198.51.100.7` } });
+    let last = new Response();
+    for (let i = 0; i < 605; i++) last = await chain('203.0.113.11');
+    expect(last.status).toBe(429);
+    // A different reader behind the same last hop still reads.
+    expect((await chain('203.0.113.12')).status).toBe(200);
     await close();
   });
 });
