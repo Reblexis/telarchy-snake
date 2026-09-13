@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Keep the snake playable without a human (docs/snake.md, "Operation").
 # Runs on the snake's host every minute: when the health check says the game
-# has stalled, restart the operator; when the stream is down, start it. Every
+# has stalled, restart the operator; when the stream is down and enabled, start it. Every
 # action is logged with its reason, and nothing is restarted twice in five
 # minutes, so a real outage is visible instead of hidden by a restart loop.
 set -uo pipefail
@@ -12,7 +12,15 @@ LAST=${LAST:-$HOME/state/watchdog-last-restart}
 STREAK=${STREAK:-$HOME/state/watchdog-streak}
 COOLDOWN=${COOLDOWN:-300}
 cd "$(dirname "$0")/.." || exit 1
+# Seconds the operator gets to come up after a restart before the health check reads it again.
+SETTLE=${SETTLE:-20}
 say() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
+# The channel takes one stream (docs/snake.md, "The stream"): a disabled stream
+# unit is off on purpose, so only an enabled one that has stopped is started.
+stream_wanted_and_down() {
+  systemctl --user is-enabled --quiet telarchy-snake-stream.service &&
+    ! systemctl --user is-active --quiet telarchy-snake-stream.service
+}
 
 mkdir -p "$(dirname "$LOG")"
 # Trim, so a night of heartbeats never fills the disk.
@@ -23,8 +31,9 @@ if [ $RC -eq 0 ]; then
   # A heartbeat, so silence means "not running" rather than "all well".
   say "$OUT"
   rm -f "$STREAK"
-  systemctl --user is-active --quiet telarchy-snake-stream.service || {
-    say "stream is down, starting it"; systemctl --user start telarchy-snake-stream.service; }
+  if stream_wanted_and_down; then
+    say "stream is down, starting it"; systemctl --user start telarchy-snake-stream.service
+  fi
   exit 0
 fi
 say "unhealthy: $OUT"
@@ -57,8 +66,8 @@ case "$OUT" in
     mkdir -p "$(dirname "$LAST")"; echo "$NOW" > "$LAST"
     say "restarting the operator"
     systemctl --user restart telarchy-snake.service
-    sleep 20
-    systemctl --user is-active --quiet telarchy-snake-stream.service || systemctl --user start telarchy-snake-stream.service
+    sleep "$SETTLE"
+    stream_wanted_and_down && systemctl --user start telarchy-snake-stream.service
     say "after restart: $(./scripts/health.sh 2>&1)"
     ;;
   *"floor"*)

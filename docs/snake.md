@@ -531,6 +531,11 @@ and the stream key in the keyring, `telarchy/twitch.env`). The stream is
 a link on the board and the floor; it is not expected to find viewers on
 its own.
 
+**The channel takes one stream.** While another game streams on it
+(telarchy-chess `docs/chess.md`, "The stream"), this unit is disabled
+(`systemctl --user disable --now telarchy-snake-stream.service`). A disabled
+stream is off on purpose: nothing starts it again until it is enabled.
+
 **The stream never dies of one bad read.** A poll whose payload carries no
 game is not drawn: the last good frame stays on screen and the read is
 logged. A frame that throws is skipped, not fatal. A stream that exits
@@ -604,7 +609,7 @@ can somebody trade the snake right now. It checks that the step is moving
 that the feed carries an open proposal, that the floor's own proxy is
 within three steps of the feed, that telarchy.com/snake serves, and that
 the open proposal carries its three option books. A stalled operator is
-restarted, at most once in five minutes; a stopped stream is started; a
+restarted, at most once in five minutes; a stopped stream is started unless its unit is disabled; a
 fault on the floor's side is logged and left alone, because the host
 cannot fix it. **A fault that heals itself is not answered with a
 restart.** The books of a new attempt's cell exist a beat after the cell is
