@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Operator, RULE, type TelarchyClient, type ProposalRef, type MarketActivity, type LeaderRow } from '../src/operator.js';
+import { Operator, RULE, type TelarchyClient, type ProposalRef, type MarketActivity, type LeaderRow, type RestingLimit } from '../src/operator.js';
 import { newGame } from '../src/engine.js';
 import type { Quotes, Action, ProposalOption } from '../src/decide.js';
 
 type Call = { name: string; args: unknown[] };
 
-function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = [], settleFails = false, horizonFails = false) {
+function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = [], settleFails = false, horizonFails = false, limits: { rows: RestingLimit[]; fail?: boolean } = { rows: [] }) {
   const calls: Call[] = [];
   let n = 0;
   const client: TelarchyClient = {
@@ -54,6 +54,11 @@ function fakeClient(quotesFor: (step: number) => Quotes, activity: Record<string
     async readLeaderboard(limit) {
       calls.push({ name: 'readLeaderboard', args: [limit] });
       return leaders.slice(0, limit);
+    },
+    async readRestingLimits(marketIds) {
+      calls.push({ name: 'readRestingLimits', args: [marketIds] });
+      if (limits.fail) throw new Error('actions -> 500');
+      return limits.rows.filter(r => marketIds.includes(r.marketId));
     },
   };
   return { client, calls };
@@ -476,8 +481,8 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
 describe('activity on /state (docs/snake.md, "The board" and "The feed")', () => {
   const T0 = new Date('2026-09-11T10:00:00Z');
 
-  async function opened(activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = []) {
-    const { client, calls } = fakeClient(withIds, activity, leaders);
+  async function opened(activity: Record<string, MarketActivity> = {}, leaders: LeaderRow[] = [], limits: { rows: RestingLimit[]; fail?: boolean } = { rows: [] }) {
+    const { client, calls } = fakeClient(withIds, activity, leaders, false, false, limits);
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(T0);
     await op.pollQuotes(new Date('2026-09-11T10:00:05Z'));
@@ -577,6 +582,37 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     expect(s.recentTrades[1].action).toBe('right');
   });
 
+  it('restingOrders: the limit orders resting on the open step\'s books, with the option they sit on, newest first', async () => {
+    const limit = (id: string, at: string, handle: string, marketId: string, level: number, credits: number): RestingLimit =>
+      ({ id, at, handle, marketId, side: 'higher', level, credits });
+    const limits = { rows: [
+      limit('o1', '2026-09-11T10:00:04Z', 'ada', 'left-m60', 0.05, 2500),
+      limit('o2', '2026-09-11T10:00:08Z', 'bob', 'forward-m60', 12, 240),
+      limit('o3', '2026-09-11T10:00:09Z', 'cy', 'some-other-book', 3, 10),
+    ] };
+    const { op, calls } = await opened({}, [], limits);
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    const read = calls.find(c => c.name === 'readRestingLimits');
+    expect(new Set(read!.args[0] as string[])).toEqual(new Set(['forward-m60', 'left-m60', 'right-m60']));
+    const s = op.publicState(new Date('2026-09-11T10:00:11Z'));
+    expect(s.restingOrders).toEqual([
+      { id: 'o2', at: '2026-09-11T10:00:08Z', handle: 'bob', action: 'forward', horizon: 'm60', side: 'higher', level: 12, credits: 240, marketId: 'forward-m60' },
+      { id: 'o1', at: '2026-09-11T10:00:04Z', handle: 'ada', action: 'left', horizon: 'm60', side: 'higher', level: 0.05, credits: 2500, marketId: 'left-m60' },
+    ]);
+  });
+
+  it('restingOrders: a failed read keeps the last list, and the next step starts it empty', async () => {
+    const limits: { rows: RestingLimit[]; fail?: boolean } = { rows: [{ id: 'o1', at: '2026-09-11T10:00:04Z', handle: 'ada', marketId: 'left-m60', side: 'higher', level: 1, credits: 5 }] };
+    const { op } = await opened({}, [], limits);
+    await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
+    limits.fail = true;
+    await op.pollActivity(new Date('2026-09-11T10:00:20Z'));
+    expect(op.publicState(new Date('2026-09-11T10:00:21Z')).restingOrders.map(o => o.id)).toEqual(['o1']);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:01:01Z')).restingOrders).toEqual([]);
+  });
+
   it('recentTrades never repeats a trade seen on an earlier poll, and keeps the last 30 only', async () => {
     const trades = Array.from({ length: 40 }, (_, i) => trade(`t${i}`, 'ada', `2026-09-11T10:00:${String(i % 60).padStart(2, '0')}.${String(i).padStart(3, '0')}Z`));
     const activity = { 'left-m60': { consensus: 3, positions: [], trades: trades.slice(0, 20) } };
@@ -651,7 +687,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     await op.pollActivity(new Date('2026-09-11T10:00:10Z'));
     await op.pollActivity(new Date('2026-09-11T10:00:46Z'));
     const names = new Set(calls.slice(before).map(c => c.name));
-    expect([...names].sort()).toEqual(['readActivity', 'readLeaderboard']);
+    expect([...names].sort()).toEqual(['readActivity', 'readLeaderboard', 'readRestingLimits']);
   });
 
   /** Head one cell from the right wall, heading right, length 4: the forward move dies. */

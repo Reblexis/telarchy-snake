@@ -1,6 +1,6 @@
 // The Telarchy client the operator uses. Deliberately has no trade method:
 // docs/snake.md, "The operator account never trades."
-import type { LeaderRow, MarketActivity, ProposalRef, TelarchyClient } from './operator.js';
+import type { LeaderRow, MarketActivity, ProposalRef, TelarchyClient, RestingLimit } from './operator.js';
 import { ACTIONS, emptyQuotes, type Action, type ProposalOption, type Quotes, type Horizon } from './decide.js';
 
 /** docs/snake.md, "The workspace": what the attempt's main book opens with on every cell. */
@@ -255,6 +255,31 @@ export class HttpTelarchyClient implements TelarchyClient {
         // left out: the operator keeps the last activity of that book
       }
     }));
+    return out;
+  }
+
+  /** docs/snake.md "The feed", `restingOrders`: the public actions log's order
+   *  rows for this workspace, kept only where a `placed` row has no later row
+   *  that closed it, and only on the books asked about. Read-only. */
+  async readRestingLimits(marketIds: string[]): Promise<RestingLimit[]> {
+    const r = await this.publicGet(`/data-room/actions?workspace=${encodeURIComponent(this.slug())}&kinds=order&limit=50`);
+    const rows: any[] = Array.isArray(r?.rows) ? r.rows : [];
+    const closed = new Set<string>();
+    for (const row of rows) {
+      const m = typeof row?.id === 'string' ? /^order:([^:]+):[a-z_]+$/.exec(row.id) : null;
+      if (m) closed.add(m[1]);
+    }
+    const wanted = new Set(marketIds);
+    const out: RestingLimit[] = [];
+    for (const row of rows) {
+      const m = typeof row?.id === 'string' ? /^order:([^:]+)$/.exec(row.id) : null;
+      const d = row?.detail;
+      if (!m || !d || d.event !== 'placed' || closed.has(m[1]) || !wanted.has(String(d.marketId))) continue;
+      const level = Number(d.level), credits = Number(d.budgetCredits);
+      if (!Number.isFinite(level) || !Number.isFinite(credits)) continue;
+      out.push({ id: m[1], at: String(row.at), handle: String(row.actor?.handle ?? row.actor?.id ?? '?'), marketId: String(d.marketId),
+        side: d.direction === 'lower' ? 'lower' : 'higher', level, credits });
+    }
     return out;
   }
 

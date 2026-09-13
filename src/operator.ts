@@ -18,6 +18,10 @@ export interface ActivityTrade { id: string; handle: string; direction: Side; ki
 export interface MarketActivity { consensus: number | null; positions: ActivityPosition[]; trades: ActivityTrade[] }
 /** One row of the workspace's public leaderboard. */
 export interface LeaderRow { rank: number; handle: string; profit: number; trades: number }
+/** A limit order still resting on a book, as the public actions log shows it (docs/snake.md, "The feed"). */
+export interface RestingLimit { id: string; at: string; handle: string; marketId: string; side: Side; level: number; credits: number }
+/** One of `restingOrders` on /state: a resting limit with the option and horizon its book belongs to. */
+export interface RestingOrderRow { id: string; at: string; handle: string; action: Action; horizon: Horizon; side: Side; level: number; credits: number; marketId: string }
 
 /** A position in the open step's books, docs/snake.md "The feed". */
 export interface TraderRow { handle: string; action: Action; horizon: Horizon; side: Side; shares: number; cost: number; worth: number | null }
@@ -64,6 +68,8 @@ export interface TelarchyClient {
   readActivity(marketIds: string[]): Promise<Record<string, MarketActivity>>;
   /** The workspace's public leaderboard, top `limit` by profit. Read-only. */
   readLeaderboard(limit: number): Promise<LeaderRow[]>;
+  /** The limit orders still resting on the given books, from the public actions log. Read-only. */
+  readRestingLimits(marketIds: string[]): Promise<RestingLimit[]>;
 }
 
 export interface OpenStep {
@@ -184,6 +190,7 @@ function noPriceReason(quotes: Quotes): string {
 const TRADES_KEPT = 30;
 const LEADERBOARD_SIZE = 5;
 const LEADERBOARD_EVERY_MS = 60_000;
+const RESTING_KEPT = 10;
 /** docs/snake.md, "The workspace": what the metric says it measures. It names
  *  the grid being played and the length that fills it, so the sentence a
  *  trader reads is never the grid before this one. */
@@ -234,6 +241,9 @@ export class Operator {
   tradersToday: { day: string; handles: string[] } = { day: '', handles: [] };
   /** The workspace leaderboard as last read (not persisted). */
   leaderboard: LeaderRow[] = [];
+  /** The limit orders resting on the open step's books as last read, and the step they belong to (not persisted). */
+  restingOrders: RestingOrderRow[] = [];
+  private restingStep: number | null = null;
   activityAt: string | null = null;
   /** Every game since recording began, oldest first (persisted), docs/snake.md "The replay". */
   games: GameRecord[] = [];
@@ -558,6 +568,20 @@ export class Operator {
         } catch {
           // keep the last activity
         }
+        try {
+          const rows = await within(this.client.readRestingLimits([...books.keys()]), this.pollTimeout());
+          this.restingOrders = rows
+            .filter(r => books.has(r.marketId))
+            .map(r => {
+              const meta = books.get(r.marketId)!;
+              return { id: r.id, at: r.at, handle: r.handle, action: meta.action, horizon: meta.horizon, side: r.side, level: r.level, credits: r.credits, marketId: r.marketId };
+            })
+            .sort((x, y) => Date.parse(y.at) - Date.parse(x.at))
+            .slice(0, RESTING_KEPT);
+          this.restingStep = open.step;
+        } catch {
+          // keep the last resting orders
+        }
       }
     }
     if (now.getTime() - this.leaderboardAt >= LEADERBOARD_EVERY_MS) {
@@ -698,6 +722,7 @@ export class Operator {
       tradersToday: this.tradersToday.day === utcDay(now) ? this.tradersToday.handles.length : 0,
       recentTrades: this.recentTrades,
       leaderboard: this.leaderboard,
+      restingOrders: this.open && this.restingStep === this.open.step ? this.restingOrders : [],
       activityAt: this.activityAt,
     };
     return { ...base, ...activity, commentary: commentary({ ...base, ...activity }, now) };

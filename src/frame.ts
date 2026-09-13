@@ -1,38 +1,61 @@
-// The stream frame, docs/snake.md "The stream": the board's first screen
-// drawn in-process with @napi-rs/canvas, no browser. Text is set in Inter,
-// bundled under fonts/ (OFL) and registered here, never a system font.
-import { type Canvas, createCanvas, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
+// The stream frame, docs/snake.md "The stream": Telarchy's floor in its dark
+// theme, drawn in-process with @napi-rs/canvas, no browser. Text is set in
+// Inter, Fraunces and JetBrains Mono, bundled under fonts/ (OFL) and
+// registered here; the logo is bundled under assets/. Nothing is read from the
+// system or the network.
+import { type Canvas, createCanvas, GlobalFonts, Image, type SKRSContext2D } from '@napi-rs/canvas';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { GRID } from './engine.js';
-import { decide, priceOf, ACTIONS, ACTION_TITLE, type Quotes } from './decide.js';
+import { decide, priceOf, ACTIONS, type Quotes } from './decide.js';
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
-
-/** The face every line is set in; the file ships in the repo. */
+/** The body face. */
 export const FONT = 'Inter';
-for (const file of ['Inter-Regular.ttf', 'Inter-SemiBold.ttf']) {
-  GlobalFonts.registerFromPath(fileURLToPath(new URL(`../fonts/${file}`, import.meta.url)), FONT);
+/** Every face the frame sets, by role. */
+export const FONTS = { sans: 'Inter', serif: 'Fraunces', mono: 'JetBrains Mono' } as const;
+type Face = keyof typeof FONTS;
+for (const [file, family] of [
+  ['Inter-Regular.ttf', FONTS.sans],
+  ['Inter-SemiBold.ttf', FONTS.sans],
+  ['Fraunces-Medium.ttf', FONTS.serif],
+  ['Fraunces-Bold.ttf', FONTS.serif],
+  ['JetBrainsMono-Medium.ttf', FONTS.mono],
+  ['JetBrainsMono-SemiBold.ttf', FONTS.mono],
+] as const) {
+  GlobalFonts.registerFromPath(fileURLToPath(new URL(`../fonts/${file}`, import.meta.url)), family);
 }
 
-const BG = '#0b0d10';
-const BOARD = '#111419';
-const GRIDLINE = '#1a1e25';
+/** The Telarchy lockup for dark grounds, drawn small at its own aspect ratio. */
+const logo = new Image();
+logo.src = readFileSync(fileURLToPath(new URL('../assets/logo-lockup-dark.png', import.meta.url)));
+export const LOGO_NATURAL = { w: logo.naturalWidth || logo.width, h: logo.naturalHeight || logo.height };
+const LOGO_H = 18;
+export const LOGO_BOX = { w: (LOGO_H * LOGO_NATURAL.w) / LOGO_NATURAL.h, h: LOGO_H };
+
+/** The one call to action (docs/snake.md, "The stream"). */
+export const LINK_TEXT = 'telarchy.com/snake';
+/** How long each page of the panel stays on. */
+export const PANEL_MS = 15_000;
+
+const BG = '#101013';
+const BOARD = '#17171c';
+const LINE = '#2a2a32';
+const STRONG = '#3a3a43';
 const SNAKE = '#4ade80';
-const HEAD = '#bbf7d0';
-const HEAD_GLOW = 'rgba(74, 222, 128, 0.35)';
-const EYE = '#0b0d10';
 const FOOD = '#f87171';
-const FG = '#e8e6e1';
-const MUTE = '#8b8f98';
-const LEAD = '#facc15';
-const TILE = '#15181e';
-const TILE_LEAD = '#2a2612';
+const FG = '#f2ecdc';
+const FG2 = '#b5b1a3';
+const MUTE = '#97938c';
+const LEAD = '#f59e0b';
+const BONE = '#f2ecdc';
 
 const MARGIN = 24;
 const BOARD_PX = HEIGHT - 2 * MARGIN; // 672
 const X = MARGIN + BOARD_PX + 40; // 736: the right column
 const W = WIDTH - X - MARGIN; // 520
+const RIGHT = X + W; // 1256
 
 export function cellRect(x: number, y: number, size: number = GRID) {
   const cell = Math.floor(BOARD_PX / size);
@@ -40,166 +63,44 @@ export function cellRect(x: number, y: number, size: number = GRID) {
 }
 
 const measurer = createCanvas(1, 1).getContext('2d');
-const font = (size: number, weight: 400 | 600 = 600) => `${weight} ${size}px ${FONT}`;
-
-/** Width in pixels of `s` set at `size` px (semibold unless `weight` says otherwise). */
-export function measureText(s: string, size: number, weight: 400 | 600 = 600): number {
+const font = (size: number, weight: number, face: Face) => `${weight} ${size}px "${FONTS[face]}"`;
+/** Width in pixels of `s` set at `size` px in `face` (Inter semibold unless told otherwise). */
+export function measureText(s: string, size: number, weight = 600, face: Face = 'sans'): number {
   if (s.length === 0) return 0;
-  measurer.font = font(size, weight);
+  measurer.font = font(size, weight, face);
   return measurer.measureText(s).width;
 }
 
-function text(ctx: SKRSContext2D, s: string, x: number, y: number, size: number, colour: string, weight: 400 | 600 = 600, align: 'left' | 'right' | 'center' = 'left') {
-  ctx.font = font(size, weight);
-  ctx.fillStyle = colour;
-  ctx.textAlign = align;
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText(s, x, y);
-}
-
-/** Cut `s` with an ellipsis so it fits `w` px at `size`. */
-function clip(s: string, size: number, w: number, weight: 400 | 600 = 600): string {
-  if (measureText(s, size, weight) <= w) return s;
+/** Cut `s` with a trailing ellipsis so it fits `w` px. */
+function clip(s: string, size: number, w: number, weight: number, face: Face): string {
+  if (measureText(s, size, weight, face) <= w) return s;
   let t = s;
-  while (t.length > 1 && measureText(t + '…', size, weight) > w) t = t.slice(0, -1);
-  return t.trimEnd() + '…';
-}
-
-/** Word-wrap `s` to at most `lines` lines of `w` px, the last one clipped. */
-function wrap(s: string, size: number, w: number, lines: number, weight: 400 | 600 = 400): string[] {
-  const out: string[] = [];
-  let line = '';
-  for (const word of s.split(/\s+/).filter(Boolean)) {
-    const cand = line ? `${line} ${word}` : word;
-    if (line && measureText(cand, size, weight) > w) {
-      out.push(line);
-      line = word;
-      if (out.length === lines) break;
-    } else line = cand;
-  }
-  if (out.length < lines && line) out.push(line);
-  if (out.length === lines && out.length > 0) out[lines - 1] = clip(out[lines - 1] + (line && out[lines - 1] !== line ? ' ' + line : ''), size, w, weight);
-  return out;
+  while (t.length > 1 && measureText(`${t}…`, size, weight, face) > w) t = t.slice(0, -1);
+  return `${t.trimEnd()}…`;
 }
 
 function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, r);
-  ctx.closePath();
 }
 
-const fmt = (v: number | null | undefined) => (v === null || v === undefined ? '-' : (Math.round(v * 10) / 10).toString());
-const signed = (v: number | null) => (v === null ? '-' : `${v >= 0 ? '+' : ''}${fmt(v)}`);
+/** One decimal, `-` only when there is no number at all (docs/snake.md, "The stream", item 4). */
+const one = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? '-' : v.toFixed(1));
+/** A limit level: up to two decimals, trailing zeros dropped. */
+const level = (v: number) => String(Math.round(v * 100) / 100);
+const credits = (v: number) => `${Math.round(v).toLocaleString('en-US')} cr`;
 const ARROW: Record<string, string> = { up: '↑', right: '→', down: '↓', left: '←' };
-/** The next-move line's action words. */
+/** The options' words, on the pills and in the log. */
 export const NEXT_LABEL: Record<string, string> = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
-const TILE_LABEL: Record<string, string> = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
 const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-
+const ago = (at: string, now: number) => {
+  const secs = Math.max(0, Math.round((now - Date.parse(at)) / 1000));
+  if (!Number.isFinite(secs)) return '';
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  return `${Math.floor(secs / 3600)}h`;
+};
 const DELTA: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-
-/** A chevron pointing along `dir`, centred on (cx, cy): two arms behind, the tip ahead. */
-function chevronPath(ctx: SKRSContext2D, cx: number, cy: number, dir: string, half: number, arm: number) {
-  const [dx, dy] = DELTA[dir] ?? DELTA.right;
-  const [px, py] = [-dy, dx];
-  ctx.beginPath();
-  ctx.moveTo(cx - dx * half + px * arm, cy - dy * half + py * arm);
-  ctx.lineTo(cx + dx * half, cy + dy * half);
-  ctx.lineTo(cx - dx * half - px * arm, cy - dy * half - py * arm);
-}
-
-/** The next direction: a chevron in the accent from the head into the cell
- *  ahead (docs/snake.md, "The stream"), faint while the step is open and
- *  solid once decided; pressed against the head's edge, over a halo in the
- *  board's ground, when that cell is a wall. */
-function drawArrow(ctx: SKRSContext2D, head: { x: number; y: number }, N: number, next: { direction: string; decided: boolean }) {
-  const [dx, dy] = DELTA[next.direction] ?? DELTA.right;
-  const CELL = Math.floor(BOARD_PX / N);
-  const ax = head.x + dx, ay = head.y + dy;
-  const wall = ax < 0 || ay < 0 || ax >= N || ay >= N;
-  const h = cellRect(head.x, head.y, N);
-  const hx = h.x + h.w / 2, hy = h.y + h.h / 2;
-  ctx.save();
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const stroke = Math.max(2, CELL * 0.1);
-  if (wall) {
-    // A wall has no cell to draw a chevron in, so the mark is a bar along
-    // that wall, a stroke in from the border (docs/snake.md, "The board"):
-    // it reads as the wall it is and nothing is painted off the grid.
-    const [px, py] = [-dy, dx];
-    // Flush inside the border: the snake's band reaches 0.36 of a cell from
-    // its centre, so a bar any further in would sit on the snake.
-    const off = CELL * 0.5 - stroke / 2;
-    const halfBar = CELL * 0.34;
-    const cx = hx + dx * off, cy = hy + dy * off;
-    ctx.beginPath();
-    ctx.moveTo(cx + px * halfBar, cy + py * halfBar);
-    ctx.lineTo(cx - px * halfBar, cy - py * halfBar);
-  } else {
-    const r = cellRect(ax, ay, N);
-    chevronPath(ctx, r.x + r.w / 2, r.y + r.h / 2, next.direction, CELL * 0.15, CELL * 0.22);
-  }
-  ctx.globalAlpha = next.decided ? 1 : 0.55;
-  ctx.strokeStyle = LEAD; ctx.lineWidth = stroke; ctx.stroke();
-  ctx.restore();
-}
-
-function drawBoard(ctx: SKRSContext2D, g: any, N: number, next: { direction: string; decided: boolean } | null) {
-  const CELL = Math.floor(BOARD_PX / N);
-  const size = CELL * N;
-  ctx.fillStyle = BOARD;
-  roundRect(ctx, MARGIN, MARGIN, size, size, 12);
-  ctx.fill();
-  ctx.strokeStyle = GRIDLINE;
-  ctx.lineWidth = 1;
-  for (let i = 1; i < N; i++) {
-    ctx.beginPath(); ctx.moveTo(MARGIN + i * CELL + 0.5, MARGIN); ctx.lineTo(MARGIN + i * CELL + 0.5, MARGIN + size); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(MARGIN, MARGIN + i * CELL + 0.5); ctx.lineTo(MARGIN + size, MARGIN + i * CELL + 0.5); ctx.stroke();
-  }
-  // food: a rounded red dot
-  const fr = cellRect(g.food.x, g.food.y, N);
-  ctx.fillStyle = FOOD;
-  ctx.beginPath(); ctx.arc(fr.x + fr.w / 2, fr.y + fr.h / 2, fr.w * 0.3, 0, Math.PI * 2); ctx.fill();
-  // snake: one rounded band through the cell centres, the head lighter with a glow
-  const pad = Math.max(2, Math.round(CELL * 0.08));
-  const radius = Math.max(3, Math.round(CELL * 0.22));
-  const snake: { x: number; y: number }[] = g.snake ?? [];
-  const centre = (c: { x: number; y: number }) => { const r = cellRect(c.x, c.y, N); return [r.x + r.w / 2, r.y + r.h / 2] as const; };
-  if (snake.length > 1) {
-    ctx.strokeStyle = SNAKE;
-    ctx.lineWidth = CELL - 2 * pad;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    snake.forEach((c, i) => { const [x, y] = centre(c); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
-    ctx.stroke();
-  } else if (snake.length === 1) {
-    const r = cellRect(snake[0].x, snake[0].y, N);
-    ctx.fillStyle = SNAKE;
-    roundRect(ctx, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad, radius); ctx.fill();
-  }
-  if (snake[0]) {
-    const r = cellRect(snake[0].x, snake[0].y, N);
-    ctx.save();
-    ctx.shadowColor = HEAD_GLOW; ctx.shadowBlur = CELL * 0.6;
-    ctx.fillStyle = HEAD;
-    roundRect(ctx, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad, radius); ctx.fill();
-    ctx.restore();
-  }
-  // the heading: two eyes on the side of the head the snake moves towards
-  if (snake[0]) {
-    const h = cellRect(snake[0].x, snake[0].y, N);
-    const cx = h.x + h.w / 2, cy = h.y + h.h / 2;
-    const off = h.w * 0.22, side = h.w * 0.16, er = Math.max(1.5, h.w * 0.07);
-    const eyes: [number, number][] = g.heading === 'up' ? [[cx - side, cy - off], [cx + side, cy - off]]
-      : g.heading === 'down' ? [[cx - side, cy + off], [cx + side, cy + off]]
-      : g.heading === 'left' ? [[cx - off, cy - side], [cx - off, cy + side]]
-      : [[cx + off, cy - side], [cx + off, cy + side]];
-    ctx.fillStyle = EYE;
-    for (const [ex, ey] of eyes) { ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill(); }
-  }
-  if (snake[0] && next) drawArrow(ctx, snake[0], N, next);
-}
 
 /** The grid the next game is played on: two cells larger, so every grid keeps
  *  an even number of cells (docs/snake.md, "The game"). */
@@ -222,6 +123,259 @@ export function isDrawableState(s: unknown): boolean {
   return !!g && typeof g === 'object';
 }
 
+/** Which page of the panel is on at `now`: Log and Top traders take turns of
+ *  PANEL_MS, and a page with nothing to show gives its turn to the other. */
+export function panelFor(now: number, s: any): 'log' | 'traders' {
+  const hasLog = (Array.isArray(s?.restingOrders) ? s.restingOrders.length : 0) + (Array.isArray(s?.recentTrades) ? s.recentTrades.length : 0) > 0;
+  const hasBoard = Array.isArray(s?.leaderboard) && s.leaderboard.length > 0;
+  const page = Math.floor(now / PANEL_MS) % 2 === 0 ? 'log' : 'traders';
+  if (page === 'log' && !hasLog && hasBoard) return 'traders';
+  if (page === 'traders' && !hasBoard) return 'log';
+  return page;
+}
+
+interface Pill { action: string; x: number; y: number; w: number; h: number; size: number; label: string; price: string; lead: boolean }
+const PILL_Y = 286;
+const PILL_H = 46;
+
+function pills(s: any): Pill[] {
+  if (!s?.open || !s?.game) return [];
+  const quotes = (s.open.quotes ?? {}) as Quotes;
+  const best = decide(quotes, s.game.heading).approved;
+  const parts = ACTIONS.map(a => {
+    const dir = s.open.directions?.[a];
+    return { action: a, label: `${dir ? `${ARROW[dir] ?? ''} ` : ''}${NEXT_LABEL[a]}`, price: one(priceOf(quotes[a])), lead: a === best && priceOf(quotes[a]) !== null };
+  });
+  const gap = 10, pad = 16, inner = 8;
+  let size = 18;
+  const widthAt = (sz: number) => parts.map(p => pad + measureText(p.label, sz, 500, 'sans') + inner + measureText(p.price, sz, 500, 'mono') + pad);
+  while (size > 12 && widthAt(size).reduce((a, b) => a + b, 0) + gap * (parts.length - 1) > W) size -= 1;
+  const widths = widthAt(size);
+  let x = X;
+  return parts.map((p, i) => {
+    const pill = { ...p, x, y: PILL_Y, w: widths[i], h: PILL_H, size };
+    x += widths[i] + gap;
+    return pill;
+  });
+}
+
+/** Where the three option pills are drawn: each inside the right column. */
+export function pillRects(s: any): Array<{ x: number; y: number; w: number; h: number }> {
+  return pills(s).map(({ x, y, w, h }) => ({ x, y, w, h }));
+}
+
+/** The chevron (or, at a wall, the bar) for the next direction, in the accent. */
+function drawArrow(ctx: SKRSContext2D, head: { x: number; y: number }, N: number, next: { direction: string; decided: boolean }) {
+  const [dx, dy] = DELTA[next.direction] ?? DELTA.right;
+  const CELL = Math.floor(BOARD_PX / N);
+  const ax = head.x + dx, ay = head.y + dy;
+  const wall = ax < 0 || ay < 0 || ax >= N || ay >= N;
+  const h = cellRect(head.x, head.y, N);
+  const hx = h.x + h.w / 2, hy = h.y + h.h / 2;
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const stroke = Math.max(2, CELL * 0.1);
+  const [px, py] = [-dy, dx];
+  if (wall) {
+    // Flush inside the border: the band reaches 0.39 of a cell from its
+    // centre, so the bar sits in the cell's outer strip, clear of the snake.
+    const off = CELL * 0.5 - stroke / 2;
+    const halfBar = CELL * 0.34;
+    const cx = hx + dx * off, cy = hy + dy * off;
+    ctx.beginPath();
+    ctx.moveTo(cx + px * halfBar, cy + py * halfBar);
+    ctx.lineTo(cx - px * halfBar, cy - py * halfBar);
+  } else {
+    const r = cellRect(ax, ay, N);
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2, half = CELL * 0.15, arm = CELL * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(cx - dx * half + px * arm, cy - dy * half + py * arm);
+    ctx.lineTo(cx + dx * half, cy + dy * half);
+    ctx.lineTo(cx - dx * half - px * arm, cy - dy * half - py * arm);
+  }
+  ctx.globalAlpha = next.decided ? 1 : 0.7;
+  ctx.strokeStyle = LEAD; ctx.lineWidth = stroke; ctx.stroke();
+  ctx.restore();
+}
+
+function drawBoard(ctx: SKRSContext2D, g: any, N: number, next: { direction: string; decided: boolean } | null) {
+  const CELL = Math.floor(BOARD_PX / N);
+  const size = CELL * N;
+  ctx.fillStyle = BOARD;
+  roundRect(ctx, MARGIN, MARGIN, size, size, 6);
+  ctx.fill();
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 1;
+  for (let i = 1; i < N; i++) {
+    ctx.beginPath(); ctx.moveTo(MARGIN + i * CELL + 0.5, MARGIN); ctx.lineTo(MARGIN + i * CELL + 0.5, MARGIN + size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(MARGIN, MARGIN + i * CELL + 0.5); ctx.lineTo(MARGIN + size, MARGIN + i * CELL + 0.5); ctx.stroke();
+  }
+  roundRect(ctx, MARGIN + 0.5, MARGIN + 0.5, size - 1, size - 1, 6);
+  ctx.stroke();
+  const centre = (c: { x: number; y: number }) => { const r = cellRect(c.x, c.y, N); return [r.x + r.w / 2, r.y + r.h / 2] as const; };
+  if (g.food) {
+    const [fx, fy] = centre(g.food);
+    ctx.fillStyle = FOOD;
+    ctx.beginPath(); ctx.arc(fx, fy, CELL * 0.28, 0, Math.PI * 2); ctx.fill();
+  }
+  const snake: { x: number; y: number }[] = Array.isArray(g.snake) ? g.snake : [];
+  const band = CELL * 0.78;
+  if (snake.length > 1) {
+    ctx.strokeStyle = SNAKE;
+    ctx.lineWidth = band;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    snake.forEach((c, i) => { const [x, y] = centre(c); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.stroke();
+  }
+  if (snake[0]) {
+    const [cx, cy] = centre(snake[0]);
+    ctx.fillStyle = SNAKE;
+    ctx.beginPath(); ctx.arc(cx, cy, band / 2, 0, Math.PI * 2); ctx.fill();
+    // the heading: two eyes in the board's ground on the side the snake moves towards
+    const off = CELL * 0.17, side = CELL * 0.15, er = Math.max(1.5, CELL * 0.07);
+    const eyes: [number, number][] = g.heading === 'up' ? [[cx - side, cy - off], [cx + side, cy - off]]
+      : g.heading === 'down' ? [[cx - side, cy + off], [cx + side, cy + off]]
+      : g.heading === 'left' ? [[cx - off, cy - side], [cx - off, cy + side]]
+      : [[cx + off, cy - side], [cx + off, cy + side]];
+    ctx.fillStyle = BOARD;
+    for (const [ex, ey] of eyes) { ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill(); }
+    if (next) drawArrow(ctx, snake[0], N, next);
+  }
+}
+
+/** Draws the frame; every string it sets is pushed onto `texts` in order. */
+function draw(s: any, now: number, texts: string[]): Canvas {
+  const canvas = createCanvas(WIDTH, HEIGHT);
+  const ctx = canvas.getContext('2d');
+  const text = (str: string, x: number, y: number, size: number, colour: string, weight: number, face: Face, align: 'left' | 'right' | 'center' = 'left', spacing = '0px') => {
+    if (!str) return;
+    texts.push(str);
+    ctx.font = font(size, weight, face);
+    ctx.fillStyle = colour;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'alphabetic';
+    ctx.letterSpacing = spacing;
+    ctx.fillText(str, x, y);
+    ctx.letterSpacing = '0px';
+  };
+  const hairline = (x0: number, y0: number, x1: number, y1: number) => {
+    ctx.strokeStyle = LINE; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0 + 0.5, y0 + 0.5); ctx.lineTo(x1 + 0.5, y1 + 0.5); ctx.stroke();
+  };
+  const label = (str: string, x: number, y: number, maxW: number) =>
+    text(clip(str.toUpperCase(), 13, maxW, 500, 'mono'), x, y, 13, MUTE, 500, 'mono', 'left', '1px');
+
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // the link, the frame's one call to action, first so it is there whatever else fails to draw
+  const drawLink = () => {
+    ctx.fillStyle = BONE;
+    roundRect(ctx, X, 612, W, 84, 42); ctx.fill();
+    text(LINK_TEXT, X + W / 2, 668, 40, BG, 600, 'sans', 'center');
+  };
+
+  if (!isDrawableState(s)) {
+    text('Waiting for the feed', X, 120, 34, MUTE, 600, 'sans');
+    drawLink();
+    return canvas;
+  }
+
+  const g = s.game;
+  const N: number = s.grid ?? g.size ?? GRID;
+  const dirs = ['up', 'down', 'left', 'right'];
+  const next = s.next ?? null;
+  const nextDir = next && dirs.includes(next.direction) ? next.direction : g.heading;
+  drawBoard(ctx, g, N, dirs.includes(nextDir) ? { direction: nextDir, decided: next?.decided === true } : null);
+
+  // 1. the lockup, small and at its own aspect ratio
+  if (LOGO_NATURAL.w > 0) ctx.drawImage(logo, X, 28, LOGO_BOX.w, LOGO_BOX.h);
+
+  // 2. the name and the question
+  text('Snake', X, 108, 44, FG, 700, 'serif');
+  text('What length will I reach on this attempt?', X, 140, 22, FG2, 500, 'serif');
+
+  // 3. two cells between hairlines
+  const half = X + W / 2;
+  hairline(X, 164, RIGHT, 164);
+  hairline(X, 262, RIGHT, 262);
+  hairline(half, 164, half, 262);
+  const attempt = Number.isFinite(s.attempt) ? s.attempt : (Number.isFinite(g.deaths) ? g.deaths + 1 : null);
+  label(attempt === null ? 'Now' : `Now · attempt ${attempt}`, X, 190, W / 2 - 16);
+  text(Number.isFinite(g.length) ? Number(g.length).toFixed(1) : '-', X, 244, 46, FG, 600, 'mono');
+  const nextWords = next && NEXT_LABEL[next.action] ? `Next move · ${NEXT_LABEL[next.action]} ${ARROW[next.direction] ?? ''}`.trim() : 'Next move';
+  label(nextWords, half + 16, 190, W / 2 - 16);
+  const secs: number | null = s.secondsToDecision ?? next?.seconds ?? null;
+  if (next?.decided) text('decided', half + 16, 238, 30, SNAKE, 600, 'mono');
+  else if (secs !== null && Number.isFinite(secs)) text(clock(Math.max(0, Math.round(secs))), half + 16, 244, 46, LEAD, 600, 'mono');
+  else text('-', half + 16, 244, 46, MUTE, 600, 'mono');
+
+  // 4. the options as pills, or the complete game's two lines
+  if (s.open) {
+    for (const p of pills(s)) {
+      ctx.strokeStyle = p.lead ? SNAKE : STRONG;
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, p.x + 0.75, p.y + 0.75, p.w - 1.5, p.h - 1.5, p.h / 2);
+      ctx.stroke();
+      const base = p.y + p.h / 2 + p.size * 0.36;
+      text(p.label, p.x + 16, base, p.size, p.lead ? SNAKE : FG, 500, 'sans');
+      text(p.price, p.x + p.w - 16, base, p.size, p.lead ? SNAKE : FG2, 500, 'mono', 'right');
+    }
+  } else if (s.complete) {
+    text('The snake filled the grid.', X, 304, 20, FG, 500, 'sans');
+    if (s.nextGameAt) {
+      const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000));
+      text(`Next game on ${nextGridLabel(N)} in ${m} min.`, X, 332, 20, FG2, 400, 'sans');
+    }
+  }
+
+  // 5. the panel: Log or Top traders, with the dots saying which
+  const page = panelFor(now, s);
+  label(page === 'log' ? 'Log' : 'Top traders', X, 372, W - 40);
+  [0, 1].forEach(i => {
+    ctx.fillStyle = (page === 'log' ? 0 : 1) === i ? FG : STRONG;
+    ctx.beginPath(); ctx.arc(RIGHT - 19 + i * 15, 367, 4, 0, Math.PI * 2); ctx.fill();
+  });
+  const rowTop = (i: number) => 384 + i * 38;
+  if (page === 'log') {
+    const orders: any[] = Array.isArray(s.restingOrders) ? s.restingOrders : [];
+    const trades: any[] = Array.isArray(s.recentTrades) ? s.recentTrades : [];
+    const rows = [
+      ...orders.map(o => ({ at: String(o.at), handle: String(o.handle ?? '?'), what: `limit ${o.side === 'lower' ? 'lower' : 'higher'} on ${NEXT_LABEL[o.action] ?? o.action} at ${level(Number(o.level))}`, cr: credits(Number(o.credits) || 0), colour: LEAD })),
+      ...trades.map(t => ({ at: String(t.at), handle: String(t.handle ?? '?'), what: `${t.kind === 'sell' ? 'sold' : 'bought'} ${t.side === 'lower' ? 'lower' : 'higher'} on ${NEXT_LABEL[t.action] ?? t.action} at ${one(t.price)}`, cr: credits(Math.abs(Number(t.cost) || 0)), colour: FG })),
+    ].slice(0, 5);
+    rows.forEach((r, i) => {
+      const top = rowTop(i), base = top + 26;
+      hairline(X, top, RIGHT, top);
+      text(ago(r.at, now), X, base, 14, MUTE, 500, 'mono');
+      const crW = measureText(r.cr, 16, 500, 'mono');
+      text(r.cr, RIGHT, base, 16, r.colour, 500, 'mono', 'right');
+      const handle = clip(r.handle, 17, 124, 600, 'sans');
+      text(handle, X + 36, base, 17, FG, 600, 'sans');
+      const whatX = X + 36 + measureText(handle, 17, 600, 'sans') + 8;
+      text(clip(r.what, 15, Math.max(20, RIGHT - crW - 10 - whatX), 400, 'sans'), whatX, base, 15, FG2, 400, 'sans');
+    });
+  } else {
+    const board: any[] = Array.isArray(s.leaderboard) ? s.leaderboard.slice(0, 5) : [];
+    board.forEach((r, i) => {
+      const top = rowTop(i), base = top + 26;
+      hairline(X, top, RIGHT, top);
+      text(String(r.rank ?? i + 1), X, base, 15, MUTE, 500, 'mono');
+      const profit = Number(r.profit) || 0;
+      const amount = `${profit >= 0 ? '+' : '-'}${credits(Math.abs(profit))}`;
+      const amountW = measureText(amount, 18, 500, 'mono');
+      text(amount, RIGHT, base, 18, profit >= 0 ? SNAKE : FOOD, 500, 'mono', 'right');
+      text(clip(String(r.handle ?? '?'), 19, RIGHT - amountW - 16 - (X + 34), 500, 'sans'), X + 34, base, 19, FG, 500, 'sans');
+    });
+  }
+
+  // 6. the link
+  drawLink();
+  return canvas;
+}
+
 /** The RGB bytes ffmpeg takes, out of the canvas. */
 function toRgb(canvas: Canvas): Buffer {
   const rgba = canvas.data();
@@ -230,88 +384,14 @@ function toRgb(canvas: Canvas): Buffer {
   return out;
 }
 
-export function renderFrame(s: any): Buffer {
-  const canvas = createCanvas(WIDTH, HEIGHT);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = BG;
-  ctx.fillRect(0, 0, WIDTH, HEIGHT);
-  // A read the frame cannot draw is a held frame, never a crash.
-  if (!isDrawableState(s)) {
-    text(ctx, 'Waiting for the feed', MARGIN, MARGIN + 40, 34, MUTE, 600);
-    text(ctx, 'Trade at telarchy.com/snake', MARGIN, HEIGHT - MARGIN, 18, MUTE, 400);
-    return toRgb(canvas);
-  }
-  const g = s.game;
-  const N: number = s.grid ?? g.size ?? GRID;
-  const dirs = ['up', 'down', 'left', 'right'];
-  const nextDir = s.next && dirs.includes(s.next.direction) ? s.next.direction : g.heading;
-  drawBoard(ctx, g, N, dirs.includes(nextDir) ? { direction: nextDir, decided: s.next?.decided === true } : null);
+/** The frame at `now`, as the raw RGB bytes the stream pipes to ffmpeg. */
+export function renderFrame(s: any, now: number = Date.now()): Buffer {
+  return toRgb(draw(s, now, []));
+}
 
-  // 2. the next move, one big line with the clock
-  let y = MARGIN + 24;
-  text(ctx, 'Next move', X, y, 18, MUTE, 400);
-  y += 62;
-  const next = s.next ?? null;
-  if (next) {
-    const label = `${ARROW[next.direction] ?? ''} ${NEXT_LABEL[next.action] ?? '?'}`;
-    const secs: number | null = next.decided ? null : (s.secondsToDecision ?? next.seconds ?? null);
-    const right = secs === null ? 'decided' : clock(Math.max(0, secs));
-    const rightSize = secs === null ? 20 : 48;
-    const rw = measureText(right, rightSize, secs === null ? 400 : 600);
-    text(ctx, clip(label, 48, W - rw - 16), X, y, 48, next.decided ? SNAKE : LEAD);
-    text(ctx, right, X + W, y, rightSize, secs === null ? SNAKE : FG, secs === null ? 400 : 600, 'right');
-  } else if (s.complete) {
-    text(ctx, 'Complete', X, y, 48, LEAD);
-  } else {
-    text(ctx, 'Waiting', X, y, 48, MUTE);
-  }
-
-  // 3. three choice tiles: arrow, name, price; the leader in the accent with its lead
-  y += 40;
-  const gap = 12, tw = Math.floor((W - 2 * gap) / 3), th = 150;
-  if (s.open) {
-    const quotes = (s.open.quotes ?? {}) as Quotes;
-    // The leader is the option the rule would choose now (docs/snake.md, "The step").
-    const best = decide(quotes, g.heading).approved;
-    ACTIONS.forEach((a, i) => {
-      const tx = X + i * (tw + gap);
-      const lead = a === best;
-      ctx.fillStyle = lead ? TILE_LEAD : TILE;
-      roundRect(ctx, tx, y, tw, th, 14); ctx.fill();
-      if (lead) { ctx.strokeStyle = LEAD; ctx.lineWidth = 2; roundRect(ctx, tx + 1, y + 1, tw - 2, th - 2, 13); ctx.stroke(); }
-      const dir = s.open.directions?.[a];
-      text(ctx, dir ? ARROW[dir] ?? '' : '', tx + 18, y + 48, 34, lead ? LEAD : FG);
-      text(ctx, TILE_LABEL[a], tx + 18, y + 80, 18, lead ? LEAD : MUTE, 400);
-      text(ctx, fmt(priceOf(quotes[a])), tx + 18, y + 128, 40, lead ? LEAD : FG);
-      // the leader alone shows its lead over the best other option, as Telarchy reports it
-      const by = quotes[a]?.m60?.lead;
-      if (lead && typeof by === 'number' && Number.isFinite(by)) text(ctx, signed(by), tx + tw - 16, y + 48, 22, LEAD, 600, 'right');
-    });
-  } else if (s.complete) {
-    const lines = ['The snake filled the grid.'];
-    if (s.nextGameAt) { const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000)); lines.push(`Next game on ${nextGridLabel(N)} in ${m} min.`); }
-    lines.forEach((l, i) => text(ctx, l, X, y + 40 + i * 30, 22, FG, 400));
-  }
-  y += th + 48;
-
-  // 4. the status line: four facts
-  const gameNo = s.gameNumber ?? g.gameNumber ?? 1;
-  const record = typeof s.bestLength === 'number' ? s.bestLength : g.length;
-  text(ctx, `Length ${g.length} · Record ${record} · Game ${gameNo} · ${N}x${N}`, X, y, 24, FG, 400);
-  y += 44;
-
-  // 5. the quiet line, above the trade line at the foot of the column: the newest trade, else the commentary
-  const trades: any[] = Array.isArray(s.recentTrades) ? s.recentTrades : [];
-  const t = trades[0];
-  const quiet = t
-    ? `${t.handle} bet ${fmt(t.cost)} on ${ACTION_TITLE[t.action as keyof typeof ACTION_TITLE] ?? t.action}`
-    : String(s.commentary ?? '');
-  const lines = wrap(quiet, 20, W, 2);
-  const footY = HEIGHT - MARGIN - 6;
-  lines.forEach((l, i) => text(ctx, l, X, footY - 44 - (lines.length - 1 - i) * 28, 20, MUTE, 400));
-  void y;
-
-  text(ctx, 'Trade at telarchy.com/snake', X, footY, 18, MUTE, 400);
-
-  return toRgb(canvas);
+/** Every string the frame at `now` sets, in the order it sets them (for the tests' scans). */
+export function drawnTexts(s: any, now: number = Date.now()): string[] {
+  const texts: string[] = [];
+  draw(s, now, texts);
+  return texts;
 }
