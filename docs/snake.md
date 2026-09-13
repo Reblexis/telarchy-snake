@@ -618,8 +618,10 @@ the Telarchy base URL, the operator API key, the workspace id, the port,
 the state file path, the liquidity per book.
 
 The snake runs on a server of its own (Hetzner `telarchy-snake`,
-167.233.147.90, 2 vCPU, 4 GB, user `telarchy`): nothing else runs there, so
-a decision always falls inside its minute. It shared the fleet box first
+167.233.147.90, 2 vCPU, 4 GB, user `telarchy`): the only other process
+there is futarchy chess (`telarchy-chess`, its `docs/chess.md`), a light
+operator with no engine and a few reads a minute, so a decision always falls
+inside its minute. Nothing heavy runs there. It shared the fleet box first
 and was starved by that box's benches (load above 100 on two cores, steps
 lapsing, the site's proxy answering 502 for the feed), which is why it
 moved. The operator and the stream are the two `systemd --user` units of
