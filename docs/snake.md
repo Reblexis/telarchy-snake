@@ -431,6 +431,13 @@ workspace endpoints, never from the operator's own books:
   when the trade was first seen, or null.
 - `leaderboard`: the top five `{ rank, handle, profit, trades }` of this
   workspace, or an empty list when Telarchy reports nobody.
+- `attemptStartedAt`: when the current attempt began, the minute of the
+  move that ended the previous attempt, or the game's start for its first
+  attempt; null when neither is known. A start derived from the recorded
+  moves never reaches back past the start of the current game.
+- `levels`: the games as the games list records them, oldest first, at
+  most the newest ten, each `{ number, size, startedAt, endedAt }`
+  (`endedAt` null while the game runs).
 - `restingOrders`: the limit orders still resting on the open step's
   books, newest first, at most ten, each `{ id, at, handle, action,
   horizon, side, level, credits, marketId }` where `level` is the order's
@@ -438,8 +445,9 @@ workspace endpoints, never from the operator's own books:
   the activity from Telarchy's public actions log (`GET
   /api/data-room/actions?workspace=<slug>&kinds=order&limit=50`): an order
   rests when its `placed` row is there and no later row closed it. A
-  failed read keeps the last list; a new step starts it empty. Adding the
-  field does not raise `schema`.
+  failed read keeps the last list; a new step starts it empty. Adding
+  fields does not raise `schema`; only a field that changes meaning or
+  leaves does.
 - `activityAt`: when the activity was last read.
 
 `/replay` is public too and is the whole of the Replay tab's data:
@@ -547,10 +555,17 @@ The right column (from x 736, 520 px wide) holds, top to bottom:
    stretched);
 2. "Snake" in Fraunces 700 and the question "What length will I reach on
    this attempt?" in Fraunces 500, muted;
-3. two cells between hairlines, each a small mono uppercase label over a
-   large mono number: `NOW · ATTEMPT N` over the length, and `NEXT MOVE ·
-   <action> <arrow>` over the countdown in the accent ("decided" in green
-   once the move is ruled);
+3. three cells between hairlines, each a small mono uppercase label over a
+   large mono number: `NOW · ATTEMPT N` over the length, `THIS ATTEMPT`
+   over the time since the attempt started (`attemptStartedAt`, `-` when
+   unknown), and `NEXT MOVE <arrow>` over the countdown in the accent
+   ("decided" in green once the move is ruled);
+   under them one mono line for the levels: `LEVEL 6X6` and the time the
+   current game has run (stopped at its end once it completes), then each
+   earlier game newest first as its grid and how long it took (`4x4 3h
+   22m`), as many as fit the column. Every timer here uses one clock:
+   `mm:ss` under an hour, then `3h 22m`, and ticks every second. The timers
+   are the stream's alone; telarchy.com does not draw them;
 4. the three options as pills, each its label and its price to one
    decimal; the leader outlined and lettered in green, the others in a
    quiet outline. A price of 0 draws `0.0`, because it is a real price (a

@@ -93,6 +93,14 @@ const ARROW: Record<string, string> = { up: '↑', right: '→', down: '↓', le
 /** The options' words, on the pills and in the log. */
 export const NEXT_LABEL: Record<string, string> = { forward: 'Continue', left: 'Turn left', right: 'Turn right' };
 const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+/** The stream's one clock for how long something has run (docs/snake.md, "The stream"): mm:ss under an hour, then `3h 22m`. */
+export function span(ms: number): string {
+  const secs = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000));
+  if (secs < 3600) return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+}
+/** Where the column's blocks sit, so the timers never crowd the pills, the panel or the link. */
+export const LAYOUT = { statsTop: 164, statsBottom: 262, statSize: 36, levelBaseline: 290, pillTop: 304, pillHeight: 46, panelLabelBaseline: 384, rowsTop: 394, rowHeight: 38, linkTop: 612 } as const;
 const ago = (at: string, now: number) => {
   const secs = Math.max(0, Math.round((now - Date.parse(at)) / 1000));
   if (!Number.isFinite(secs)) return '';
@@ -135,8 +143,8 @@ export function panelFor(now: number, s: any): 'log' | 'traders' {
 }
 
 interface Pill { action: string; x: number; y: number; w: number; h: number; size: number; label: string; price: string; lead: boolean }
-const PILL_Y = 286;
-const PILL_H = 46;
+const PILL_Y = LAYOUT.pillTop;
+const PILL_H = LAYOUT.pillHeight;
 
 function pills(s: any): Pill[] {
   if (!s?.open || !s?.game) return [];
@@ -273,7 +281,7 @@ function draw(s: any, now: number, texts: string[]): Canvas {
   // the link, the frame's one call to action, first so it is there whatever else fails to draw
   const drawLink = () => {
     ctx.fillStyle = BONE;
-    roundRect(ctx, X, 612, W, 84, 42); ctx.fill();
+    roundRect(ctx, X, LAYOUT.linkTop, W, 84, 42); ctx.fill();
     text(LINK_TEXT, X + W / 2, 668, 40, BG, 600, 'sans', 'center');
   };
 
@@ -297,20 +305,50 @@ function draw(s: any, now: number, texts: string[]): Canvas {
   text('Snake', X, 108, 44, FG, 700, 'serif');
   text('What length will I reach on this attempt?', X, 140, 22, FG2, 500, 'serif');
 
-  // 3. two cells between hairlines
-  const half = X + W / 2;
-  hairline(X, 164, RIGHT, 164);
-  hairline(X, 262, RIGHT, 262);
-  hairline(half, 164, half, 262);
+  // 3. three cells between hairlines: length, this attempt's time, the next move
+  const third = W / 3;
+  const cellX = (i: number) => X + i * third + (i === 0 ? 0 : 16);
+  hairline(X, LAYOUT.statsTop, RIGHT, LAYOUT.statsTop);
+  hairline(X, LAYOUT.statsBottom, RIGHT, LAYOUT.statsBottom);
+  hairline(X + third, LAYOUT.statsTop, X + third, LAYOUT.statsBottom);
+  hairline(X + 2 * third, LAYOUT.statsTop, X + 2 * third, LAYOUT.statsBottom);
+  const valueY = 240;
   const attempt = Number.isFinite(s.attempt) ? s.attempt : (Number.isFinite(g.deaths) ? g.deaths + 1 : null);
-  label(attempt === null ? 'Now' : `Now · attempt ${attempt}`, X, 190, W / 2 - 16);
-  text(Number.isFinite(g.length) ? Number(g.length).toFixed(1) : '-', X, 244, 46, FG, 600, 'mono');
-  const nextWords = next && NEXT_LABEL[next.action] ? `Next move · ${NEXT_LABEL[next.action]} ${ARROW[next.direction] ?? ''}`.trim() : 'Next move';
-  label(nextWords, half + 16, 190, W / 2 - 16);
+  label(attempt === null ? 'Now' : `Now · attempt ${attempt}`, cellX(0), 190, third - 16);
+  text(Number.isFinite(g.length) ? Number(g.length).toFixed(1) : '-', cellX(0), valueY, LAYOUT.statSize, FG, 600, 'mono');
+  label('This attempt', cellX(1), 190, third - 20);
+  const attemptAt = typeof s.attemptStartedAt === 'string' ? Date.parse(s.attemptStartedAt) : NaN;
+  text(Number.isFinite(attemptAt) ? span(now - attemptAt) : '-', cellX(1), valueY, LAYOUT.statSize, FG, 600, 'mono');
+  label(next && ARROW[next.direction] ? `Next move ${ARROW[next.direction]}` : 'Next move', cellX(2), 190, third - 20);
   const secs: number | null = s.secondsToDecision ?? next?.seconds ?? null;
-  if (next?.decided) text('decided', half + 16, 238, 30, SNAKE, 600, 'mono');
-  else if (secs !== null && Number.isFinite(secs)) text(clock(Math.max(0, Math.round(secs))), half + 16, 244, 46, LEAD, 600, 'mono');
-  else text('-', half + 16, 244, 46, MUTE, 600, 'mono');
+  if (next?.decided) text('decided', cellX(2), valueY - 4, 26, SNAKE, 600, 'mono');
+  else if (secs !== null && Number.isFinite(secs)) text(clock(Math.max(0, Math.round(secs))), cellX(2), valueY, LAYOUT.statSize, LEAD, 600, 'mono');
+  else text('-', cellX(2), valueY, LAYOUT.statSize, MUTE, 600, 'mono');
+
+  // the levels: the current game's time, then each earlier game and how long it took
+  const levels: any[] = Array.isArray(s.levels) ? s.levels : [];
+  const gameNo = s.gameNumber ?? g.gameNumber ?? 1;
+  const current = levels.find(l => l && l.number === gameNo);
+  const took = (l: any) => {
+    const a = Date.parse(l?.startedAt), b = l?.endedAt ? Date.parse(l.endedAt) : now;
+    return Number.isFinite(a) && Number.isFinite(b) ? span(b - a) : '-';
+  };
+  const size = current?.size ?? N;
+  let lx = X;
+  const levelLabel = `Level ${size}x${size}`.toUpperCase();
+  text(levelLabel, lx, LAYOUT.levelBaseline, 13, MUTE, 500, 'mono', 'left', '1px');
+  lx += measureText(levelLabel, 13, 500, 'mono') + levelLabel.length + 10;
+  const currentTook = current ? took(current) : '-';
+  text(currentTook, lx, LAYOUT.levelBaseline, 14, FG, 600, 'mono');
+  lx += measureText(currentTook, 14, 600, 'mono') + 22;
+  const earlier = levels.filter(l => l && l.number !== gameNo && l.endedAt).sort((a, b) => b.number - a.number);
+  for (const l of earlier) {
+    const seg = `${l.size}x${l.size} ${took(l)}`;
+    const w = measureText(seg, 14, 500, 'mono');
+    if (lx + w > RIGHT) break;
+    text(seg, lx, LAYOUT.levelBaseline, 14, FG2, 500, 'mono');
+    lx += w + 22;
+  }
 
   // 4. the options as pills, or the complete game's two lines
   if (s.open) {
@@ -333,12 +371,12 @@ function draw(s: any, now: number, texts: string[]): Canvas {
 
   // 5. the panel: Log or Top traders, with the dots saying which
   const page = panelFor(now, s);
-  label(page === 'log' ? 'Log' : 'Top traders', X, 372, W - 40);
+  label(page === 'log' ? 'Log' : 'Top traders', X, LAYOUT.panelLabelBaseline, W - 40);
   [0, 1].forEach(i => {
     ctx.fillStyle = (page === 'log' ? 0 : 1) === i ? FG : STRONG;
-    ctx.beginPath(); ctx.arc(RIGHT - 19 + i * 15, 367, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(RIGHT - 19 + i * 15, LAYOUT.panelLabelBaseline - 5, 4, 0, Math.PI * 2); ctx.fill();
   });
-  const rowTop = (i: number) => 384 + i * 38;
+  const rowTop = (i: number) => LAYOUT.rowsTop + i * LAYOUT.rowHeight;
   if (page === 'log') {
     const orders: any[] = Array.isArray(s.restingOrders) ? s.restingOrders : [];
     const trades: any[] = Array.isArray(s.recentTrades) ? s.recentTrades : [];

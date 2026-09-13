@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextGridLabel, renderFrame, drawnTexts, pillRects, panelFor, WIDTH, HEIGHT, cellRect, measureText, FONT, FONTS, LINK_TEXT, LOGO_BOX, LOGO_NATURAL, PANEL_MS, isDrawableState } from '../src/frame.js';
+import { nextGridLabel, renderFrame, drawnTexts, pillRects, panelFor, WIDTH, HEIGHT, cellRect, measureText, FONT, FONTS, LINK_TEXT, LOGO_BOX, LOGO_NATURAL, PANEL_MS, isDrawableState, span, LAYOUT } from '../src/frame.js';
 
 const state = {
   game: { snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }], heading: 'right', food: { x: 3, y: 4 }, length: 3, step: 12, deaths: 1, complete: false, size: 12, gameNumber: 1 },
@@ -293,6 +293,59 @@ describe('the stream frame: Telarchy\'s floor in its dark theme (docs/snake.md, 
     expect(texts).toContain('0.0');
     expect(texts).toContain('3.0');
     expect(texts).toContain('-');
+  });
+
+  it('ONE CLOCK FOR EVERY TIMER: mm:ss under an hour, then hours and minutes', () => {
+    expect(span(0)).toBe('00:00');
+    expect(span(59_000)).toBe('00:59');
+    expect(span(3_599_000)).toBe('59:59');
+    expect(span(3_600_000)).toBe('1h 0m');
+    expect(span(12_120_000)).toBe('3h 22m');
+    expect(span(127_380_000)).toBe('35h 23m');
+    expect(span(-5_000)).toBe('00:00');
+  });
+
+  it('THE ATTEMPT TIMER TICKS: the time since the attempt started, one second later one second more, and a dash when unknown', () => {
+    const at = { ...rich, attemptStartedAt: new Date(LOG_AT - 125_000).toISOString() };
+    const a = drawnTexts(at as any, LOG_AT);
+    expect(a[a.indexOf('THIS ATTEMPT') + 1]).toBe('02:05');
+    const b = drawnTexts(at as any, LOG_AT + 1000);
+    expect(b[b.indexOf('THIS ATTEMPT') + 1]).toBe('02:06');
+    const none = drawnTexts(rich as any, LOG_AT);
+    expect(none[none.indexOf('THIS ATTEMPT') + 1]).toBe('-');
+  });
+
+  it('THE LEVEL TIMERS: the current level ticking, then each earlier level and how long it took', () => {
+    const lv = { ...rich, gameNumber: 2, game: { ...rich.game, gameNumber: 2, size: 6 }, grid: 6,
+      levels: [
+        { number: 1, size: 4, startedAt: '2026-09-11T19:46:00Z', endedAt: '2026-09-11T23:08:00Z' },
+        { number: 2, size: 6, startedAt: new Date(LOG_AT - 7_500_000).toISOString(), endedAt: null },
+      ] };
+    const t = drawnTexts(lv as any, LOG_AT);
+    expect(t).toContain('LEVEL 6X6');
+    expect(t[t.indexOf('LEVEL 6X6') + 1]).toBe('2h 5m');
+    expect(t).toContain('4x4 3h 22m');
+    const later = drawnTexts(lv as any, LOG_AT + 60_000);
+    expect(later[later.indexOf('LEVEL 6X6') + 1]).toBe('2h 6m');
+    const done = { ...lv, levels: [lv.levels[0], { ...lv.levels[1], endedAt: new Date(LOG_AT - 3_600_000).toISOString() }] };
+    expect(drawnTexts(done as any, LOG_AT)[drawnTexts(done as any, LOG_AT).indexOf('LEVEL 6X6') + 1]).toBe('1h 5m');
+    expect(drawnTexts(done as any, LOG_AT + 600_000)[drawnTexts(done as any, LOG_AT + 600_000).indexOf('LEVEL 6X6') + 1]).toBe('1h 5m');
+  });
+
+  it('many earlier levels never run past the column: the line keeps the newest that fit', () => {
+    const levels = Array.from({ length: 10 }, (_, i) => ({ number: i + 1, size: 4 + 2 * i, startedAt: '2026-09-01T00:00:00Z', endedAt: i < 9 ? '2026-09-02T11:11:00Z' : null }));
+    const t = drawnTexts({ ...rich, gameNumber: 10, levels } as any, LOG_AT);
+    expect(t).toContain('20x20 35h 11m');
+    for (const s of t.filter(x => /^\d+x\d+ /.test(x))) expect(measureText(s, 14, 500, 'mono')).toBeLessThan(520);
+  });
+
+  it('THE TIMERS DO NOT CROWD THE PILLS, THE PANEL OR THE LINK', () => {
+    expect(LAYOUT.statsBottom).toBeLessThan(LAYOUT.levelBaseline - 14);
+    expect(LAYOUT.levelBaseline + 4).toBeLessThan(LAYOUT.pillTop);
+    expect(LAYOUT.pillTop + LAYOUT.pillHeight).toBeLessThan(LAYOUT.panelLabelBaseline - 13);
+    expect(LAYOUT.rowsTop + 5 * LAYOUT.rowHeight).toBeLessThanOrEqual(LAYOUT.linkTop - 12);
+    for (const s of ['NOW · ATTEMPT 229', 'THIS ATTEMPT', 'NEXT MOVE ←']) expect(measureText(s, 13, 500, 'mono') + s.length).toBeLessThan(520 / 3 - 16);
+    for (const s of ['35h 59m', '59:59', '36.0']) expect(measureText(s, LAYOUT.statSize, 600, 'mono')).toBeLessThan(520 / 3 - 16);
   });
 
   it('THE LOGO IS SMALL AND NEVER STRETCHED: about 18 px tall at its own aspect ratio', () => {
