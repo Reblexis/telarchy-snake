@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { GameLog } from '../src/gamelog.js';
 import { Operator, RULE, type TelarchyClient, type ProposalRef, type MarketActivity, type LeaderRow, type RestingLimit } from '../src/operator.js';
 import { newGame } from '../src/engine.js';
 import type { Quotes, Action, ProposalOption } from '../src/decide.js';
@@ -692,6 +696,73 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
 
   /** Head one cell from the right wall, heading right, length 4: the forward move dies. */
   const dying = () => ({ ...newGame(rng, 12, 1), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 }, { x: 8, y: 6 }], length: 4, food: { x: 0, y: 0 }, deaths: 2 });
+
+  it('attemptStartedAt: a death starts the next attempt at the move that ended it, and a new game starts one too', async () => {
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, dying(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:01:05Z')).attemptStartedAt).toBe('2026-09-11T10:01:00.000Z');
+    const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
+    expect(back.publicState(new Date('2026-09-11T10:01:05Z')).attemptStartedAt).toBe('2026-09-11T10:01:00.000Z');
+    op.game = { ...op.game, complete: true };
+    op.completedAt = '2026-09-11T10:01:00Z';
+    await op.tick(new Date('2026-09-11T11:02:00Z'));
+    expect(op.publicState(new Date('2026-09-11T11:02:05Z')).attemptStartedAt).toBe('2026-09-11T11:02:00.000Z');
+  });
+
+  it('attemptStartedAt: a state file from before the field derives it from the last move that killed the snake, else null', async () => {
+    const { client } = fakeClient(allTen);
+    const op = new Operator(client, dying(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    const saved = JSON.parse(JSON.stringify(op.toJSON()));
+    delete saved.attemptStartedAt;
+    expect(Operator.fromJSON(client, saved, rng).publicState(new Date('2026-09-11T10:02:00Z')).attemptStartedAt).toBe('2026-09-11T10:01:00.000Z');
+    const blank = Operator.fromJSON(client, { game: dying(), open: null, decisions: [], pending: null, completedAt: null }, rng);
+    expect(blank.publicState(new Date('2026-09-11T10:02:00Z')).attemptStartedAt).toBeNull();
+  });
+
+  it('THE ATTEMPT TIMER RAN FROM A DEATH IN THE PREVIOUS GAME (2026-09-13): a derived start never crosses a game boundary', async () => {
+    const { client } = fakeClient(allTen);
+    const rec = (step: number, at: string, deathsBefore: number, lengthAfter: number) =>
+      ({ step, at, action: 'forward', direction: 'right', approved: 'forward', undecided: false, quotes: allTen(1), prices: { forward: 10, left: 10, right: 10 }, proposal: { id: '', number: 0, url: '' }, lengthBefore: 5, lengthAfter, deathsBefore, undecidedReason: null });
+    const decisions = [
+      rec(10, '2026-09-13T03:38:58.000Z', 227, 2), // killed the snake in game 2
+      rec(11, '2026-09-13T10:03:58.000Z', 228, 36), // game 2 complete
+      rec(1, '2026-09-13T10:10:58.000Z', 0, 3), // game 3, first attempt, alive
+      rec(2, '2026-09-13T10:11:58.000Z', 0, 3),
+    ];
+    const game = { ...newGame(rng, 8, 3), deaths: 0 };
+    const back = Operator.fromJSON(client, { game, open: null, decisions, pending: null, completedAt: null }, rng);
+    expect(back.publicState(new Date('2026-09-13T11:00:00Z')).attemptStartedAt).toBeNull();
+  });
+
+  it('levels: the games list as the log records it, oldest first, at most the newest ten; none without a log', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snake-levels-'));
+    try {
+      const log = new GameLog(dir);
+      const line = (n: number) => ({ step: 0, at: '', snake: [{ x: 0, y: 0 }], food: { x: 1, y: 1 }, heading: 'right', action: null, direction: 'right', undecided: false, prices: { forward: null, left: null, right: null }, length: 2, deaths: 0, n }) as any;
+      for (let i = 1; i <= 12; i++) {
+        log.start(i, 2 + 2 * i, `2026-09-${String(i).padStart(2, '0')}T00:00:00.000Z`, line(i), false);
+        if (i < 12) log.end(i, `2026-09-${String(i).padStart(2, '0')}T03:22:00.000Z`);
+      }
+      const { client } = fakeClient(allTen);
+      const op = new Operator(client, newGame(rng, 26, 12), rng, { log });
+      const levels = op.publicState(new Date('2026-09-12T10:00:00Z')).levels;
+      expect(levels.length).toBe(10);
+      expect(levels[0]).toEqual({ number: 3, size: 8, startedAt: '2026-09-03T00:00:00.000Z', endedAt: '2026-09-03T03:22:00.000Z' });
+      expect(levels[9]).toEqual({ number: 12, size: 26, startedAt: '2026-09-12T00:00:00.000Z', endedAt: null });
+      const bare = new Operator(client, newGame(rng, 12, 1), rng);
+      expect(bare.publicState(new Date('2026-09-12T10:00:00Z')).levels).toEqual([]);
+      // A game's first attempt starts with the game: the log's start for it.
+      expect(new Operator(client, newGame(rng, 12, 1), rng, { log }).publicState(new Date('2026-09-12T10:00:00Z')).attemptStartedAt).toBe('2026-09-01T00:00:00.000Z');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it('the reading is the snake\'s length: 2 again after a death, 2 again on a new game', async () => {
     const { client, calls } = fakeClient(allTen);

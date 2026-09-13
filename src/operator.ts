@@ -191,6 +191,7 @@ const TRADES_KEPT = 30;
 const LEADERBOARD_SIZE = 5;
 const LEADERBOARD_EVERY_MS = 60_000;
 const RESTING_KEPT = 10;
+const LEVELS_KEPT = 10;
 /** docs/snake.md, "The workspace": what the metric says it measures. It names
  *  the grid being played and the length that fills it, so the sentence a
  *  trader reads is never the grid before this one. */
@@ -220,6 +221,26 @@ function startRecord(g: GameState): GameRecord {
 }
 
 function utcDay(d: Date): string { return d.toISOString().slice(0, 10); }
+
+/** A state file from before `attemptStartedAt`: the minute of the last move
+ *  that killed the snake (its record is decided at :58, the move lands on the
+ *  next minute), or null when no recorded move did. */
+function lastDeathMinute(decisions: DecisionRecord[], deathsNow: number): string | null {
+  for (let i = decisions.length - 1; i >= 0; i--) {
+    const d = decisions[i];
+    if (d.lengthAfter === null) continue;
+    const after = i + 1 < decisions.length ? decisions[i + 1].deathsBefore : deathsNow;
+    // Deaths count per game: a lower count after this record is a new game,
+    // and nothing before it belongs to the current attempt.
+    if (after < d.deathsBefore) return null;
+    if (after > d.deathsBefore) {
+      const t = Date.parse(d.at);
+      if (!Number.isFinite(t)) return null;
+      return new Date(Math.ceil(t / 60_000) * 60_000).toISOString();
+    }
+  }
+  return null;
+}
 function isoMinute(d: Date): Date { const c = new Date(d); c.setUTCSeconds(0, 0); return c; }
 
 export class Operator {
@@ -243,6 +264,8 @@ export class Operator {
   leaderboard: LeaderRow[] = [];
   /** The limit orders resting on the open step's books as last read, and the step they belong to (not persisted). */
   restingOrders: RestingOrderRow[] = [];
+  /** When the current attempt began (docs/snake.md, "The feed"): the move that ended the last one, or a new game. */
+  attemptStartedAt: string | null = null;
   private restingStep: number | null = null;
   activityAt: string | null = null;
   /** Every game since recording began, oldest first (persisted), docs/snake.md "The replay". */
@@ -456,6 +479,7 @@ export class Operator {
         }
         this.game = newGame(this.rng, size, (this.game.gameNumber ?? 1) + 1);
         this.games.push(startRecord(this.game));
+        this.attemptStartedAt = now.toISOString();
         this.log?.start(this.game.gameNumber, this.game.size, now.toISOString(), this.logLine(this.game, now.toISOString(), null), false);
         this.bestLength = this.game.length;
         this.completedAt = null;
@@ -487,6 +511,7 @@ export class Operator {
     // attempt's reading (docs/snake.md, "When the attempt ends the answer is
     // known"). A refusal is logged and the step carries on.
     const died = this.game.deaths > before.deaths;
+    if (died) this.attemptStartedAt = now.toISOString();
     if (died || this.game.complete) {
       const gameNo = before.gameNumber ?? 1;
       const reason = died
@@ -723,6 +748,9 @@ export class Operator {
       recentTrades: this.recentTrades,
       leaderboard: this.leaderboard,
       restingOrders: this.open && this.restingStep === this.open.step ? this.restingOrders : [],
+      // A game's first attempt starts with the game.
+      attemptStartedAt: this.attemptStartedAt ?? (this.game.deaths === 0 ? this.opts.log?.games().find(g => g.number === (this.game.gameNumber ?? 1))?.startedAt ?? null : null),
+      levels: (this.opts.log?.games() ?? []).slice(-LEVELS_KEPT).map(g => ({ number: g.number, size: g.size, startedAt: g.startedAt, endedAt: g.endedAt })),
       activityAt: this.activityAt,
     };
     return { ...base, ...activity, commentary: commentary({ ...base, ...activity }, now) };
@@ -732,7 +760,7 @@ export class Operator {
     return {
       game: this.game, open: this.open, decisions: this.decisions, pending: this.pending, completedAt: this.completedAt,
       bestLength: this.bestLength, recentTrades: this.recentTrades, tradersToday: this.tradersToday,
-      games: this.games, cell: this.cell,
+      games: this.games, cell: this.cell, attemptStartedAt: this.attemptStartedAt,
     };
   }
 
@@ -777,6 +805,7 @@ export class Operator {
     op.completedAt = raw.completedAt ?? null;
     op.bestLength = typeof raw.bestLength === 'number' ? Math.max(raw.bestLength, op.game.length) : op.game.length;
     op.cell = typeof raw.cell === 'string' ? raw.cell : null;
+    op.attemptStartedAt = typeof raw.attemptStartedAt === 'string' ? raw.attemptStartedAt : lastDeathMinute(op.decisions, op.game.deaths);
     op.log?.noteBest(op.game.gameNumber ?? 1, op.bestLength);
     op.recentTrades = Array.isArray(raw.recentTrades) ? raw.recentTrades : [];
     op.tradersToday = raw.tradersToday && Array.isArray(raw.tradersToday.handles) ? raw.tradersToday : { day: '', handles: [] };
