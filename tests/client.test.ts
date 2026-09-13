@@ -191,15 +191,15 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(c)).some(n => /trade|order/i.test(n))).toBe(false);
   });
 
-  it('sets the attempt\'s cell as the metric\'s only horizon, an absolute minute, carrying the credits the metric already has', async () => {
+  it('sets the attempt\'s cell as the metric\'s only horizon, an absolute minute, carrying the proposal credits the metric already has', async () => {
     const { reqs, fetchImpl } = fakeFetch(r => r.method === 'GET'
-      ? { json: { id: 'm1', timePreference: { enabled: false, customHorizons: ['2026-09-11T10:30'], horizonCredits: { '2026-09-11T10:30': { book: 1000, proposal: 1000 } } } } }
+      ? { json: { id: 'm1', timePreference: { enabled: false, customHorizons: ['2026-09-11T10:30'], horizonCredits: { '2026-09-11T10:30': { book: 1000, proposal: 1200 } } } } }
       : { json: { ok: true } });
     const c = new HttpTelarchyClient(opts, fetchImpl as any);
     await c.setHorizon('2026-09-11T11:00');
     const put = reqs.find(r => r.method === 'PUT')!;
     expect(put.url).toBe('https://telarchy.com/api/metrics/m1');
-    expect(put.body).toEqual({ timePreference: { enabled: false, customHorizons: ['2026-09-11T11:00'], horizonCredits: { '2026-09-11T11:00': { book: 1000, proposal: 1000 } } } });
+    expect(put.body).toEqual({ timePreference: { enabled: false, customHorizons: ['2026-09-11T11:00'], horizonCredits: { '2026-09-11T11:00': { book: 3000, proposal: 1200 } } } });
     const bare = new HttpTelarchyClient(opts, fakeFetch(r => r.method === 'GET' ? { json: { id: 'm1', timePreference: null } } : { json: { ok: true } }).fetchImpl as any);
     await bare.setHorizon('2026-09-11T11:00');
   });
@@ -224,7 +224,30 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
       const put = reqs.find(r => r.method === 'PUT')!;
       const entry = (put.body as any).timePreference.horizonCredits['2026-09-11T11:00'];
       expect(entry.proposal).toBe(1000);
-      expect(entry.book).toBe(25);
+      expect(entry.book).toBe(3000);
+    }
+  });
+
+  /**
+   * THE MAIN BOOK OPENS WITH 3,000 CREDITS, ALWAYS (docs/snake.md, "The
+   * workspace"; Viktor 2026-09-13: "main book should be at 3k liquidity
+   * always").
+   *
+   * Every option book opens at the main book's price. With 25 credits the
+   * main book paid about 25 credits to whoever corrected it, while each of
+   * the option books opening from its stale price held 1,000, so nobody
+   * corrected it and the options opened far below the snake's length.
+   */
+  it('the main book was 25 credits and nobody corrected its price (2026-09-13): every cell the operator sets gives it 3,000, whatever the metric carried', async () => {
+    for (const book of [25, 0, 1000, 5000, null, undefined]) {
+      const { reqs, fetchImpl } = fakeFetch(r => r.method === 'GET'
+        ? { json: { id: 'm1', timePreference: { enabled: false, customHorizons: ['2026-09-11T10:30'], horizonCredits: { '2026-09-11T10:30': { book, proposal: 1000 } } } } }
+        : { json: { ok: true } });
+      const c = new HttpTelarchyClient(opts, fetchImpl as any);
+      await c.setHorizon('2026-09-11T11:00');
+      const entry = (reqs.find(r => r.method === 'PUT')!.body as any).timePreference.horizonCredits['2026-09-11T11:00'];
+      expect(entry.book).toBe(3000);
+      expect(entry.proposal).toBe(1000);
     }
   });
 
