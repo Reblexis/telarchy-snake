@@ -119,7 +119,11 @@ end, so at most 61 steps' worth, 63,000 credits (sixty chosen books plus
 the open step's three), is ever out at once. The operator's float must
 stay above that or Telarchy refuses the proposal (`Insufficient balance
 for forecast subsidy`); what traders win off the chosen books is the only
-thing that draws it down. The workspace's decision window is one minute,
+thing that draws it down. The attempt's main book, the one book on the cell that is
+not an option (the price every option book opens from), opens with 3,000
+credits, always: the operator writes 3,000 for the book on every cell it
+sets, whatever the metric carried before, so a main book that sits below
+the snake's length is worth correcting. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
 The workspace is **muted**: `notificationsMuted` is on, so nothing it does

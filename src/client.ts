@@ -3,6 +3,9 @@
 import type { LeaderRow, MarketActivity, ProposalRef, TelarchyClient } from './operator.js';
 import { ACTIONS, emptyQuotes, type Action, type ProposalOption, type Quotes, type Horizon } from './decide.js';
 
+/** docs/snake.md, "The workspace": what the attempt's main book opens with on every cell. */
+export const MAIN_BOOK_CREDITS = 3000;
+
 export interface SessionAuth {
   /** A browser account (the platform admin on the beta, which is admin-gated
    *  and refuses agent keys). Sign-in lives on the production auth, so its
@@ -206,7 +209,10 @@ export class HttpTelarchyClient implements TelarchyClient {
        they are written. It had been left at 40 an option: once used, every
        book on the floor opened forty times too shallow and two credits moved
        a price from 2.00 to 6.58, with nothing reporting an error. */
-    const entry = { book: first?.book ?? 25, proposal: first?.proposal ?? 1000 };
+    /* The main book opens with 3,000 credits, always (docs/snake.md, "The
+       workspace"): every option book opens at its price, and at 25 credits
+       nobody was paid enough to correct it. */
+    const entry = { book: MAIN_BOOK_CREDITS, proposal: first?.proposal ?? 1000 };
     await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, {
       timePreference: { enabled: false, customHorizons: [cell], horizonCredits: { [cell]: entry } },
     });
