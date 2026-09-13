@@ -431,6 +431,15 @@ workspace endpoints, never from the operator's own books:
   when the trade was first seen, or null.
 - `leaderboard`: the top five `{ rank, handle, profit, trades }` of this
   workspace, or an empty list when Telarchy reports nobody.
+- `restingOrders`: the limit orders still resting on the open step's
+  books, newest first, at most ten, each `{ id, at, handle, action,
+  horizon, side, level, credits, marketId }` where `level` is the order's
+  limit in the metric's units and `credits` its budget. They are read with
+  the activity from Telarchy's public actions log (`GET
+  /api/data-room/actions?workspace=<slug>&kinds=order&limit=50`): an order
+  rests when its `placed` row is there and no later row closed it. A
+  failed read keeps the last list; a new step starts it empty. Adding the
+  field does not raise `schema`.
 - `activityAt`: when the activity was last read.
 
 `/replay` is public too and is the whole of the Replay tab's data:
@@ -520,22 +529,51 @@ logged. A frame that throws is skipped, not fatal. A stream that exits
 takes a restart delay and comes back into the same payload, so a held frame
 is the only behaviour that recovers on its own.
 
-The frame is the board's first screen and nothing more: the grid on the
-left, filling the frame's height, and in the right column, top to
-bottom, the next move with its clock, the three choice tiles, the status
-line, the quiet line (newest trade, else commentary), and in small muted
-type `Trade at telarchy.com/snake`. No traders, no trades list, no
-leaderboard, no decisions, no counters and no rule text are drawn. The
-same visual language as the board applies (accent for the leader and the
-next move, green snake with a marked head, red food, near-black ground),
-including the next-direction chevron on the grid: in the accent, in the
-cell ahead of the head in `next.direction`, faint while open and solid
-once decided, pressed against the head's edge when that cell is a wall.
+**The frame is Telarchy's floor in its dark theme**, so a viewer who opens
+the link lands on a page that looks like what they watched. The ground is
+`#101013`. The grid fills the frame's height on the left: the board's
+ground `#17171c` with a 1px `#2a2a32` border and hairline cells, the snake
+one green (`#4ade80`) band through the cell centres at 0.78 of a cell with
+round joins, the head a circle of the same green with two eyes in the
+board's ground on the side it moves towards, the food a red (`#f87171`)
+dot, and the next direction a chevron in the accent (`#f59e0b`) in the cell
+ahead of the head, at 0.7 opacity while the step is open and solid once
+decided, a bar along the wall when that cell is a wall. Nothing is drawn
+outside the board.
 
-Text is set in Inter, bundled in the repo under `fonts/` with its OFL
-licence and registered at render time; the frame never depends on a
-system font. Every line is readable at 720p: nothing is drawn smaller
-than the trade line.
+The right column (from x 736, 520 px wide) holds, top to bottom:
+
+1. the Telarchy lockup, small (18 px tall, its own aspect ratio, never
+   stretched);
+2. "Snake" in Fraunces 700 and the question "What length will I reach on
+   this attempt?" in Fraunces 500, muted;
+3. two cells between hairlines, each a small mono uppercase label over a
+   large mono number: `NOW · ATTEMPT N` over the length, and `NEXT MOVE ·
+   <action> <arrow>` over the countdown in the accent ("decided" in green
+   once the move is ruled);
+4. the three options as pills, each its label and its price to one
+   decimal; the leader outlined and lettered in green, the others in a
+   quiet outline. A price of 0 draws `0.0`, because it is a real price (a
+   move that ends the attempt); only an option with no price draws `-`;
+5. one panel that turns every 15 seconds between two pages, with two
+   small dots saying which page is on: **Log**, the newest activity first,
+   up to five rows, the limit orders resting on the open step's books
+   before the trades (`12s  vi0  bought higher on Continue at 30.0
+   259 cr`; an order row reads `limit higher on Continue at 0.05` and its
+   credits are in the accent), from `restingOrders` and `recentTrades` on
+   `/state`; and **Top traders**, the five rows of `leaderboard` (rank,
+   handle, profit in credits, green when positive). A page with nothing to
+   show gives its turn to the other;
+6. at the foot, the link alone: `telarchy.com/snake` in a bone (`#f2ecdc`)
+   pill button, Inter 600, the widest thing in the column. No other words
+   invite the viewer anywhere.
+
+A complete game draws "The snake filled the grid." and the next grid in
+place of the pills. Text is set in Inter, Fraunces and JetBrains Mono,
+bundled in the repo under `fonts/` with their OFL licences and registered
+at render time, and the logo is bundled under `assets/`; the frame never
+depends on a system font or a network read. Every line is readable at
+720p.
 
 ## Operation
 

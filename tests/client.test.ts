@@ -339,6 +339,28 @@ describe('the activity reads (docs/snake.md, "The feed")', () => {
     expect(rows).toEqual([{ rank: 1, handle: 'ada', profit: 12.5, trades: 9 }, { rank: 2, handle: 'b2', profit: -1, trades: 2 }]);
   });
 
+  it('readRestingLimits reads the public actions log for this workspace\'s orders and keeps only the ones still resting on the books asked about', async () => {
+    const placed = (id: string, at: string, handle: string, marketId: string, direction: string, level: number, budgetCredits: number) =>
+      ({ id: `order:${id}`, at, kind: 'order', actor: { id: handle, handle }, detail: { event: 'placed', marketId, direction, level, budgetCredits } });
+    const closed = (id: string, at: string, status: string, marketId: string) =>
+      ({ id: `order:${id}:${status}`, at, kind: 'order', actor: { id: 'x', handle: 'x' }, detail: { status, marketId } });
+    const { reqs, fetchImpl } = fakeFetch(() => ({ json: { rows: [
+      closed('o2', '2026-09-11T10:00:09Z', 'cancelled', 'm-right'),
+      placed('o1', '2026-09-11T10:00:08Z', 'ada', 'm-left', 'higher', 0.05, 2500),
+      placed('o3', '2026-09-11T10:00:07Z', 'bob', 'm-elsewhere', 'lower', 3, 10),
+      placed('o2', '2026-09-11T10:00:06Z', 'cy', 'm-right', 'lower', 12, 240),
+      closed('o4', '2026-09-11T10:00:05Z', 'filled', 'm-left'),
+      { id: 'order:o5', kind: 'order', detail: null },
+    ], next: null } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const rows = await c.readRestingLimits(['m-left', 'm-right']);
+    expect(reqs[0].url).toBe('https://telarchy.com/api/data-room/actions?workspace=snake&kinds=order&limit=50');
+    expect(reqs[0].headers['X-Agent-Key']).toBeUndefined();
+    expect(rows).toEqual([{ id: 'o1', at: '2026-09-11T10:00:08Z', handle: 'ada', marketId: 'm-left', side: 'higher', level: 0.05, credits: 2500 }]);
+    const failing = new HttpTelarchyClient(opts, fakeFetch(() => ({ status: 500, json: { error: 'x' } })).fetchImpl as any);
+    await expect(failing.readRestingLimits(['m-left'])).rejects.toThrow();
+  });
+
   it('the client still has no trade call', () => {
     const c = new HttpTelarchyClient(opts, (async () => new Response('{}')) as any);
     const names = Object.getOwnPropertyNames(Object.getPrototypeOf(c));
