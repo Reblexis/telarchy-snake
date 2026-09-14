@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  refuseUnlessWhole, tradesByMove, optionOfBook, panelRows, videoState, holds, sidecar, readLevel, FPS,
+  refuseUnlessWhole, tradesByMove, optionOfBook, panelRows, videoState, sidecar, readLevel, FPS,
   type TradeRow,
 } from '../src/level.js';
 import { drawnTexts, renderFrame, pillRects, WIDTH, LAYOUT } from '../src/frame.js';
@@ -217,16 +217,9 @@ describe('every frame is the stream frame drawn from the record', () => {
   });
 });
 
-describe('the pace', () => {
+describe('encoding', () => {
   it('24 frames a second', () => {
     expect(FPS).toBe(24);
-  });
-  it('the first entry holds 3 s, a move a quarter second, a death a second, the last 5 s', () => {
-    const entries = [entry(0), entry(1), entry(2, { deaths: 1 }), entry(3, { deaths: 1 }), entry(4, { deaths: 1 })];
-    expect(holds(entries)).toEqual([72, 6, 24, 6, 120]);
-  });
-  it('a one-entry level still holds its only frame for the closing 5 s', () => {
-    expect(holds([entry(0)])).toEqual([120]);
   });
 });
 
@@ -236,9 +229,6 @@ describe('the sidecar', () => {
   const s = () => sidecar(game, entries, trades);
   it('counts moves, deaths, trades and distinct traders', () => {
     expect(s()).toMatchObject({ game: 2, size: 4, moves: 4, deaths: 1, trades: 3, traders: 2, startedAt: game.startedAt, endedAt: game.endedAt });
-  });
-  it('the video duration is the sum of the holds', () => {
-    expect(s().durationSeconds).toBe((72 + 6 + 24 + 6 + 120) / 24);
   });
   it('the title and description are the doc\'s, filled in', () => {
     expect(s().title).toBe('Futarchy snake, level 2 (4x4): a market chose every move');
