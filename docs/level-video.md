@@ -156,9 +156,11 @@ frame) and eases back after it, and shakes only on a crash.
 
 ## Motion and type
 
-The snake glides between cells at normal and slow speed (the head and tail interpolated
-along the body), and above eight moves a second it jumps cell to cell with a short fading
-trail on the head. Entrances ease out, moves ease in and out, durations are 150, 300 or
+The snake glides between cells at normal and slow speed: at a fractional position
+`i + t` its head is drawn the fraction `t` of the way from entry `i`'s head to entry
+`i + 1`'s, its body follows entry `i`'s cells, and at a whole position it is exactly that
+entry. Above eight moves a second it jumps cell to cell with a short fading trail on the
+head. Entrances ease out, moves ease in and out, durations are 150, 300 or
 600 ms. Type is Inter at 600 to 800 weight with tabular figures; handles in JetBrains
 Mono. Counters are at least 48 px in the full cut and 96 px in the Short, and nothing in
 the Short is under 40 px. A caption never covers the snake's head; in the Short the hook's
@@ -167,11 +169,19 @@ is centred.
 
 ## Sound
 
-The music is the bed, about -18 LUFS. Small sounds (a trade's coin, an eat) sit 4 to 8 dB
-under it and play only at normal or slow speed; only a crash, a record and the fill rise
-above it, by at most 6 dB, with the music ducking 3 to 5 dB under them. Every sound has
-three or four variants with a small random pitch and level, never the same variant twice
-in a row. At speed there are no per-event sounds. The finished mix is -14 LUFS integrated.
+The music is the bed, about -18 LUFS. The sound plan lists every sound by frame, kind,
+variant and gain relative to the music:
+
+- a coin at the start of each chip inside a beat;
+- an eat, a crash and the fill wherever they happen at 8 moves a second or slower, and
+  none at all inside a faster run;
+- a record at the frame its card appears;
+- a coin or an eat sits 4 to 8 dB under the music; a crash, a record or the fill at most
+  6 dB above it, each with the music ducked 3 to 5 dB for the sound's length;
+- every kind has four variants with a small pitch and level offset, and a sound never
+  repeats the variant of the previous sound of its kind.
+
+The finished mix is -14 LUFS integrated.
 
 ## The script
 
