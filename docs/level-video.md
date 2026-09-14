@@ -192,6 +192,11 @@ strongest ten marked. A person reads the script to see what the video will dwell
 
 ## Encoding
 
+The music is decoded to mono at 44.1 kHz and normalized to -18 LUFS; the sounds are
+synthesized at their planned gains and mixed over it, and the mix is normalized to
+-14 LUFS, limited, and encoded as AAC at 160 kbit/s beside the video. Each cut's sidecar
+gives its duration as the timeline's frames over 30.
+
 After the audio is encoded, the pipeline measures the file's true peak. Above -1 dBTP
 it lowers the whole mix by the excess plus half a decibel and encodes the audio again,
 at most three times, so a finished file never clips on a phone whatever the music.

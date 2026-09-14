@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { productionFrames, encodeArgs } from '../src/produce.js';
+import { productionFrames, encodeArgs, muxArgs, musicDecodeArgs, cutSidecar } from '../src/produce.js';
 import { buildScene, drawFull, drawShort, FULL_SIZE, SHORT_SIZE } from '../src/draw.js';
 import { frameCountOf } from '../src/frames.js';
 import type { Segment } from '../src/timeline.js';
@@ -40,5 +40,47 @@ describe('the encoder', () => {
     expect(s).toContain('-r 30');
     expect(args[args.length - 1]).toBe('out.mp4');
     expect(encodeArgs('s.mp4', SHORT_SIZE).join(' ')).toContain('-s 1080x1920');
+  });
+});
+
+describe('the audio', () => {
+  it('decodes the music to mono 44.1 kHz floats normalized to -18 LUFS', () => {
+    const s = musicDecodeArgs('track.ogg').join(' ');
+    expect(s).toContain('-i track.ogg');
+    expect(s).toContain('loudnorm=I=-18');
+    expect(s).toContain('-ac 1');
+    expect(s).toContain('-ar 44100');
+    expect(s).toContain('-f f32le');
+  });
+  it('muxes the mix normalized to -14 LUFS and limited, copying the video', () => {
+    const args = muxArgs({ video: 'v.mp4', audio: 'a.wav', out: 'o.mp4' });
+    const s = args.join(' ');
+    expect(s).toContain('-i v.mp4 -i a.wav');
+    expect(s).toContain('loudnorm=I=-14');
+    expect(s).toContain('alimiter=limit=0.7');
+    expect(s).toContain('-c:v copy');
+    expect(s).toContain('-c:a aac -b:a 160k');
+    expect(s).not.toContain('volume=');
+    expect(args[args.length - 1]).toBe('o.mp4');
+  });
+  it('a peak correction lowers the mix after the limiter', () => {
+    const s = muxArgs({ video: 'v.mp4', audio: 'a.wav', out: 'o.mp4', gainDb: -1.25 }).join(' ');
+    expect(s).toMatch(/alimiter=[^ ]*,volume=-1\.25dB/);
+  });
+});
+
+describe('the sidecars', () => {
+  it('give the timeline\'s duration at 30 frames a second', () => {
+    const full = cutSidecar('full', game, entries, [], TL, null);
+    expect(full.durationSeconds).toBe(frameCountOf(TL) / 30);
+    expect(full.game).toBe(1);
+  });
+  it('the Short is titled as a Short and both carry the music credit', () => {
+    const short = cutSidecar('short', game, entries, [], TL, 'Music: X by Y (CC0)');
+    const full = cutSidecar('full', game, entries, [], TL, 'Music: X by Y (CC0)');
+    expect(short.title).toContain('#shorts');
+    expect(full.title).not.toContain('#shorts');
+    expect(short.description).toContain('Music: X by Y (CC0)');
+    expect(full.description).toContain('Music: X by Y (CC0)');
   });
 });
