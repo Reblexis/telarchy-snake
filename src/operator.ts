@@ -87,6 +87,9 @@ export interface OpenStep {
   proposal: ProposalRef;
   quotes: Quotes | null;
   decision: Decision | null;
+  /** The step's minute has run: its move was applied, or the snake waited.
+   *  A step that is done is never run again (docs/snake.md, "The step"). */
+  applied?: boolean;
 }
 
 export interface OperatorOptions {
@@ -117,7 +120,7 @@ export const RULES = {
   settlesEarlyOnDeath: true,
 };
 
-export const RULE = 'Every minute one proposal with three options, continue forward, turn left and turn right, each option priced by its own book on the attempt\'s cell: the length the attempt will have reached one hour after it started (or at the next hour mark while it lives); when the attempt ends (a death or a full grid) the books settle at the length it reached. At :58 the option with the highest price is chosen and the other two void with refund; ties and unreadable prices continue forward. The snake moves at :00.';
+export const RULE = 'Every minute one proposal with three options, continue forward, turn left and turn right, each option priced by its own book on the attempt\'s cell: the length the attempt will have reached one hour after it started (or at the next hour mark while it lives); when the attempt ends (a death or a full grid) the books settle at the length it reached. At :58 the option with the highest price is chosen and the other two void with refund; ties and unreadable prices continue forward; if Telarchy cannot be reached, the snake waits. The snake moves at :00.';
 
 /** One recorded move of a game, docs/snake.md "The feed" (`/replay`). */
 export interface ReplayMove {
@@ -161,6 +164,9 @@ export interface DecisionRecord {
    *  had no price and what was missing, or the error the approval returned.
    *  Null when the step was decided. */
   undecidedReason: string | null;
+  /** Telarchy could not be reached, so the snake waited this minute and the
+   *  move was posted again (docs/snake.md, "The step"). */
+  held?: boolean;
 }
 
 const DECIDE_SECOND = 58;
@@ -318,6 +324,14 @@ export class Operator {
     return 60 - now.getUTCSeconds() >= 10;
   }
 
+  /** A posted step whose minute has not run yet. The snake moves only on a
+   *  step it posted (docs/snake.md, "The step"): when the next post fails,
+   *  the open step is the one already applied, and it must not run again. */
+  hasStepToRun(): boolean {
+    const o = this.open;
+    return !!o && !o.applied && o.step > this.game.step;
+  }
+
   /** Second 0: post the one proposal, three options, for the next step. */
   async openStep(now: Date): Promise<OpenStep> {
     // A step whose ruling is in may be replaced (the feed keeps showing it
@@ -327,10 +341,13 @@ export class Operator {
     if (this.game.complete) throw new Error('the game is complete');
     if (!this.canOpen(now)) throw new Error('too close to the deadline to open a step');
     // One cell per attempt (docs/snake.md, "The workspace"): set when the
-    // attempt starts or its cell's minute has passed; a refusal leaves it
-    // unset so the next step tries again, and this step runs on whatever
-    // pair Telarchy gives it (the undecided path covers none).
-    if (!this.cell || Date.parse(`${this.cell}:00Z`) + 60_000 <= now.getTime()) {
+    // attempt starts or when this step would be decided on or after its
+    // cell's minute, because a book stops trading at its minute and the step
+    // opened AT that minute would find no book; a refusal leaves it unset so
+    // the next step tries again, and this step runs on whatever pair
+    // Telarchy gives it (the undecided path covers none).
+    const decidesAt = isoMinute(now).getTime() + DECIDE_SECOND * 1000;
+    if (!this.cell || Date.parse(`${this.cell}:00Z`) <= decidesAt) {
       const cell = minuteCells(now).m60;
       try {
         await this.client.setHorizon(cell);
@@ -411,13 +428,21 @@ export class Operator {
     // The last read, bounded: past its bound the decision falls on the
     // prices last polled during the minute (docs/snake.md, "The step").
     let quotes: Quotes;
+    // Nothing read all minute and no answer now: Telarchy is unreachable.
+    let unreachable = false;
     try {
       quotes = await within(this.client.readQuotes(open.proposal, open.cells.m60), this.opts.decideReadTimeoutMs ?? DECIDE_READ_TIMEOUT_MS);
     } catch (e) {
       quotes = open.quotes ?? emptyQuotes();
-      if (!open.quotes) for (const a of ACTIONS) quotes[a].m60.reason = (e as Error).message;
+      if (!open.quotes) {
+        unreachable = true;
+        for (const a of ACTIONS) quotes[a].m60.reason = (e as Error).message;
+      }
     }
     let decision = decide(quotes, this.game.heading);
+    // The market did not decide, and neither does the operator: the snake
+    // waits rather than walking forward blind (docs/snake.md, "The step").
+    if (unreachable) decision = { approved: null, direction: this.game.heading, undecided: true, hold: true };
     let undecidedReason: string | null = decision.undecided ? noPriceReason(quotes) : null;
     // Choose: approve naming the option; Telarchy voids and refunds the
     // other two. If that fails the step is undecided and the snake keeps its
@@ -428,7 +453,7 @@ export class Operator {
         await this.client.approveOption(open.proposal, decision.approved);
       } catch (e) {
         undecidedReason = `approve of ${decision.approved} failed: ${(e as Error).message}`;
-        decision = { approved: null, direction: this.game.heading, undecided: true };
+        decision = { approved: null, direction: this.game.heading, undecided: true, hold: true };
       }
     }
     if (decision.undecided) {
@@ -451,6 +476,7 @@ export class Operator {
       lengthAfter: null,
       deathsBefore: this.game.deaths,
       undecidedReason,
+      held: decision.hold === true,
     });
     return decision;
   }
@@ -493,6 +519,25 @@ export class Operator {
       return;
     }
     if (this.open && !this.open.decision) await this.closeStep(now);
+    // The snake moves only on a step it posted (docs/snake.md, "The step").
+    // With nothing to run (the last post failed, so the open step is one
+    // already applied) this minute opens a step and moves nothing.
+    if (!this.hasStepToRun()) {
+      await this.openStep(now);
+      return;
+    }
+    const ran = this.open!;
+    ran.applied = true;
+    if (ran.decision?.hold) {
+      // Telarchy could not be reached: the snake waits, the reading is still
+      // posted, and the next step asks the same move again.
+      const held = this.decisions[this.decisions.length - 1];
+      if (held && held.step === ran.step && held.lengthAfter === null) held.lengthAfter = this.game.length;
+      this.pending = null;
+      await this.postMinuteReading(now);
+      await this.openStep(now);
+      return;
+    }
     const dir = this.pending ?? this.game.heading;
     const before = this.game;
     this.game = applyStep(before, dir, this.rng);
@@ -528,13 +573,18 @@ export class Operator {
     // The reading is the snake's length (docs/snake.md, "What must hold"),
     // stamped at the minute it was taken; the last one before midnight is
     // marked final so the day's books settle on it.
-    const next = new Date(now.getTime() + 60_000);
-    const final = utcDay(next) !== utcDay(now) || this.game.complete;
-    await this.client.postReading(this.game.length, now, final);
+    await this.postMinuteReading(now);
     // The cooldown begins: there is no step to show for an hour, so the feed
     // says idle rather than holding the finished game's last one.
     if (this.game.complete) { this.completedAt = now.toISOString(); this.open = null; return; }
     await this.openStep(now);
+  }
+
+  /** The minute's reading: the snake's length, final when it is the last before midnight UTC. */
+  private async postMinuteReading(now: Date): Promise<void> {
+    const next = new Date(now.getTime() + 60_000);
+    const final = utcDay(next) !== utcDay(now) || this.game.complete;
+    await this.client.postReading(this.game.length, now, final);
   }
 
   /** The books of the open step, by market id: which option and horizon each is. */

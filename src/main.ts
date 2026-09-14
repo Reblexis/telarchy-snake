@@ -72,7 +72,7 @@ async function loop() {
   try {
     const action = nextAction({
       complete: op.game.complete,
-      hasOpen: !!op.open,
+      hasOpen: op.hasStepToRun(),
       decided: !!op.open?.decision,
       canOpen: op.canOpen(now),
       sec,
@@ -108,7 +108,7 @@ async function loop() {
       save(op);
       const d = op.decisions[op.decisions.length - 1];
       if (d) {
-        console.log(`step ${d.step} ${d.direction}${d.undecided ? ` (undecided: ${d.undecidedReason})` : ''} length ${d.lengthBefore} -> ${d.lengthAfter}`);
+        console.log(`step ${d.step} ${d.held ? 'held' : d.direction}${d.undecided ? ` (undecided: ${d.undecidedReason})` : ''} length ${d.lengthBefore} -> ${d.lengthAfter}`);
       }
     } else if (action === 'activity') {
       lastActivity = now.getTime();
