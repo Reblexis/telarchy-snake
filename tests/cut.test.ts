@@ -166,6 +166,18 @@ describe('a long level: five minutes at most, the boring parts fast', () => {
     expect(total(kept)).toBeLessThanOrEqual((FULL_MAX_FRAMES * 3) / 5);
   });
 
+  it('when the boring moves do not fit at x3, the cut plays them faster, never past five minutes', () => {
+    // a winning attempt with 6,000 plain moves: at x3 that alone is 12,000 frames
+    const lv = level('md'.repeat(10) + 'me'.repeat(30) + 'm'.repeat(6000) + 'eeee');
+    const tc = lv.map((_, i) => (i % 50 === 0 ? 2 : 0));
+    const cr = tc.map(n => n * 40);
+    const plan = fullCutPlan(lv, 6, tc, cr);
+    expect(total(plan)).toBeLessThanOrEqual(FULL_MAX_FRAMES);
+    const speed = Number(String(plan.find(s => s.badge)?.badge ?? 'x0').slice(1));
+    expect(speed).toBeGreaterThan(3);
+    expect(total(planAtSpeed(lv, 6, tc, cr, SPEEDS[SPEEDS.indexOf(speed as 3) - 1]))).toBeGreaterThan(FULL_MAX_FRAMES);
+  });
+
   it('a run at x12 shows every second boring move for one frame', () => {
     const { lv, tc, cr, size } = longLevel();
     const plan = planAtSpeed(lv, size, tc, cr, 12);
