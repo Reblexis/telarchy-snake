@@ -307,7 +307,7 @@ function draw(s: any, now: number, texts: string[]): Canvas {
   const next = s.next ?? null;
   const nextDir = next && dirs.includes(next.direction) ? next.direction : g.heading;
   // A level video's last frame has no next move, so it draws no chevron (docs/snake.md, "The level videos").
-  const noNext = s.video && !next;
+  const noNext = s.video && (!next || s.video.hideChevron === true);
   drawBoard(ctx, g, N, !noNext && dirs.includes(nextDir) ? { direction: nextDir, decided: next?.decided === true } : null);
 
   // 1. the lockup, small and at its own aspect ratio
