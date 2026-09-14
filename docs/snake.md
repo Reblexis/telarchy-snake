@@ -111,6 +111,13 @@ proposal gets its three option books. If setting the cell fails the step
 still runs (the undecided path covers a missing book) and the next step
 tries again.
 
+**The floor is closed to outside proposals.** The workspace setting
+`externalProposalsDisabled` is true (set 2026-09-14): only the operator,
+which holds manage on its floor, posts proposals, and anyone else's
+`POST /api/proposals` is refused with 403 `external_proposals_disabled`.
+Trading is open to everyone as before. The floor draws no propose
+control for a visitor.
+
 Liquidity: every option book a proposal opens is funded by the workspace
 owner through the metric's proposal credits on the 60-move horizon (1,000
 credits an option, so a five-credit trade is an opinion and a
