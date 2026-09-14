@@ -755,7 +755,9 @@ started at least a fifth of a second earlier.
 sets a new record (reaches a length above every earlier attempt of the level)
 or fills the grid plays at four moves a second with its bet beats; every
 other attempt plays at twelve moves a second with a `x3` badge on the board,
-its crashes kept short. Its facts, frame and panel are as above.
+its crashes kept short and without the board's red flash, so a run of quick
+deaths never strobes; the burst, the buzz and the counter still mark each one.
+Its facts, frame and panel are as above.
 
 **The Short** is vertical, built for a phone, and tells one story in this
 order:

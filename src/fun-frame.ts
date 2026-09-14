@@ -254,7 +254,8 @@ function feel(ctx: SKRSContext2D, box: Box, s: any, shot: Shot, k: number, write
   const N = gridOf(s);
   const head = s.game?.snake?.[0];
   if (shot.fx === 'death') {
-    const alpha = 0.4 * Math.max(0, 1 - k / 10);
+    // a sped-up stretch never strobes: its crashes skip the board's flash
+    const alpha = shot.badge ? 0 : 0.4 * Math.max(0, 1 - k / 10);
     if (alpha > 0) {
       ctx.fillStyle = `rgba(248,113,113,${alpha})`;
       ctx.fillRect(box.x, box.y, box.px, box.px);

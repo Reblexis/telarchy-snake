@@ -303,6 +303,17 @@ describe('a viewer sees that a market is playing: the full cut frame', () => {
     expect(spot(hit)[1]).toBeLessThan(140);
     expect(spot(calm)[0]).toBeLessThan(80);
   });
+  it('a crash in a sped-up stretch never strobes: no board flash, the burst and the counter still there', () => {
+    const { state, now } = videoState(ctx(), 1);
+    const fast = renderFunFrame(state, now, shotFor(1, 'death', { badge: 'x3', frames: 8 }), 0);
+    const calm = renderFunFrame(state, now, shotFor(1, null, { badge: 'x3' }), 0);
+    const redness = (buf: Buffer) => { const k = (400 * WIDTH + 400) * 3; return buf[k] - buf[k + 1]; };
+    expect(redness(fast)).toBeLessThanOrEqual(redness(calm) + 5);
+    const spot = (buf: Buffer) => { const k = (108 * WIDTH + 444) * 3; return [buf[k], buf[k + 1]]; };
+    expect(spot(renderFunFrame(state, now, shotFor(1, 'death', { badge: 'x3', frames: 8 }), 4))[0]).toBeGreaterThan(180);
+    expect(funTexts(state, now, shotFor(1, 'death', { badge: 'x3', frames: 8 }), 0)).toContain('DEATHS 1');
+  });
+
   it('an eat raises a +1', () => {
     const { state, now } = videoState(ctx(), 1);
     expect(funTexts(state, now, shotFor(1, 'eat'), 2)).toContain('+1');
