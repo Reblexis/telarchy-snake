@@ -702,12 +702,13 @@ the full cut the question line reads `Traders bet on every move. The highest
 price wins.`, and the Short opens on it. And the market is on the board,
 where the eye is: while a move is being decided, each cell the snake could
 move into carries a **tag** with that option's price as recorded at the
-decision, so the three choices and their prices sit in front of the snake's
-head (a cell past the wall puts its tag against the wall, inside the board).
+decision, so the choices and their prices sit in front of the snake's head.
+An option that runs into the wall has no tag, since there is no cell to put it
+on; the pills still list it with its price.
 The chosen option's tag is green, the others quiet. An option with no
-recorded price has no tag. **Tags never collide**: two tags that would overlap
-(at a wall or a corner, where more than one option runs into it) are spread
-apart along the wall, and every tag stays inside the board. The tags replace the
+recorded price has no tag. **Tags never collide and never cover the head**:
+tags that would overlap are moved apart, no tag covers the centre of the head's
+cell, and every tag stays inside the board. The tags replace the
 next-move chevron, which the fun cuts do not draw.
 
 **Trades land before the snake moves.** A move with trades, shown at normal
@@ -739,7 +740,8 @@ looped to the cut's length when shorter, faded in over the first second and
 out over the last two, and mixed well under the effects: the effects are the
 loudest thing in the video, and the music plays at a quarter of its level. The
 finished mix is normalized to YouTube's loudness, -14 LUFS integrated with the
-true peak at -1.5 dBTP, so every video plays at the same level whatever the
+true peak at -1.5 dBTP, with a limiter after it so the peak still holds once
+the audio is encoded, so every video plays at the same level whatever the
 track. Without `--music` the cuts carry the sound effects alone and the
 command says so. `--credit "<line>"` gives the track's credit, and each
 sidecar's description then ends with that line; a track whose license asks

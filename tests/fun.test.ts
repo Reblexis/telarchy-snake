@@ -233,7 +233,10 @@ describe('the music', () => {
   it('the mix is normalized to YouTube\'s loudness, with or without music', () => {
     for (const music of ['song.mp3', null]) {
       const args = mixArgs({ video: 'v.mp4', sfx: 'fx.wav', music, out: 'o.mp4', seconds: 90 });
-      expect(args[args.indexOf('-filter_complex') + 1]).toContain('loudnorm=I=-14:TP=-1.5');
+      const filter = args[args.indexOf('-filter_complex') + 1];
+      expect(filter).toContain('loudnorm=I=-14:TP=-1.5');
+      // a limiter after the normalization holds the peak through encoding
+      expect(filter.indexOf('alimiter=')).toBeGreaterThan(filter.indexOf('loudnorm='));
     }
   });
   it('without music the cut carries the effects alone', () => {
@@ -421,8 +424,20 @@ describe('the market marks look good: nothing collides, nothing leaves the board
     for (const [box, z] of [[MAIN_BOX, SIZES.full], [SHORT_BOX, SIZES.short]] as const) {
       for (const s of everyPosition()) {
         const rects = tagRects(s, box, z);
-        expect(rects).toHaveLength(3);
-        for (const r of rects) expect(inside(r, box), JSON.stringify({ head: s.game.snake[0], heading: s.game.heading, r })).toBe(true);
+        const head = s.game.snake[0];
+        const N = s.grid;
+        const dirs = directionsFrom(s.game.heading);
+        const d: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+        const enterable = ACTIONS.filter(a => { const [dx, dy] = d[dirs[a]]; const nx = head.x + dx, ny = head.y + dy; return nx >= 0 && ny >= 0 && nx < N && ny < N; });
+        // an option that runs into the wall has no tag
+        expect(rects.map(r => r.action).sort(), JSON.stringify({ head, heading: s.game.heading, N })).toEqual([...enterable].sort());
+        const cell = Math.floor(box.px / N);
+        const hx = box.x + head.x * cell + cell / 2, hy = box.y + head.y * cell + cell / 2;
+        for (const r of rects) {
+          expect(inside(r, box), JSON.stringify({ head, heading: s.game.heading, r })).toBe(true);
+          // no tag covers the centre of the head's cell
+          expect(hx > r.x && hx < r.x + r.w && hy > r.y && hy < r.y + r.h, JSON.stringify({ head, heading: s.game.heading, N, r })).toBe(false);
+        }
         for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
           expect(overlap(rects[i], rects[j]), JSON.stringify({ head: s.game.snake[0], heading: s.game.heading })).toBe(false);
         }
