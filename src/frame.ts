@@ -264,8 +264,12 @@ export function drawBoard(ctx: SKRSContext2D, g: any, N: number, next: { directi
 }
 
 /** Draws the frame; every string it sets is pushed onto `texts` in order. */
+/** One canvas for every frame: a fresh native canvas per frame piles up memory the
+ *  garbage collector never sees, and a level video render was killed for it
+ *  (2026-09-14). Every draw paints the whole frame, so nothing carries over. */
+let frameCanvas: Canvas | null = null;
 function draw(s: any, now: number, texts: string[]): Canvas {
-  const canvas = createCanvas(WIDTH, HEIGHT);
+  const canvas = (frameCanvas ??= createCanvas(WIDTH, HEIGHT));
   const ctx = canvas.getContext('2d');
   const text = (str: string, x: number, y: number, size: number, colour: string, weight: number, face: Face, align: 'left' | 'right' | 'center' = 'left', spacing = '0px') => {
     if (!str) return;
