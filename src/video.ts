@@ -41,6 +41,7 @@ try {
 
 const { game, games, entries, trades } = level;
 const ctx: LevelContext = { game, games, entries, byMove: tradesByMove(entries, trades) };
+const tradeCounts = ctx.byMove.map(list => list.length);
 const states = new Map<number, { state: any; now: number }>();
 const stateOf = (i: number) => {
   let s = states.get(i);
@@ -102,8 +103,8 @@ async function cut(name: string, w: number, h: number, plan: Shot[], draw: Draw,
 
 mkdirSync('videos', { recursive: true });
 try {
-  await cut(`snake-level-${n}`, WIDTH, HEIGHT, fullCutPlan(entries, game.size), renderFunFrame, fullSidecar(game, entries, trades, credit));
-  await cut(`snake-level-${n}-short`, SHORT_W, SHORT_H, shortPlan(entries, game.size), renderShortFrame, shortSidecar(game, entries, trades, credit));
+  await cut(`snake-level-${n}`, WIDTH, HEIGHT, fullCutPlan(entries, game.size, tradeCounts), renderFunFrame, fullSidecar(game, entries, trades, credit));
+  await cut(`snake-level-${n}-short`, SHORT_W, SHORT_H, shortPlan(entries, game.size, tradeCounts), renderShortFrame, shortSidecar(game, entries, trades, credit));
 } catch (e) {
   console.error(`render failed: ${(e as Error).message}`);
   process.exit(1);

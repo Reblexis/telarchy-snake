@@ -693,26 +693,49 @@ Watch it live: https://www.twitch.tv/telarchy
 A level video is made to be watched for fun, with music, in two cuts from
 the same record: the **full cut** (1280 by 720, the frame above) and the
 **Short** (1080 by 1920, at most 59 seconds). `npm run video -- <game>
-[--music <audio file>]` writes both, `videos/snake-level-<game>.mp4` and
-`videos/snake-level-<game>-short.mp4`, each with its sidecar.
+[--music <audio file>] [--credit "<line>"]` writes both,
+`videos/snake-level-<game>.mp4` and `videos/snake-level-<game>-short.mp4`,
+each with its sidecar.
 
-**What happens in the game is felt, not only shown.** On a move that eats,
-the head pops and a `+1` rises from the eaten cell, with a short rising
-blip. On a death the board flashes red and shakes, a low buzz plays, and a
-death counter on the frame counts up. When the grid fills, confetti bursts
-over the board, `FILLED` is drawn large, and a fanfare plays. The sound
-effects are synthesized by the renderer, so the video owns every sound in it
-except the music.
+**A viewer sees that a market is playing.** The frame says it in words: in
+the full cut the question line reads `Traders bet on every move. The highest
+price wins.`, and the Short opens on it. And the market is on the board,
+where the eye is: while a move is being decided, each cell the snake could
+move into carries a **tag** with that option's price as recorded at the
+decision, so the three choices and their prices sit in front of the snake's
+head (a cell past the wall puts its tag against the wall, inside the board).
+The chosen option's tag is green, the others quiet. An option with no
+recorded price has no tag.
+
+**Trades land before the snake moves.** A move with trades, shown at normal
+pace, first plays its **bet beat** on the position before the move: its
+trades in the order they were made, at most three, each popping a chip on its
+option's tag (`+<credits> cr` over the trader's handle) with a coin sound
+while the tag's price counts from the trade's call before to its call after.
+A trade whose option is not named pops its chip at the panel instead. More
+than three trades add `+N more` after the third. Each shown trade takes a
+third of a second, then the chosen tag flashes for a quarter second and the
+snake moves. Sped-up stretches play no beat; their tags stand still.
+
+**A death is seen as a crash.** A move that kills the snake is drawn from the
+position before it: the head lunges toward the wall or the body it hits, a
+red burst marks the spot, the board flashes red and shakes, a low buzz plays,
+and the death counter counts it. The respawn follows. On a move that eats,
+the head pops and a `+1` rises from the eaten cell, with a short rising blip.
+When the grid fills, confetti bursts over the board, `FILLED` is drawn large,
+and a fanfare plays. The sound effects are synthesized by the renderer, so
+the video owns every sound in it except the music.
 
 **The music** is the file given with `--music`: a royalty-free track whose
 license allows it in YouTube videos without a Content ID claim (the
 `level-video` skill picks it and keeps its license beside the video). It is
 looped to the cut's length when shorter, faded in over the first second and
-out over the last two, and mixed under the sound effects so a blip is always
-heard. The finished mix is normalized to YouTube's loudness, -14 LUFS
-integrated with the true peak at -1.5 dBTP, so every video plays at the same
-level whatever the track. Without `--music` the cuts carry the sound effects
-alone and the command says so. `--credit "<line>"` gives the track's credit, and each
+out over the last two, and mixed well under the effects: the effects are the
+loudest thing in the video, and the music plays at a quarter of its level. The
+finished mix is normalized to YouTube's loudness, -14 LUFS integrated with the
+true peak at -1.5 dBTP, so every video plays at the same level whatever the
+track. Without `--music` the cuts carry the sound effects alone and the
+command says so. `--credit "<line>"` gives the track's credit, and each
 sidecar's description then ends with that line; a track whose license asks
 for attribution is never used without it.
 
@@ -722,25 +745,28 @@ started at least a fifth of a second earlier.
 
 **The full cut keeps the story and skips the waiting.** An attempt that
 sets a new record (reaches a length above every earlier attempt of the level)
-or fills the grid plays at four moves a second; every other attempt plays at
-twelve moves a second with a `x3` badge on the board. Its facts, frame and
-panel are as above.
+or fills the grid plays at four moves a second with its bet beats; every
+other attempt plays at twelve moves a second with a `x3` badge on the board,
+its crashes kept short. Its facts, frame and panel are as above.
 
-**The Short** is vertical and built for a phone, in this order:
+**The Short** is vertical, built for a phone, and tells one story in this
+order:
 
-1. a hook, two seconds: `A market played snake.` over the empty board;
-2. the failures: the last move of every attempt before the filling one, in
-   order, a quarter second each at most, with the death counter running,
-   squeezed to fit;
-3. the filling attempt, from its first move to the fill, at the pace that
-   fits the time left (at least four moves a second);
-4. the fill: confetti and `FILLED`, then an end card with `telarchy.com/snake`,
-   three seconds each.
+1. the hook, three seconds: `A market picks every move.` over the board,
+   and under it `Traders bet. The highest price wins.`;
+2. the struggle: the crashes that ended the record attempts before the
+   winning one, the latest four at most, a second each, the death counter
+   showing the real count as it jumps;
+3. the winning attempt, from its first move to the fill: bet beats on its
+   moves with the most trades, as many as the time allows, and every move at
+   the pace that fits (never slower than four moves a second);
+4. the fill, three seconds of confetti and `FILLED`, then the end card,
+   three seconds: `Bet on the next move` and `telarchy.com/snake`.
 
-The Short's frame is the board full width at the top, then in large type
-the length, the death counter and the next move's options with their
-prices, the chosen one outlined, and the newest trade of the move; nothing
-smaller than 40 px is set. Its sidecar title is
+The Short's frame is the board full width at the top, with its tags, chips
+and effects; under it in large type the length and the death counter, the
+three options with their prices (the chosen one outlined) and the move's
+newest trade; nothing smaller than 40 px is set. Its sidecar title is
 `A prediction market played snake (level <game>) #shorts`, and its
 description is the full cut's.
 

@@ -315,7 +315,8 @@ function draw(s: any, now: number, texts: string[]): Canvas {
 
   // 2. the name and the question
   text('Snake', X, 108, 44, FG, 700, 'serif');
-  text('What length will I reach on this attempt?', X, 140, 22, FG2, 500, 'serif');
+  // a level video says what is playing (docs/snake.md, "The fun cuts")
+  text(s.video ? 'Traders bet on every move. The highest price wins.' : 'What length will I reach on this attempt?', X, 140, s.video ? 20 : 22, FG2, 500, 'serif');
 
   // 3. three cells between hairlines: length, this attempt's time, the next move
   const third = W / 3;
