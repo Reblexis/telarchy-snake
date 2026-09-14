@@ -77,7 +77,8 @@ function age(fromIso: string, toIso: string): string {
 
 /** The panel of one move: its trades newest first, at most five, aged from
  *  the entry that ended the move (`next`). */
-export function panelRows(trades: TradeRow[], next: LogStep): PanelRow[] {
+/** Each book's option among a move's trades, named only when unambiguous. */
+function optionsByBook(trades: TradeRow[], next: LogStep): Map<string, Action | null> {
   const books = new Map<string, TradeRow[]>();
   for (const t of trades) {
     const id = String(t.detail?.marketId ?? '');
@@ -85,6 +86,25 @@ export function panelRows(trades: TradeRow[], next: LogStep): PanelRow[] {
   }
   const option = new Map<string, Action | null>();
   for (const [id, list] of books) option.set(id, id ? optionOfBook(list, next.prices) : null);
+  return option;
+}
+
+/** A move's trades for its bet beat (docs/snake.md, "The fun cuts"), oldest first. */
+export interface BetRow { handle: string; option: Action | null; credits: number; from: number; to: number }
+
+export function betRows(trades: TradeRow[], next: LogStep): BetRow[] {
+  const option = optionsByBook(trades, next);
+  return [...trades].sort((a, b) => newestFirst(b, a)).map(t => ({
+    handle: t.actor?.handle ?? '?',
+    option: option.get(String(t.detail?.marketId ?? '')) ?? null,
+    credits: Math.abs(Number(t.detail?.cost) || 0),
+    from: Number(t.detail?.callBefore),
+    to: Number(t.detail?.callAfter),
+  }));
+}
+
+export function panelRows(trades: TradeRow[], next: LogStep): PanelRow[] {
+  const option = optionsByBook(trades, next);
   return [...trades].sort(newestFirst).slice(0, 5).map(t => {
     const opt = option.get(String(t.detail?.marketId ?? '')) ?? null;
     const call = Number(t.detail?.callAfter);
@@ -130,6 +150,7 @@ export function videoState(ctx: LevelContext, i: number): { state: any; now: num
       chosen: next && !next.undecided ? next.action : null,
       undecided: next?.undecided === true,
       rows: next ? panelRows(byMove[i] ?? [], next) : [],
+      bets: next ? betRows(byMove[i] ?? [], next) : [],
       facts: last ? factsLine(ctx) : null,
     },
   };

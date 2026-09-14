@@ -13,8 +13,8 @@ import type { GameEntry, LogStep } from '../src/gamelog.js';
 const T0 = Date.parse('2026-09-11T20:00:00Z');
 const at = (min: number, sec = 0) => new Date(T0 + min * 60_000 + sec * 1000).toISOString();
 
-/** A level from a move string: m moves, e eats, d dies. Size 2, so length 4 fills. */
-function level(moves: string, size = 2): LogStep[] {
+/** A level from a move string: m moves, e eats, d dies. */
+function level(moves: string): LogStep[] {
   const out: LogStep[] = [];
   let length = 2, deaths = 0;
   const push = (i: number, action: LogStep['action']) => out.push({
@@ -27,18 +27,21 @@ function level(moves: string, size = 2): LogStep[] {
     if (c === 'd') { deaths++; length = 2; }
     push(k + 1, 'forward');
   });
-  void size;
   return out;
 }
 
-// a0 dies at 2 (record), a1 eats to 3 and dies (record), a2 dies at 2 (not a record), a3 fills
+// Size 2, so length 4 fills. a0 dies at 2 (record), a1 eats to 3 and dies (record),
+// a2 dies at 2 (not a record, sped up), a3 fills.
 const L = level('md' + 'emd' + 'md' + 'mee');
 const SIZE = 2;
+/** Trades per move: the move from entry i to entry i + 1. */
+const TC = [2, 1, 0, 0, 0, 4, 0, 0, 5, 0];
+
+const kind = (s: Shot) => (s.card ? s.card : (s.bet ?? 0) > 0 ? 'bet' : s.fx === 'death' ? 'crash' : s.fx === 'fill' ? 'fill' : 'move');
 
 describe('attempts', () => {
   it('splits the level at every death, with the length each attempt reached', () => {
-    const a = attempts(L, SIZE);
-    expect(a.map(x => [x.start, x.end, x.reached])).toEqual([[0, 2, 2], [2, 5, 3], [5, 7, 2], [7, 10, 4]]);
+    expect(attempts(L, SIZE).map(x => [x.start, x.end, x.reached])).toEqual([[0, 2, 2], [2, 5, 3], [5, 7, 2], [7, 10, 4]]);
   });
   it('an attempt is a record when it reaches above every earlier attempt; the last one fills', () => {
     const a = attempts(L, SIZE);
@@ -48,103 +51,143 @@ describe('attempts', () => {
 });
 
 describe('the full cut keeps the story and skips the waiting', () => {
-  const full = () => fullCutPlan(L, SIZE);
-  const of = (entry: number) => full().filter(s => s.entry === entry);
-  it('one shot per entry, in order', () => {
-    expect(full().map(s => s.entry)).toEqual(L.map((_, i) => i));
+  const full = () => fullCutPlan(L, SIZE, TC);
+
+  it('trades land before the snake moves, and a death is drawn from the position before it', () => {
+    expect(full().map(s => [s.entry, kind(s)])).toEqual([
+      [0, 'move'],
+      [0, 'bet'], [1, 'move'],
+      [1, 'bet'], [1, 'crash'], [2, 'move'],
+      [3, 'move'], [4, 'move'],
+      [4, 'crash'], [5, 'move'],
+      [6, 'move'],
+      [6, 'crash'], [7, 'move'],
+      [8, 'move'],
+      [8, 'bet'], [9, 'move'],
+      [10, 'fill'],
+    ]);
   });
+
+  it('a bet beat shows at most three trades, a third of a second each, then a quarter second for the pick', () => {
+    const bets = full().filter(s => kind(s) === 'bet');
+    expect(bets.map(s => [s.bet, s.more ?? 0, s.frames])).toEqual([[2, 0, 22], [1, 0, 14], [3, 2, 30]]);
+  });
+
+  it('sped-up stretches play no beat, even on a move with trades', () => {
+    expect(full().some(s => kind(s) === 'bet' && s.entry === 5)).toBe(false);
+  });
+
   it('record and filling attempts play at four moves a second, the others at twelve with an x3 badge', () => {
-    expect(of(1)[0]).toMatchObject({ frames: 6, badge: null });
-    expect(of(4)[0]).toMatchObject({ frames: 6, badge: null });
-    expect(of(6)[0]).toMatchObject({ frames: 2, badge: 'x3' });
-    expect(of(8)[0]).toMatchObject({ frames: 6, badge: null });
+    const moves = full().filter(s => kind(s) === 'move' && s.entry > 0);
+    const of = (e: number) => moves.find(s => s.entry === e)!;
+    expect(of(1)).toMatchObject({ frames: 6, badge: null });
+    expect(of(4)).toMatchObject({ frames: 6, badge: null });
+    expect(of(6)).toMatchObject({ frames: 2, badge: 'x3' });
+    expect(of(8)).toMatchObject({ frames: 6, badge: null });
   });
-  it('a record attempt is never faster than a non-record one', () => {
-    const plan = full();
-    const slow = plan.filter(s => s.badge === null && s.fx === null && s.entry > 0).map(s => s.frames);
-    const fast = plan.filter(s => s.badge === 'x3' && s.fx === null).map(s => s.frames);
-    expect(Math.min(...slow)).toBeGreaterThan(Math.max(...fast));
+
+  it('a crash holds a second in a record attempt and a third of a second when sped up', () => {
+    const crashes = full().filter(s => kind(s) === 'crash');
+    expect(crashes.map(s => s.frames)).toEqual([24, 24, 8]);
   });
-  it('an eat, a death and the fill are marked on the entry they happen on', () => {
-    expect(full().map(s => s.fx)).toEqual([null, null, 'death', 'eat', null, 'death', null, 'death', null, 'eat', 'fill']);
+
+  it('an eat is marked on the entry it happens on, the fill holds five seconds', () => {
+    expect(full().filter(s => s.fx === 'eat').map(s => s.entry)).toEqual([3, 9]);
+    expect(full().at(-1)).toMatchObject({ entry: 10, fx: 'fill', frames: 5 * FPS });
   });
-  it('a death holds long enough to be seen, the fill holds five seconds', () => {
-    expect(of(2)[0].frames).toBeGreaterThanOrEqual(12);
-    expect(of(7)[0].frames).toBeGreaterThanOrEqual(6);
-    expect(of(10)[0].frames).toBe(5 * FPS);
+
+  it('without trade counts there are no beats', () => {
+    expect(fullCutPlan(L, SIZE).some(s => kind(s) === 'bet')).toBe(false);
   });
 });
 
-describe('the Short: hook, failures, the filling attempt, the fill, the end card, at most 59 seconds', () => {
-  it('runs in that order for a small level', () => {
-    const plan = shortPlan(L, SIZE);
-    expect(plan[0]).toMatchObject({ entry: 0, card: 'hook', caption: 'A market played snake.' });
-    expect(plan[0].frames).toBe(2 * FPS);
-    const failures = plan.filter(s => s.card === null && s.fx === 'death');
-    expect(failures.map(s => s.entry)).toEqual([2, 5, 7]);
-    expect(failures.every(s => s.frames <= 6 && s.frames >= 1)).toBe(true);
-    const filling = plan.filter(s => s.card === null && s.entry >= 8 && s.fx !== 'fill');
-    expect(filling.map(s => s.entry)).toEqual([8, 9]);
-    expect(filling.every(s => s.frames <= 6)).toBe(true);
-    expect(plan.at(-2)).toMatchObject({ entry: 10, fx: 'fill', frames: 3 * FPS, card: null });
-    expect(plan.at(-1)).toMatchObject({ entry: 10, card: 'end', frames: 3 * FPS });
+describe('the Short tells one story in at most 59 seconds', () => {
+  it('hook, the record crashes, the winning attempt with its beats, the fill, the end card', () => {
+    const plan = shortPlan(L, SIZE, TC);
+    expect(plan.map(s => [s.entry, kind(s)])).toEqual([
+      [0, 'hook'], [1, 'crash'], [4, 'crash'], [8, 'move'], [8, 'bet'], [9, 'move'], [10, 'fill'], [10, 'end'],
+    ]);
+    expect(plan[0]).toMatchObject({ frames: 3 * FPS, caption: 'A market picks every move.' });
+    expect(plan.filter(s => kind(s) === 'crash').every(s => s.frames === FPS)).toBe(true);
+    expect(plan.at(-2)!.frames).toBe(3 * FPS);
+    expect(plan.at(-1)!.frames).toBe(3 * FPS);
   });
 
-  it('never runs past 59 seconds, however long the level', () => {
-    const long = level('md'.repeat(230) + 'm'.repeat(380) + 'ee');
-    const plan = shortPlan(long, SIZE);
-    const total = plan.reduce((a, s) => a + s.frames, 0);
+  it('shows only the latest four record crashes, never a crash of an attempt that set no record', () => {
+    // records reach 2, 3, 4, 5, 6, 7 on a 4x4 grid, a non-record between them, then the fill
+    const moves = 'md' + 'emd' + 'md' + 'eemd' + 'eeemd' + 'eeeemd' + 'eeeeemd' + 'm' + 'e'.repeat(14);
+    const lv = level(moves);
+    const a = attempts(lv, 4);
+    const recordEnds = a.slice(0, -1).filter(x => x.record).map(x => x.end - 1);
+    const crashes = shortPlan(lv, 4).filter(s => kind(s) === 'crash').map(s => s.entry);
+    expect(crashes).toEqual(recordEnds.slice(-4));
+  });
+
+  it('never runs past 59 seconds, however long the level and however many trades', () => {
+    const huge = level('md'.repeat(230) + 'm'.repeat(1300) + 'ee');
+    const tc = huge.map(() => 10);
+    const plan = shortPlan(huge, SIZE, tc);
     expect(SHORT_MAX_FRAMES).toBe(59 * FPS);
-    expect(total).toBeLessThanOrEqual(SHORT_MAX_FRAMES);
+    expect(plan.reduce((a, s) => a + s.frames, 0)).toBeLessThanOrEqual(SHORT_MAX_FRAMES);
     expect(plan[0].card).toBe('hook');
     expect(plan.at(-1)!.card).toBe('end');
     expect(plan.at(-2)!.fx).toBe('fill');
     expect(plan.every(s => s.frames >= 1)).toBe(true);
   });
 
-  it('a filling attempt longer than the whole Short still fits in 59 seconds, ending on the fill', () => {
-    const huge = level('m'.repeat(1300) + 'ee');
-    const plan = shortPlan(huge, SIZE);
-    expect(plan.reduce((a, s) => a + s.frames, 0)).toBeLessThanOrEqual(SHORT_MAX_FRAMES);
-    const filling = plan.filter(s => s.card === null && s.fx !== 'fill').map(s => s.entry);
-    expect(filling.at(-1)).toBe(huge.length - 2);
-    expect(plan.at(-1)!.card).toBe('end');
+  it('the winning attempt is never slower than four moves a second', () => {
+    const lv = level('md'.repeat(5) + 'm'.repeat(40) + 'ee');
+    const moves = shortPlan(lv, SIZE, lv.map(() => 1)).filter(s => kind(s) === 'move');
+    expect(moves.length).toBeGreaterThan(0);
+    expect(Math.max(...moves.map(s => s.frames))).toBeLessThanOrEqual(6);
   });
 
-  it('the filling attempt is never slower than four moves a second', () => {
-    const long = level('md'.repeat(5) + 'm'.repeat(40) + 'ee');
-    const filling = shortPlan(long, SIZE).filter(s => s.card === null && s.fx !== 'death' && s.fx !== 'fill');
-    expect(filling.length).toBeGreaterThan(0);
-    expect(Math.max(...filling.map(s => s.frames))).toBeLessThanOrEqual(6);
+  it('when time is short the beats go to the moves with the most trades', () => {
+    const lv = level('m'.repeat(1000) + 'ee');
+    const tc = lv.map(() => 1);
+    tc[100] = 9; tc[500] = 9; tc[900] = 9;
+    const bets = shortPlan(lv, SIZE, tc).filter(s => kind(s) === 'bet').map(s => s.entry);
+    expect(bets).toEqual(expect.arrayContaining([100, 500, 900]));
+    expect(bets.length).toBeLessThan(20);
   });
 
-  it('the filling attempt ends on the fill, the entries it shows in order', () => {
-    const long = level('md'.repeat(230) + 'm'.repeat(380) + 'ee');
-    const plan = shortPlan(long, SIZE);
-    const filling = plan.filter(s => s.card === null && s.fx !== 'death' && s.fx !== 'fill').map(s => s.entry);
-    expect(filling).toEqual([...filling].sort((a, b) => a - b));
-    expect(filling.at(-1)).toBe(long.length - 2);
+  it('a beat sits right before the move it decides', () => {
+    const lv = level('m'.repeat(20) + 'ee');
+    const tc = lv.map((_, i) => (i % 3 === 0 ? 2 : 0));
+    const plan = shortPlan(lv, SIZE, tc);
+    plan.forEach((s, i) => {
+      if (kind(s) !== 'bet') return;
+      const next = plan[i + 1];
+      expect([s.entry + 1]).toContain(next.entry);
+    });
   });
 });
 
 describe('a sound effect never stutters', () => {
-  const shot = (frames: number, fx: Shot['fx']): Shot => ({ entry: 0, frames, badge: null, fx, card: null, caption: null });
+  const shot = (frames: number, fx: Shot['fx'], extra: Partial<Shot> = {}): Shot => ({ entry: 0, frames, badge: null, fx, card: null, caption: null, ...extra });
   it('each effect starts on its shot\'s first frame', () => {
     const ev = sfxEvents([shot(24, null), shot(12, 'eat'), shot(24, 'death'), shot(120, 'fill')]);
     expect(ev).toEqual([{ at: 1, kind: 'eat' }, { at: 1.5, kind: 'death' }, { at: 2.5, kind: 'fill' }]);
   });
+  it('a bet beat rings a coin for each trade it shows', () => {
+    const ev = sfxEvents([shot(24, null), shot(30, null, { bet: 3, more: 2 })]);
+    expect(ev.map(e => [Math.round(e.at * 24), e.kind])).toEqual([[24, 'trade'], [32, 'trade'], [40, 'trade']]);
+  });
   it('a sound of the same kind within a fifth of a second of the last one is dropped', () => {
     const ev = sfxEvents([shot(2, 'death'), shot(2, 'death'), shot(2, 'death'), shot(2, 'death'), shot(2, 'death'), shot(2, 'eat')]);
-    // deaths at 0, 2/24, 4/24 (dropped, < 0.2 s), 6/24 = 0.25 s kept, 8/24 dropped; the eat is its own kind
     expect(ev.map(e => [Math.round(e.at * 24), e.kind])).toEqual([[0, 'death'], [6, 'death'], [10, 'eat']]);
   });
 });
 
 describe('the synthesized effects track', () => {
-  const wavOf = () => synthSfx([{ at: 0.1, kind: 'eat' }, { at: 1, kind: 'death' }], 2);
   const sample = (wav: Buffer, sec: number) => wav.readInt16LE(44 + Math.floor(sec * 44100) * 2);
+  const peak = (wav: Buffer, from: number, to: number) => {
+    let p = 0;
+    for (let s = from; s < to; s += 0.0005) p = Math.max(p, Math.abs(sample(wav, s)));
+    return p;
+  };
   it('is a 16-bit mono 44.1 kHz WAV exactly as long as the cut', () => {
-    const wav = wavOf();
+    const wav = synthSfx([{ at: 0.1, kind: 'eat' }], 2);
     expect(wav.toString('ascii', 0, 4)).toBe('RIFF');
     expect(wav.toString('ascii', 8, 12)).toBe('WAVE');
     expect(wav.readUInt16LE(22)).toBe(1);
@@ -152,47 +195,45 @@ describe('the synthesized effects track', () => {
     expect(wav.readUInt16LE(34)).toBe(16);
     expect(wav.length - 44).toBe(2 * 44100 * 2);
   });
-  it('sounds right after an effect and is silent where there is none', () => {
-    const wav = wavOf();
-    let loud = 0;
-    for (let s = 0.11; s < 0.15; s += 0.001) loud = Math.max(loud, Math.abs(sample(wav, s)));
-    expect(loud).toBeGreaterThan(1000);
-    let quiet = 0;
-    for (let s = 1.7; s < 1.99; s += 0.001) quiet = Math.max(quiet, Math.abs(sample(wav, s)));
-    expect(quiet).toBe(0);
+  it('every effect is loud: its peak reaches at least half of full scale', () => {
+    for (const kind of ['eat', 'death', 'fill', 'trade'] as const) {
+      const wav = synthSfx([{ at: 0.1, kind }], 1);
+      expect(peak(wav, 0.1, 0.4)).toBeGreaterThan(16384);
+    }
+  });
+  it('is silent where there is no effect', () => {
+    const wav = synthSfx([{ at: 0.1, kind: 'eat' }, { at: 1, kind: 'death' }], 2);
+    expect(peak(wav, 1.7, 1.99)).toBe(0);
   });
   it('never clips when effects overlap', () => {
     const many = synthSfx(Array.from({ length: 20 }, () => ({ at: 0.5, kind: 'fill' as const })), 1);
-    let peak = 0;
-    for (let i = 44; i < many.length; i += 2) peak = Math.max(peak, Math.abs(many.readInt16LE(i)));
-    expect(peak).toBeLessThanOrEqual(32767);
-    expect(peak).toBeGreaterThan(1000);
+    let p = 0;
+    for (let i = 44; i < many.length; i += 2) p = Math.max(p, Math.abs(many.readInt16LE(i)));
+    expect(p).toBeLessThanOrEqual(32767);
+    expect(p).toBeGreaterThan(1000);
   });
 });
 
 describe('the music', () => {
-  it('is looped, faded in over one second and out over the last two, and mixed under the effects', () => {
+  it('is looped, faded in over one second and out over the last two, and sits well under the effects', () => {
     const args = mixArgs({ video: 'v.mp4', sfx: 'fx.wav', music: 'song.mp3', out: 'o.mp4', seconds: 90 });
     const loop = args.indexOf('-stream_loop');
     expect(loop).toBeGreaterThan(-1);
     expect(args[loop + 1]).toBe('-1');
     expect(args[loop + 3]).toBe('song.mp3');
     const filter = args[args.indexOf('-filter_complex') + 1];
+    expect(filter).toContain('volume=0.25');
     expect(filter).toContain('afade=t=in:st=0:d=1');
     expect(filter).toContain('afade=t=out:st=88:d=2');
     expect(filter).toContain('amix');
-    expect(args).toContain('-t');
     expect(args[args.indexOf('-t') + 1]).toBe('90');
   });
   it('the mix is normalized to YouTube\'s loudness, with or without music', () => {
     for (const music of ['song.mp3', null]) {
       const args = mixArgs({ video: 'v.mp4', sfx: 'fx.wav', music, out: 'o.mp4', seconds: 90 });
-      const i = args.indexOf('-filter_complex');
-      expect(i).toBeGreaterThan(-1);
-      expect(args[i + 1]).toContain('loudnorm=I=-14:TP=-1.5');
+      expect(args[args.indexOf('-filter_complex') + 1]).toContain('loudnorm=I=-14:TP=-1.5');
     }
   });
-
   it('without music the cut carries the effects alone', () => {
     const args = mixArgs({ video: 'v.mp4', sfx: 'fx.wav', music: null, out: 'o.mp4', seconds: 90 });
     expect(args).not.toContain('-stream_loop');
@@ -215,20 +256,51 @@ const fourEntries: LogStep[] = [
 const trade: TradeRow = { id: 'trade:t', at: at(1, 30), kind: 'trade', actor: { id: 'a', handle: 'ann' }, detail: { side: 'buy', direction: 'higher', shares: 1, cost: 10, callBefore: 1, callAfter: 1.25, marketId: 'L' } };
 const ctx = () => ({ game, games: [game], entries: fourEntries, byMove: tradesByMove(fourEntries, [trade]) });
 const shotFor = (entry: number, fx: Shot['fx'], extra: Partial<Shot> = {}): Shot => ({ entry, frames: 24, badge: null, fx, card: null, caption: null, ...extra });
+const count = (t: string[], s: string) => t.filter(x => x === s).length;
 
-describe('what happens in the game is felt: the full cut frame', () => {
+describe('a viewer sees that a market is playing: the full cut frame', () => {
+  it('the question line says traders bet on every move', () => {
+    const { state, now } = videoState(ctx(), 1);
+    const t = funTexts(state, now, shotFor(1, null), 0);
+    expect(t).toContain('Traders bet on every move. The highest price wins.');
+    expect(t).not.toContain('What length will I reach on this attempt?');
+  });
+  it('each option\'s price is tagged on the board, besides the pills', () => {
+    const { state, now } = videoState(ctx(), 1);
+    const t = funTexts(state, now, shotFor(1, null), 0);
+    expect(count(t, '5.0')).toBe(2);
+    expect(count(t, '3.0')).toBeGreaterThanOrEqual(2); // the right option; the length reads 3.0 too
+  });
+  it('the move\'s trades are carried on the state, oldest first, with their option when it is unambiguous', () => {
+    const { state } = videoState(ctx(), 1);
+    expect(state.video.bets).toEqual([{ handle: 'ann', option: 'left', credits: 10, from: 1, to: 1.25 }]);
+  });
+  it('a bet beat pops a chip for the trade while its tag counts from the call before to the call after', () => {
+    const { state, now } = videoState(ctx(), 1);
+    const beat = shotFor(1, null, { bet: 1, more: 0, frames: 14 });
+    const first = funTexts(state, now, beat, 1);
+    expect(first).toContain('+10 cr');
+    expect(first).toContain('ann');
+    expect(first).toContain('1.0');
+    expect(funTexts(state, now, beat, 13)).not.toContain('1.0');
+  });
+  it('more than three trades say how many more', () => {
+    const { state, now } = videoState(ctx(), 1);
+    expect(funTexts(state, now, shotFor(1, null, { bet: 1, more: 2, frames: 14 }), 10)).toContain('+2 more');
+  });
+  it('a crash counts the death, marks the spot it hits in red, and flashes the board', () => {
+    const { state, now } = videoState(ctx(), 1); // the position before the fatal move up into (2, 0)
+    expect(funTexts(state, now, shotFor(1, 'death'), 0)).toContain('DEATHS 1');
+    const hit = renderFunFrame(state, now, shotFor(1, 'death'), 4);
+    const calm = renderFunFrame(state, now, shotFor(1, null), 4);
+    const spot = (buf: Buffer) => { const k = (108 * WIDTH + 444) * 3; return [buf[k], buf[k + 1]]; };
+    expect(spot(hit)[0]).toBeGreaterThan(180);
+    expect(spot(hit)[1]).toBeLessThan(140);
+    expect(spot(calm)[0]).toBeLessThan(80);
+  });
   it('an eat raises a +1', () => {
     const { state, now } = videoState(ctx(), 1);
     expect(funTexts(state, now, shotFor(1, 'eat'), 2)).toContain('+1');
-    expect(funTexts(state, now, shotFor(1, null), 2)).not.toContain('+1');
-  });
-  it('a death flashes the board red', () => {
-    const { state, now } = videoState(ctx(), 2);
-    const calm = renderFunFrame(state, now, shotFor(2, null), 0);
-    const hit = renderFunFrame(state, now, shotFor(2, 'death'), 0);
-    // an empty cell near the board's middle, well clear of any shake
-    const k = (400 * WIDTH + 400) * 3;
-    expect(hit[k] - hit[k + 1]).toBeGreaterThan(calm[k] - calm[k + 1] + 20);
   });
   it('the death counter is on every frame', () => {
     const { state, now } = videoState(ctx(), 2);
@@ -241,7 +313,6 @@ describe('what happens in the game is felt: the full cut frame', () => {
   it('the fill bursts confetti and says FILLED', () => {
     const { state, now } = videoState(ctx(), 3);
     expect(funTexts(state, now, shotFor(3, 'fill'), 12)).toContain('FILLED');
-    // confetti colours (blue, pink) appear nowhere else in the frame
     const confettiPixels = (buf: Buffer) => {
       let n = 0;
       for (let y = 24; y < 696; y += 2) for (let x = 24; x < 696; x += 2) {
@@ -262,20 +333,27 @@ describe('the Short frame is vertical and built for a phone', () => {
     expect(SHORT_W).toBe(1080); expect(SHORT_H).toBe(1920);
     expect(renderShortFrame(state, now, shotFor(1, null), 0).length).toBe(1080 * 1920 * 3);
   });
-  it('sets nothing smaller than 40 px', () => {
-    for (const [i, s] of [[0, shotFor(0, null, { card: 'hook', caption: 'A market played snake.' })], [1, shotFor(1, 'eat')], [2, shotFor(2, 'death')], [3, shotFor(3, 'fill')], [3, shotFor(3, null, { card: 'end' })]] as const) {
+  it('sets nothing smaller than 40 px, tags and chips included', () => {
+    const cases: Array<[number, Shot]> = [
+      [0, shotFor(0, null, { card: 'hook', caption: 'A market picks every move.' })],
+      [1, shotFor(1, 'eat')], [1, shotFor(1, 'death')], [1, shotFor(1, null, { bet: 1, more: 2, frames: 14 })],
+      [3, shotFor(3, 'fill')], [3, shotFor(3, null, { card: 'end' })],
+    ];
+    for (const [i, s] of cases) {
       const { state, now } = videoState(ctx(), i);
-      const t = shortTexts(state, now, s, 0);
-      expect(t.length).toBeGreaterThan(0);
-      expect(Math.min(...t.map(x => x.size))).toBeGreaterThanOrEqual(40);
+      for (const k of [0, 5, 12]) {
+        const t = shortTexts(state, now, s, k);
+        expect(t.length).toBeGreaterThan(0);
+        expect(Math.min(...t.map(x => x.size))).toBeGreaterThanOrEqual(40);
+      }
     }
   });
-  it('shows the length, the death counter, the options with prices, and the newest trade', () => {
+  it('shows the length, the death counter, the options with prices, tags on the board, and the newest trade', () => {
     const { state, now } = videoState(ctx(), 1);
     const t = shortTexts(state, now, shotFor(1, null), 0).map(x => x.text);
     expect(t).toContain('3');
     expect(t).toContain('DEATHS 0');
-    expect(t).toEqual(expect.arrayContaining(['5.0', '1.3', '3.0']));
+    expect(count(t, '5.0')).toBe(2);
     expect(t.some(s => s.includes('ann'))).toBe(true);
   });
   it('outlines the chosen option in green', () => {
@@ -287,27 +365,29 @@ describe('the Short frame is vertical and built for a phone', () => {
     };
     expect(shortPillRects(state).map(green)).toEqual([false, true, false]);
   });
-  it('the hook says what it is and the end card gives the link', () => {
+  it('the hook says a market picks every move and how, the end card asks for a bet and gives the link', () => {
     const hook = videoState(ctx(), 0);
-    expect(shortTexts(hook.state, hook.now, shotFor(0, null, { card: 'hook', caption: 'A market played snake.' }), 0).map(x => x.text)).toContain('A market played snake.');
+    const h = shortTexts(hook.state, hook.now, shotFor(0, null, { card: 'hook', caption: 'A market picks every move.' }), 30).map(x => x.text);
+    expect(h).toContain('A market picks every move.');
+    expect(h).toContain('Traders bet. The highest price wins.');
     const end = videoState(ctx(), 3);
-    expect(shortTexts(end.state, end.now, shotFor(3, null, { card: 'end' }), 0).map(x => x.text)).toContain('telarchy.com/snake');
+    const e = shortTexts(end.state, end.now, shotFor(3, null, { card: 'end' }), 0).map(x => x.text);
+    expect(e).toContain('Bet on the next move');
+    expect(e).toContain('telarchy.com/snake');
   });
 });
 
-describe('the Short\'s sidecar', () => {
-  it('has the #shorts title and the full cut\'s description, credit included', () => {
+describe('the sidecars', () => {
+  it('the Short has the #shorts title and the full cut\'s description, credit included', () => {
     const credit = 'Music: Track by Artist (CC0)';
     const s = shortSidecar(game, fourEntries, [trade], credit);
     expect(s.title).toBe('A prediction market played snake (level 1) #shorts');
     expect(s.description).toBe(withCredit(sidecar(game, fourEntries, [trade]).description, credit));
   });
-});
-
-describe('the full cut\'s sidecar', () => {
-  it('its duration is the plan\'s, and the credit ends the description', () => {
+  it('the full cut\'s duration is its plan\'s, trades included, and the credit ends the description', () => {
     const s = fullSidecar(game, fourEntries, [trade], 'Music: X');
-    expect(s.durationSeconds).toBe(fullCutPlan(fourEntries, 4).reduce((a, x) => a + x.frames, 0) / FPS);
+    const tc = tradesByMove(fourEntries, [trade]).map(l => l.length);
+    expect(s.durationSeconds).toBe(fullCutPlan(fourEntries, 4, tc).reduce((a, x) => a + x.frames, 0) / FPS);
     expect(s.description.endsWith('\nMusic: X')).toBe(true);
     expect(s.title).toBe(sidecar(game, fourEntries, [trade]).title);
   });
