@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "stream": "node dist/stream.js",
-    "stream:dev": "tsx src/stream.ts"
+    "stream:dev": "tsx src/stream.ts",
+    "video": "tsx src/video.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
