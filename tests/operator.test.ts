@@ -199,15 +199,17 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(op.decisions[0].approved).toBe(null);
   });
 
-  it('a decline that fails after a failed approval is still recorded as undecided and the loop goes on', async () => {
-    const { client } = fakeClient(upWins);
+  it('a decline that fails after a failed approval is still recorded as undecided and the loop goes on: the snake waits and the move is posted again', async () => {
+    const { client, calls } = fakeClient(upWins);
     const dead: TelarchyClient = { ...client, async approveOption() { throw new Error('503'); }, async declineProposal() { throw new Error('503'); } };
     const op = new Operator(dead, newGame(rng), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
-    expect(op.game.step).toBe(1);
+    expect(op.game.step).toBe(0);
+    expect(calls.filter(c => c.name === 'postProposal')).toHaveLength(2);
+    expect(op.open?.step).toBe(1);
   });
 
   it('posts a reading after every step, and marks the last reading before midnight UTC final', async () => {
@@ -844,6 +846,7 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     expect(RULE).toMatch(/three options/i);
     expect(RULE).toMatch(/highest price/);
     expect(RULE).toMatch(/refund/);
+    expect(RULE).toMatch(/cannot be reached, the snake waits/);
     expect(RULE).not.toMatch(/1, 5 and 60|max length|impact|approved minus declined|three proposals/i);
   });
 
@@ -1263,5 +1266,141 @@ describe('THE HTTP SURFACE ANSWERS A BOT IN JSON', () => {
     // A different reader behind the same last hop still reads.
     expect((await chain('203.0.113.12')).status).toBe(200);
     await close();
+  });
+});
+
+describe('THE SNAKE NEVER MOVES BLIND (docs/snake.md, "The step" and "What must hold"; deaths 4, 5, 9 and 11 of game 3, 2026-09-13)', () => {
+  const never = () => new Promise<never>(() => {});
+  const fresh = () => ({ ...newGame(rng, 12, 1), food: { x: 0, y: 0 } });
+
+  it('THE MOVE AT THE HOUR WAS DECIDED ON A CLOSED BOOK (moves 479 and 1133): the step that opens at its cell\'s own minute moves to the next cell before it posts', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, fresh(), rng);
+    op.cell = '2026-09-11T10:00'; // the attempt has run an hour
+    await op.openStep(new Date('2026-09-11T10:00:00.300Z'));
+    expect(calls.filter(c => c.name === 'setHorizon').map(c => c.args[0])).toEqual(['2026-09-11T11:00']);
+    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:00' });
+    const names = calls.map(c => c.name);
+    expect(names.indexOf('setHorizon')).toBeLessThan(names.indexOf('postProposal'));
+    expect(String(calls.find(c => c.name === 'postProposal')!.args[1])).toContain('11:00 UTC');
+  });
+
+  it('a step decided before its cell\'s minute keeps the cell: nothing renews early', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, fresh(), rng);
+    op.cell = '2026-09-11T10:00';
+    await op.openStep(new Date('2026-09-11T09:59:00.300Z'));
+    expect(calls.filter(c => c.name === 'setHorizon')).toHaveLength(0);
+    expect(op.open?.cells).toEqual({ m60: '2026-09-11T10:00' });
+  });
+
+  it('A FAILED POST MOVED THE SNAKE BLIND (moves 776 and 777): when the next proposal cannot be posted, no later minute moves the snake until one is', async () => {
+    const { client, calls } = fakeClient(upWins);
+    let postFails = false;
+    const flaky: TelarchyClient = {
+      ...client,
+      async postProposal(title, description, decideBy, options) {
+        if (postFails) throw new Error('fetch failed');
+        return client.postProposal(title, description, decideBy, options);
+      },
+    };
+    const op = new Operator(flaky, fresh(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    postFails = true;
+    await expect(op.tick(new Date('2026-09-11T10:01:00Z'))).rejects.toThrow(/fetch failed/);
+    expect(op.game.step).toBe(1); // the decided move itself was applied
+    const head = { ...op.game.snake[0] };
+    // Nothing left to run: the loop must open a step, never tick again.
+    expect(op.hasStepToRun()).toBe(false);
+    await expect(op.tick(new Date('2026-09-11T10:02:00Z'))).rejects.toThrow(/fetch failed/);
+    await expect(op.tick(new Date('2026-09-11T10:03:00Z'))).rejects.toThrow(/fetch failed/);
+    expect(op.game.step).toBe(1);
+    expect(op.game.snake[0]).toEqual(head);
+    postFails = false;
+    await op.openStep(new Date('2026-09-11T10:04:00Z'));
+    expect(op.hasStepToRun()).toBe(true);
+    expect(op.open?.step).toBe(2);
+    expect(calls.filter(c => c.name === 'postProposal')).toHaveLength(2);
+  });
+
+  it('a state file saved after a failed post resumes by opening the next step, not by moving', async () => {
+    const { client } = fakeClient(upWins);
+    let postFails = false;
+    const flaky: TelarchyClient = { ...client, async postProposal(...a) { if (postFails) throw new Error('fetch failed'); return client.postProposal(...a); } };
+    const op = new Operator(flaky, fresh(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    postFails = true;
+    await op.tick(new Date('2026-09-11T10:01:00Z')).catch(() => {});
+    const raw = JSON.parse(JSON.stringify(op.toJSON()));
+    delete raw.open.applied; // a file written before the marker existed
+    const back = Operator.fromJSON(client, raw, rng, {}, new Date('2026-09-11T10:01:30Z'));
+    expect(back.hasStepToRun()).toBe(false);
+  });
+
+  it('WHEN TELARCHY DOES NOT ANSWER, THE SNAKE WAITS (move 775): no answer at the decision and nothing polled holds the snake, declines with refund, and the next minute posts the same move', async () => {
+    const { client, calls } = fakeClient(upWins);
+    const stuck: TelarchyClient = { ...client, async readQuotes() { return never(); } };
+    const op = new Operator(stuck, fresh(), rng, { decideReadTimeoutMs: 20 });
+    await op.openStep(T0);
+    const head = { ...op.game.snake[0] };
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.undecided).toBe(true);
+    expect(d.hold).toBe(true);
+    expect(calls.filter(c => c.name === 'declineProposal')).toHaveLength(1);
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.game.step).toBe(0);
+    expect(op.game.snake[0]).toEqual(head);
+    expect(op.decisions[0].held).toBe(true);
+    expect(op.decisions[0].lengthAfter).toBe(op.game.length);
+    // The reading is still posted, and the same move is asked again.
+    expect(calls.filter(c => c.name === 'postReading')).toHaveLength(1);
+    const posts = calls.filter(c => c.name === 'postProposal');
+    expect(posts).toHaveLength(2);
+    expect(posts[1].args[0]).toBe(posts[0].args[0]);
+    expect(op.open?.step).toBe(1);
+    expect(op.hasStepToRun()).toBe(true);
+  });
+
+  it('A FAILED APPROVAL HOLDS THE SNAKE (the deadlock 500s, move 418): nothing moves, the proposal is declined with refund', async () => {
+    const { client, calls } = fakeClient(upWins);
+    const flaky: TelarchyClient = { ...client, async approveOption() { throw new Error('POST /approve -> 500 Internal error'); } };
+    const op = new Operator(flaky, fresh(), rng);
+    await op.openStep(T0);
+    const head = { ...op.game.snake[0] };
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.hold).toBe(true);
+    expect(calls.filter(c => c.name === 'declineProposal')).toHaveLength(1);
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.game.step).toBe(0);
+    expect(op.game.snake[0]).toEqual(head);
+  });
+
+  it('the rule is unchanged where the market answered: no price on any option still continues forward, and nothing is held', async () => {
+    const { client } = fakeClient(none);
+    const op = new Operator(client, fresh(), rng);
+    await op.openStep(T0);
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.undecided).toBe(true);
+    expect(d.hold).toBeFalsy();
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.game.step).toBe(1);
+    expect(op.decisions[0].held).toBeFalsy();
+  });
+
+  it('a decision on prices polled earlier is not a hold, even when the decision\'s own read does not answer', async () => {
+    const { client } = fakeClient(upWins);
+    let hangNow = false;
+    const late: TelarchyClient = { ...client, async readQuotes(ref, cell) { if (hangNow) return never(); return client.readQuotes(ref, cell); } };
+    const op = new Operator(late, fresh(), rng, { decideReadTimeoutMs: 20 });
+    await op.openStep(T0);
+    await op.pollQuotes(new Date('2026-09-11T10:00:20Z'));
+    hangNow = true;
+    const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    expect(d.undecided).toBe(false);
+    expect(d.hold).toBeFalsy();
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.game.step).toBe(1);
   });
 });

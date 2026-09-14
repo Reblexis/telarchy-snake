@@ -83,9 +83,13 @@ the question on the floor is "what length will this attempt have reached
 at HH:MM", asked once, not a new question every minute, with one answer
 per option. The book settles
 on the last reading inside its minute if the attempt is still alive then,
-or at the attempt's end (below), whichever comes first. When the cell's
-minute has passed with the attempt alive, the next step sets the next
-cell, sixty minutes ahead again, and the attempt carries on under it.
+or at the attempt's end (below), whichever comes first. A book stops
+trading at its own minute, so **a step whose decision would fall on or after
+its cell's minute sets the next cell first**, sixty minutes ahead again,
+before it posts its proposal, and the attempt carries on under it. The step
+that opens AT the cell's minute is that step: priced on the old cell it
+would be decided against a closed book, find no price on any option, and
+move blind.
 No other horizon and no calendar horizon is priced.
 
 **When the attempt ends the answer is known.** Right after the move that
@@ -176,7 +180,7 @@ attempt to reach if the snake takes that option). Then:
 - ties (prices within a billionth of each other) go to the current
   heading, then to the option whose direction comes first in up, right,
   down, left;
-- if no option has a price, or the API fails, the snake continues in its
+- if Telarchy answered but no option has a price, the snake continues in its
   current heading and the proposal is **declined with refund**
   (`POST /api/proposals/:id/decline { refund: true }`), which voids all
   three books; the step is logged as undecided, and the record says why
@@ -184,7 +188,18 @@ attempt to reach if the snake takes that option). Then:
   had no price and what was missing (no book on the cell, no options on
   the proposal, no consensus, no answer from Telarchy), or the error the
   approval returned. When the approval itself fails the operator declines
-  with refund the same way, so nothing stays pending past the deadline.
+  with refund the same way, so nothing stays pending past the deadline;
+- **if Telarchy cannot be reached, the snake waits.** When the decision's
+  read gets no answer and nothing was read during the minute, or the
+  approval fails, the market did not decide and neither does the operator:
+  the proposal is declined with refund as above, the step is logged
+  undecided and `held`, the snake does not move that minute, and the next
+  minute posts the same move again. A reading is still posted.
+- **the snake moves only on a step it posted.** A minute whose proposal
+  could not be posted (the operator could not reach Telarchy) leaves the
+  snake where it is; the next minute tries to post the move again. Before
+  this, a failed post left the previous, already-applied decision on the
+  loop, which moved the snake straight on with no proposal behind it.
 
 No call to Telarchy waits without limit. The app can stall for minutes
 at a time, and a loop stuck in one read past the deadline is how a step
@@ -654,7 +669,11 @@ to production.
   attempt reached, before the new attempt's reading is posted, and never
   otherwise.
 - One cell per attempt: the metric's horizon is set when an attempt
-  starts and when its cell's minute has passed, never in between; the
-  step's proposal is priced on the current cell.
+  starts and when a step's decision would fall on or after its cell's
+  minute, never in between; the step's proposal is priced on the current
+  cell, so no step is decided on a closed book.
+- The snake never moves on a minute Telarchy did not run: no posted
+  proposal, no answer at the decision, or a failed approval, and it waits
+  instead.
 - The operator never trades.
 - The board never shows a price the workspace did not report.

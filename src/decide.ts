@@ -94,6 +94,10 @@ export interface Decision {
   /** The compass direction the snake moves: the chosen action from the heading, or straight on. */
   direction: Direction;
   undecided: boolean;
+  /** Telarchy could not be reached (no answer and nothing polled, or the
+   *  approval failed): the snake waits this minute instead of moving
+   *  (docs/snake.md, "The step"). Absent on every other decision. */
+  hold?: boolean;
 }
 
 /** docs/snake.md "The step": the option with the highest price is chosen;
