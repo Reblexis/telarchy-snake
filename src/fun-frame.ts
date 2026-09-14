@@ -103,6 +103,7 @@ export function tagRects(s: any, box: Box, z: Sizes): Array<Rect & { action: Act
   const w = Math.max(measureText('00.0', z.tag, 700, 'mono'), 0) + z.tag * 1.1;
   const th = z.tag * 1.7;
   const chosen: Action | null = s.video?.chosen ?? null;
+  const coversHead = (r: Rect) => cx > r.x && cx < r.x + r.w && cy > r.y && cy < r.y + r.h;
   const order = [...ACTIONS].sort((a, b) => (a === chosen ? -1 : b === chosen ? 1 : 0));
   const placed: Array<Rect & { action: Action }> = [];
   for (const a of order) {
@@ -111,9 +112,10 @@ export function tagRects(s: any, box: Box, z: Sizes): Array<Rect & { action: Act
     if (price === null || price === undefined || !Number.isFinite(price) || !dir || !DELTA[dir]) continue;
     const [dx, dy] = DELTA[dir];
     const nx = head.x + dx, ny = head.y + dy;
-    const inside = nx >= 0 && ny >= 0 && nx < N && ny < N;
-    const reachX = inside ? h.w : Math.max(0, h.w / 2 - w / 2 - EDGE);
-    const reachY = inside ? h.h : Math.max(0, h.h / 2 - th / 2 - EDGE);
+    // an option that runs into the wall has no cell to tag
+    if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+    const reachX = h.w;
+    const reachY = h.h;
     const px = cx + dx * reachX, py = cy + dy * reachY;
     // the preferred spot, then a widening search along the wall (perpendicular to the move) and back from it
     const [ax, ay] = dx !== 0 ? [0, 1] : [1, 0];
@@ -128,7 +130,7 @@ export function tagRects(s: any, box: Box, z: Sizes): Array<Rect & { action: Act
           y: py + ay * along * stepAlong * 0.5 - dy * back * stepBack * 0.5 - th / 2,
           w, h: th,
         }, box);
-        if (!placed.some(p => overlaps(p, r, 2))) { best = r; break; }
+        if (!placed.some(p => overlaps(p, r, 2)) && !coversHead(r)) { best = r; break; }
       }
     }
     if (best) placed.push({ ...best, action: a });

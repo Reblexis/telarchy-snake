@@ -251,7 +251,8 @@ export function mixArgs(o: { video: string; sfx: string; music: string | null; o
   const head = ['-hide_banner', '-loglevel', 'error', '-y', '-i', o.video, '-i', o.sfx];
   const tail = ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-t', String(o.seconds), '-movflags', '+faststart', o.out];
   // YouTube plays at -14 LUFS; normalizing to it keeps every video level whatever the track
-  const loud = 'loudnorm=I=-14:TP=-1.5:LRA=11';
+  // a limiter after it (0.84 is -1.5 dBFS) holds the peak once the audio is encoded
+  const loud = 'loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.84:level=disabled';
   if (!o.music) return [...head, '-filter_complex', `[1:a]${loud}[a]`, '-map', '0:v', '-map', '[a]', ...tail];
   const fadeOut = Math.max(0, o.seconds - 2);
   const filter = `[2:a]volume=0.25,afade=t=in:st=0:d=1,afade=t=out:st=${fadeOut}:d=2[m];[1:a][m]amix=inputs=2:duration=first:normalize=0,${loud}[a]`;
