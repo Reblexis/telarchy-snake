@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "stream": "node dist/stream.js",
     "stream:dev": "tsx src/stream.ts",
-    "video": "tsx src/video.ts"
+    "video": "tsx src/video.ts",
+    "cut-report": "tsx src/cut-report.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

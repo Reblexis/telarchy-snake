@@ -36,7 +36,6 @@ export const HOOK_SUBCAPTION = 'Traders bet. The highest price wins.';
 const SLOW = 6; // four moves a second
 const FAST = 2; // twelve moves a second
 const DEATH_SLOW = FPS;
-const DEATH_FAST = 8;
 const FILL_FULL = 5 * FPS;
 const CARD = 3 * FPS;
 /** The opening caption rides the first two and a half seconds of either cut. */
@@ -97,28 +96,146 @@ function beat(entry: number, n: number): Shot {
   return shot(entry, BEAT_PER_TRADE * shown + BEAT_PICK, { bet: shown, more: n - shown });
 }
 
-/** The full cut: record and filling attempts at four moves a second with their
- *  bet beats, the rest at twelve; every death drawn as a crash from the position before it. */
-export function fullCutPlan(entries: LogStep[], size: number, tradeCounts: number[] = []): Shot[] {
+/** The full cut runs five minutes at most (docs/snake.md, "The fun cuts"). */
+export const FULL_MAX_FRAMES = 5 * 60 * FPS;
+/** The speeds a boring run may play at, slowest first. */
+export const SPEEDS = [3, 6, 12, 24, 48] as const;
+/** Kept moves and their beats take at most this share of the five minutes. */
+const KEEP_SHARE = 3 / 5;
+
+/** Each move's interest score, by the entry it lands on (index 0 is the start). The fill and the
+ *  crash that ends a record attempt are Infinity: always kept. */
+export function interestScores(entries: LogStep[], size: number, tradeCounts: number[] = [], tradeCredits: number[] = []): number[] {
   const list = attempts(entries, size);
-  const last = entries.length - 1;
-  const plan: Shot[] = [shot(0, entries.length === 1 ? FILL_FULL : SLOW)];
+  const winning = list[list.length - 1];
+  const out = entries.map(() => 0);
   let a = 0;
   for (let i = 1; i < entries.length; i++) {
     while (a < list.length - 1 && i > list[a].end) a++;
-    const slow = list[a].record || list[a].fills;
-    const badge = slow ? null : 'x3';
-    const n = tradeCounts[i - 1] ?? 0;
+    const att = list[a];
     const fx = fxOf(entries, i, size);
-    if (slow && n > 0) plan.push(beat(i - 1, n));
-    if (fx === 'death') {
-      plan.push(shot(i - 1, slow ? DEATH_SLOW : DEATH_FAST, { fx: 'death', badge }));
-      plan.push(shot(i, slow ? SLOW : FAST, { badge }));
+    if (fx === 'fill' || (fx === 'death' && att.record)) { out[i] = Infinity; continue; }
+    let score = 0;
+    if (fx === 'eat') score += 3;
+    const credits = tradeCredits[i - 1] ?? 0;
+    if (credits > 0) score += Math.log2(1 + credits);
+    const prices = Object.values(entries[i].prices).filter((v): v is number => v !== null && Number.isFinite(v));
+    if (prices.length >= 2 && Math.max(...prices) - Math.min(...prices) >= 5) score += 2;
+    if (att.record || att.fills) score += 2;
+    if (att === winning && att.fills) score += 2;
+    out[i] = score;
+    void tradeCounts;
+  }
+  return out;
+}
+
+/** A plan with `keep` (or every move) at normal pace and the other moves in boring runs at `speed`. */
+function buildPlan(entries: LogStep[], size: number, tradeCounts: number[], keep: Set<number> | 'all', speed: number): Shot[] {
+  const last = entries.length - 1;
+  const plan: Shot[] = [shot(0, entries.length === 1 ? FILL_FULL : SLOW)];
+  const badge = `x${speed}`;
+  const step = Math.max(1, speed / 6);
+  const runFrames = speed === 3 ? FAST : 1;
+  let run = 0;
+  for (let i = 1; i < entries.length; i++) {
+    const fx = fxOf(entries, i, size);
+    const n = tradeCounts[i - 1] ?? 0;
+    if (keep === 'all' || keep.has(i) || i === last) {
+      run = 0;
+      if (n > 0) plan.push(beat(i - 1, n));
+      if (fx === 'death') {
+        plan.push(shot(i - 1, DEATH_SLOW, { fx: 'death' }));
+        plan.push(shot(i, SLOW));
+      } else {
+        plan.push(shot(i, fx === 'fill' || i === last ? FILL_FULL : SLOW, { fx }));
+      }
     } else {
-      plan.push(shot(i, fx === 'fill' || i === last ? FILL_FULL : slow ? SLOW : FAST, { fx, badge }));
+      if (run % step === 0) {
+        if (fx === 'death') plan.push(shot(i - 1, runFrames, { fx: 'death', badge }));
+        else plan.push(shot(i, runFrames, { fx, badge }));
+      }
+      run++;
     }
   }
   return withOpening(plan);
+}
+
+/** What keeping move `i` at normal pace costs in frames, beyond its boring run. */
+function keepCost(entries: LogStep[], size: number, tradeCounts: number[], i: number): number {
+  const n = tradeCounts[i - 1] ?? 0;
+  const beatFrames = n > 0 ? beat(i - 1, n).frames : 0;
+  return beatFrames + (fxOf(entries, i, size) === 'death' ? DEATH_SLOW + SLOW : SLOW);
+}
+
+/** The moves kept at normal pace: every always-kept move, then the highest scores (ties to the earlier
+ *  move) until the next one would pass three fifths of the five minutes. */
+function keptMoves(entries: LogStep[], size: number, tradeCounts: number[], tradeCredits: number[], share = KEEP_SHARE): { keep: Set<number>; ranked: number[]; scores: number[] } {
+  const scores = interestScores(entries, size, tradeCounts, tradeCredits);
+  const last = entries.length - 1;
+  const ranked = Array.from({ length: last }, (_, k) => k + 1).sort((x, y) => (scores[y] - scores[x]) || (x - y));
+  const keep = new Set<number>();
+  let used = 0;
+  const budget = FULL_MAX_FRAMES * share;
+  for (const i of ranked) {
+    if (i === last) { keep.add(i); continue; }
+    const cost = keepCost(entries, size, tradeCounts, i);
+    if (scores[i] === Infinity) { keep.add(i); used += cost; continue; }
+    if (used + cost > budget) break;
+    keep.add(i);
+    used += cost;
+  }
+  return { keep, ranked, scores };
+}
+
+/** The full cut with the kept moves `fullCutPlan` chooses and the boring runs at `speed`. */
+export function planAtSpeed(entries: LogStep[], size: number, tradeCounts: number[], tradeCredits: number[], speed: number): Shot[] {
+  return buildPlan(entries, size, tradeCounts, keptMoves(entries, size, tradeCounts, tradeCredits).keep, speed);
+}
+
+/** The full cut: the whole level at normal pace when it fits in five minutes; otherwise the most
+ *  interesting moves at normal pace and the boring ones in runs at the slowest speed that fits. */
+export function fullCutPlan(entries: LogStep[], size: number, tradeCounts: number[] = [], tradeCredits: number[] = []): Shot[] {
+  const whole = buildPlan(entries, size, tradeCounts, 'all', 3);
+  if (frameCount(whole) <= FULL_MAX_FRAMES) return whole;
+  const { keep, ranked, scores } = keptMoves(entries, size, tradeCounts, tradeCredits);
+  for (const speed of SPEEDS) {
+    const plan = buildPlan(entries, size, tradeCounts, keep, speed);
+    if (frameCount(plan) <= FULL_MAX_FRAMES) return plan;
+  }
+  // even x48 does not fit: fewer high-scoring moves stay at normal pace, the lowest go first
+  const kept = ranked.filter(i => keep.has(i) && scores[i] !== Infinity && i !== entries.length - 1);
+  let plan = buildPlan(entries, size, tradeCounts, keep, 48);
+  while (frameCount(plan) > FULL_MAX_FRAMES && kept.length > 0) {
+    const drop = Math.max(1, Math.ceil(kept.length / 10));
+    for (const i of kept.splice(kept.length - drop, drop)) keep.delete(i);
+    plan = buildPlan(entries, size, tradeCounts, keep, 48);
+  }
+  return plan;
+}
+
+const clock = (frames: number) => { const s = Math.round(frames / FPS); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+/** Where a level's full cut spends its time and what it called boring, for a person to check. */
+export function cutReport(entries: LogStep[], size: number, tradeCounts: number[] = [], tradeCredits: number[] = []): string {
+  const plan = fullCutPlan(entries, size, tradeCounts, tradeCredits);
+  const scores = interestScores(entries, size, tradeCounts, tradeCredits);
+  const moves = entries.length - 1;
+  const badge = plan.find(s => s.badge)?.badge ?? null;
+  const sum = (f: (s: Shot) => boolean) => plan.filter(f).reduce((a, s) => a + s.frames, 0);
+  const keptShots = plan.filter(s => !s.badge && s.entry > 0 && (s.bet ?? 0) === 0 && s.fx !== 'death' && s.fx !== 'fill');
+  const beats = plan.filter(s => (s.bet ?? 0) > 0);
+  const boringShown = plan.filter(s => s.badge);
+  const keptSet = new Set(keptShots.map(s => s.entry));
+  const boringCount = moves - keptSet.size - 1;
+  const always = scores.filter(v => v === Infinity).length;
+  const top = Array.from({ length: moves }, (_, k) => k + 1).filter(i => Number.isFinite(scores[i])).sort((a, b) => scores[b] - scores[a]).slice(0, 5)
+    .map(i => `move ${i} (${scores[i].toFixed(1)})`).join(', ');
+  return [
+    `full cut: total ${clock(frameCount(plan))} (${frameCount(plan)} frames, limit ${clock(FULL_MAX_FRAMES)})`,
+    `kept moves: ${keptSet.size} at normal pace (${clock(sum(s => keptSet.has(s.entry) && !s.badge && (s.bet ?? 0) === 0 && s.fx !== 'fill'))}), ${beats.length} bet beats (${clock(sum(s => (s.bet ?? 0) > 0))}), ${always} always kept`,
+    `boring moves: ${Math.max(0, boringCount)} of ${moves}, ${boringShown.length} shown ${badge ? `at speed ${badge}` : 'none (the level plays whole)'} (${clock(sum(s => !!s.badge))})`,
+    `most interesting: ${top}`,
+  ].join('\n');
 }
 
 /** `n` items spread evenly over `items`, the first and the last included. */
@@ -288,13 +405,14 @@ export function withCredit(description: string, credit: string | null): string {
 }
 
 const countsOf = (entries: LogStep[], trades: TradeRow[]) => tradesByMove(entries, trades).map(l => l.length);
+const creditsOf = (entries: LogStep[], trades: TradeRow[]) => tradesByMove(entries, trades).map(l => l.reduce((a, r) => a + Math.abs(Number(r.detail?.cost) || 0), 0));
 
 export function fullSidecar(game: GameEntry, entries: LogStep[], trades: TradeRow[], credit: string | null) {
   const base = sidecar(game, entries, trades);
   return {
     ...base,
     description: withCredit(base.description, credit),
-    durationSeconds: frameCount(fullCutPlan(entries, game.size, countsOf(entries, trades))) / FPS,
+    durationSeconds: frameCount(fullCutPlan(entries, game.size, countsOf(entries, trades), creditsOf(entries, trades))) / FPS,
   };
 }
 
