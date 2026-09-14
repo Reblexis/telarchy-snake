@@ -9,6 +9,7 @@ import { WIDTH, HEIGHT } from './frame.js';
 import { FPS, readLevel, tradesByMove, videoState, type LevelContext } from './level.js';
 import { frameCount, fullCutPlan, fullSidecar, mixArgs, sfxEvents, shortPlan, shortSidecar, synthSfx, type Shot } from './fun.js';
 import { renderFunFrame, renderShortFrame, SHORT_W, SHORT_H } from './fun-frame.js';
+import { planFrames, pump } from './pump.js';
 
 const argv = process.argv.slice(2);
 const flag = (name: string): string | null => {
@@ -49,7 +50,7 @@ const stateOf = (i: number) => {
   return s;
 };
 
-type Draw = (s: any, now: number, shot: Shot, k: number) => Buffer;
+import type { Draw } from './pump.js';
 
 async function run(args: string[]) {
   const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'inherit', 'inherit'] });
@@ -65,18 +66,8 @@ async function encode(path: string, w: number, h: number, plan: Shot[], draw: Dr
   ], { stdio: ['pipe', 'inherit', 'inherit'] });
   const exited = once(ff, 'exit');
   ff.stdin.on('error', () => {});
-  let done = 0;
-  for (const shot of plan) {
-    const { state, now } = stateOf(shot.entry);
-    // a still stretch is drawn once; an effect or a card animates frame by frame
-    const animated = shot.fx !== null || shot.card !== null;
-    let still: Buffer | null = null;
-    for (let k = 0; k < shot.frames; k++) {
-      const frame = animated ? draw(state, now, shot, k) : (still ??= draw(state, now, shot, 0));
-      if (!ff.stdin.write(frame)) await once(ff.stdin, 'drain');
-    }
-    if (++done % 250 === 0) console.error(`${path}: shot ${done}/${plan.length}`);
-  }
+  const frames = planFrames(plan, stateOf, draw, done => { if (done % 250 === 0) console.error(`${path}: shot ${done}/${plan.length}`); });
+  await pump(frames, { write: frame => ff.stdin.write(frame), drained: async () => { await once(ff.stdin, 'drain'); } });
   ff.stdin.end();
   const [code] = await exited;
   if (code !== 0) throw new Error(`ffmpeg exited ${code}`);
