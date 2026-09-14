@@ -30,6 +30,7 @@ for (const [file, family] of [
 /** The Telarchy lockup for dark grounds, drawn small at its own aspect ratio. */
 const logo = new Image();
 logo.src = readFileSync(fileURLToPath(new URL('../assets/logo-lockup-dark.png', import.meta.url)));
+export const logoImage = logo;
 export const LOGO_NATURAL = { w: logo.naturalWidth || logo.width, h: logo.naturalHeight || logo.height };
 const LOGO_H = 18;
 export const LOGO_BOX = { w: (LOGO_H * LOGO_NATURAL.w) / LOGO_NATURAL.h, h: LOGO_H };
@@ -50,6 +51,8 @@ const FG2 = '#b5b1a3';
 const MUTE = '#97938c';
 const LEAD = '#f59e0b';
 const BONE = '#f2ecdc';
+/** The frame's colours, for the fun cuts' overlays (docs/snake.md, "The fun cuts"). */
+export const PALETTE = { BG, BOARD, LINE, STRONG, SNAKE, FOOD, FG, FG2, MUTE, LEAD, BONE } as const;
 
 const MARGIN = 24;
 const BOARD_PX = HEIGHT - 2 * MARGIN; // 672
@@ -57,9 +60,14 @@ const X = MARGIN + BOARD_PX + 40; // 736: the right column
 const W = WIDTH - X - MARGIN; // 520
 const RIGHT = X + W; // 1256
 
-export function cellRect(x: number, y: number, size: number = GRID) {
-  const cell = Math.floor(BOARD_PX / size);
-  return { x: MARGIN + x * cell, y: MARGIN + y * cell, w: cell, h: cell };
+/** Where a board is drawn: its top-left corner and its side in pixels. */
+export interface Box { x: number; y: number; px: number }
+/** The stream frame's board. */
+export const MAIN_BOX: Box = { x: MARGIN, y: MARGIN, px: BOARD_PX };
+
+export function cellRect(x: number, y: number, size: number = GRID, box: Box = MAIN_BOX) {
+  const cell = Math.floor(box.px / size);
+  return { x: box.x + x * cell, y: box.y + y * cell, w: cell, h: cell };
 }
 
 const measurer = createCanvas(1, 1).getContext('2d');
@@ -175,12 +183,12 @@ export function pillRects(s: any): Array<{ x: number; y: number; w: number; h: n
 }
 
 /** The chevron (or, at a wall, the bar) for the next direction, in the accent. */
-function drawArrow(ctx: SKRSContext2D, head: { x: number; y: number }, N: number, next: { direction: string; decided: boolean }) {
+function drawArrow(ctx: SKRSContext2D, head: { x: number; y: number }, N: number, next: { direction: string; decided: boolean }, box: Box = MAIN_BOX) {
   const [dx, dy] = DELTA[next.direction] ?? DELTA.right;
-  const CELL = Math.floor(BOARD_PX / N);
+  const CELL = Math.floor(box.px / N);
   const ax = head.x + dx, ay = head.y + dy;
   const wall = ax < 0 || ay < 0 || ax >= N || ay >= N;
-  const h = cellRect(head.x, head.y, N);
+  const h = cellRect(head.x, head.y, N, box);
   const hx = h.x + h.w / 2, hy = h.y + h.h / 2;
   ctx.save();
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -196,7 +204,7 @@ function drawArrow(ctx: SKRSContext2D, head: { x: number; y: number }, N: number
     ctx.moveTo(cx + px * halfBar, cy + py * halfBar);
     ctx.lineTo(cx - px * halfBar, cy - py * halfBar);
   } else {
-    const r = cellRect(ax, ay, N);
+    const r = cellRect(ax, ay, N, box);
     const cx = r.x + r.w / 2, cy = r.y + r.h / 2, half = CELL * 0.15, arm = CELL * 0.22;
     ctx.beginPath();
     ctx.moveTo(cx - dx * half + px * arm, cy - dy * half + py * arm);
@@ -208,21 +216,21 @@ function drawArrow(ctx: SKRSContext2D, head: { x: number; y: number }, N: number
   ctx.restore();
 }
 
-function drawBoard(ctx: SKRSContext2D, g: any, N: number, next: { direction: string; decided: boolean } | null) {
-  const CELL = Math.floor(BOARD_PX / N);
+export function drawBoard(ctx: SKRSContext2D, g: any, N: number, next: { direction: string; decided: boolean } | null, box: Box = MAIN_BOX) {
+  const CELL = Math.floor(box.px / N);
   const size = CELL * N;
   ctx.fillStyle = BOARD;
-  roundRect(ctx, MARGIN, MARGIN, size, size, 6);
+  roundRect(ctx, box.x, box.y, size, size, 6);
   ctx.fill();
   ctx.strokeStyle = LINE;
   ctx.lineWidth = 1;
   for (let i = 1; i < N; i++) {
-    ctx.beginPath(); ctx.moveTo(MARGIN + i * CELL + 0.5, MARGIN); ctx.lineTo(MARGIN + i * CELL + 0.5, MARGIN + size); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(MARGIN, MARGIN + i * CELL + 0.5); ctx.lineTo(MARGIN + size, MARGIN + i * CELL + 0.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(box.x + i * CELL + 0.5, box.y); ctx.lineTo(box.x + i * CELL + 0.5, box.y + size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(box.x, box.y + i * CELL + 0.5); ctx.lineTo(box.x + size, box.y + i * CELL + 0.5); ctx.stroke();
   }
-  roundRect(ctx, MARGIN + 0.5, MARGIN + 0.5, size - 1, size - 1, 6);
+  roundRect(ctx, box.x + 0.5, box.y + 0.5, size - 1, size - 1, 6);
   ctx.stroke();
-  const centre = (c: { x: number; y: number }) => { const r = cellRect(c.x, c.y, N); return [r.x + r.w / 2, r.y + r.h / 2] as const; };
+  const centre = (c: { x: number; y: number }) => { const r = cellRect(c.x, c.y, N, box); return [r.x + r.w / 2, r.y + r.h / 2] as const; };
   if (g.food) {
     const [fx, fy] = centre(g.food);
     ctx.fillStyle = FOOD;
@@ -251,7 +259,7 @@ function drawBoard(ctx: SKRSContext2D, g: any, N: number, next: { direction: str
       : [[cx + off, cy - side], [cx + off, cy + side]];
     ctx.fillStyle = BOARD;
     for (const [ex, ey] of eyes) { ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill(); }
-    if (next) drawArrow(ctx, snake[0], N, next);
+    if (next) drawArrow(ctx, snake[0], N, next, box);
   }
 }
 
@@ -423,6 +431,9 @@ function draw(s: any, now: number, texts: string[]): Canvas {
   drawLink();
   return canvas;
 }
+
+/** The stream frame as a canvas, for the fun cuts to draw on (docs/snake.md, "The fun cuts"). */
+export const drawFrame = draw;
 
 /** The RGB bytes ffmpeg takes, out of the canvas. */
 function toRgb(canvas: Canvas): Buffer {

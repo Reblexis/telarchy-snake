@@ -8,10 +8,6 @@ import { NEXT_LABEL, span } from './frame.js';
 
 /** Frames a second of a level video. */
 export const FPS = 24;
-const HOLD_FIRST = 3 * FPS;
-const HOLD_MOVE = 6;
-const HOLD_DEATH = FPS;
-const HOLD_LAST = 5 * FPS;
 /** The workspace the actions log is read for. */
 export const WORKSPACE_SLUG = 'snake';
 
@@ -140,15 +136,6 @@ export function videoState(ctx: LevelContext, i: number): { state: any; now: num
   return { state, now: ms(e.at) };
 }
 
-/** How many frames each entry holds (docs/snake.md, "Pace"). */
-export function holds(entries: LogStep[]): number[] {
-  return entries.map((e, i) => {
-    if (i === entries.length - 1) return HOLD_LAST;
-    if (i === 0) return HOLD_FIRST;
-    return e.deaths > entries[i - 1].deaths ? HOLD_DEATH : HOLD_MOVE;
-  });
-}
-
 /** The sidecar JSON uploaded with the video: its title, description and facts. */
 export function sidecar(game: GameEntry, entries: LogStep[], trades: TradeRow[]) {
   const inLevel = tradesIn(entries, trades);
@@ -172,7 +159,6 @@ export function sidecar(game: GameEntry, entries: LogStep[], trades: TradeRow[])
     traders,
     startedAt: game.startedAt,
     endedAt: game.endedAt,
-    durationSeconds: holds(entries).reduce((a, b) => a + b, 0) / FPS,
   };
 }
 

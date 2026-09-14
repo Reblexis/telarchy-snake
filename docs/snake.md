@@ -663,11 +663,8 @@ The last frame is the full grid: the complete game's line, "The snake
 filled the grid.", in place of the pills, and a second line with the level's
 facts, `<moves> moves · <deaths> deaths · <trades> trades · <span>`.
 
-**Pace.** 24 frames a second. The first entry holds 3 seconds, every move
-holds 6 frames (a quarter second, four moves a second), a move that kills
-the snake holds 24 frames so the death is seen, and the last frame holds 5
-seconds. A silent stereo audio track is muxed in. H.264, yuv420p, 1280 by
-720, `+faststart`.
+**Encoding.** 24 frames a second, H.264, yuv420p, AAC audio, `+faststart`.
+How long each entry is held is each cut's pace ("The fun cuts").
 
 **The sidecar** `snake-level-<game>.json` is `{ game, size, title,
 description, moves, deaths, trades, traders, startedAt, endedAt,
@@ -682,6 +679,62 @@ Level <game> on a <size>x<size> grid: <moves> moves over <span>, <deaths> deaths
 Trade the next move: https://telarchy.com/snake
 Watch it live: https://www.twitch.tv/telarchy
 ```
+
+### The fun cuts
+
+A level video is made to be watched for fun, with music, in two cuts from
+the same record: the **full cut** (1280 by 720, the frame above) and the
+**Short** (1080 by 1920, at most 59 seconds). `npm run video -- <game>
+[--music <audio file>]` writes both, `videos/snake-level-<game>.mp4` and
+`videos/snake-level-<game>-short.mp4`, each with its sidecar.
+
+**What happens in the game is felt, not only shown.** On a move that eats,
+the head pops and a `+1` rises from the eaten cell, with a short rising
+blip. On a death the board flashes red and shakes, a low buzz plays, and a
+death counter on the frame counts up. When the grid fills, confetti bursts
+over the board, `FILLED` is drawn large, and a fanfare plays. The sound
+effects are synthesized by the renderer, so the video owns every sound in it
+except the music.
+
+**The music** is the file given with `--music`: a royalty-free track whose
+license allows it in YouTube videos without a Content ID claim (the
+`level-video` skill picks it and keeps its license beside the video). It is
+looped to the cut's length when shorter, faded in over the first second and
+out over the last two, and mixed under the sound effects so a blip is always
+heard. The finished mix is normalized to YouTube's loudness, -14 LUFS
+integrated with the true peak at -1.5 dBTP, so every video plays at the same
+level whatever the track. Without `--music` the cuts carry the sound effects
+alone and the command says so. `--credit "<line>"` gives the track's credit, and each
+sidecar's description then ends with that line; a track whose license asks
+for attribution is never used without it.
+
+**A sound effect never stutters.** In a sped-up stretch many moves eat or
+die close together; a sound plays only when the last sound of the same kind
+started at least a fifth of a second earlier.
+
+**The full cut keeps the story and skips the waiting.** An attempt that
+sets a new record (reaches a length above every earlier attempt of the level)
+or fills the grid plays at four moves a second; every other attempt plays at
+twelve moves a second with a `x3` badge on the board. Its facts, frame and
+panel are as above.
+
+**The Short** is vertical and built for a phone, in this order:
+
+1. a hook, two seconds: `A market played snake.` over the empty board;
+2. the failures: the last move of every attempt before the filling one, in
+   order, a quarter second each at most, with the death counter running,
+   squeezed to fit;
+3. the filling attempt, from its first move to the fill, at the pace that
+   fits the time left (at least four moves a second);
+4. the fill: confetti and `FILLED`, then an end card with `telarchy.com/snake`,
+   three seconds each.
+
+The Short's frame is the board full width at the top, then in large type
+the length, the death counter and the next move's options with their
+prices, the chosen one outlined, and the newest trade of the move; nothing
+smaller than 40 px is set. Its sidecar title is
+`A prediction market played snake (level <game>) #shorts`, and its
+description is the full cut's.
 
 **Publishing is a person's step.** The file is uploaded in YouTube Studio
 as public, with the sidecar's title and description, on the channel above.
