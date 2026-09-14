@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { parseTruePeak, peakCorrectionDb } from '../src/loudness.js';
-import { mixArgs } from '../src/fun.js';
 
 // docs/level-video.md, "Encoding": a finished file never clips on a phone.
 
@@ -24,14 +23,5 @@ describe('the correction', () => {
     expect(peakCorrectionDb(-1)).toBe(0);
     expect(peakCorrectionDb(-6)).toBe(0);
     expect(peakCorrectionDb(-Infinity)).toBe(0);
-  });
-  it('the mix applies a gain after the limiter when one is asked for, with or without music', () => {
-    for (const music of ['song.mp3', null]) {
-      const args = mixArgs({ video: 'v.mp4', sfx: 'fx.wav', music, out: 'o.mp4', seconds: 90, gainDb: -3 });
-      const filter = args[args.indexOf('-filter_complex') + 1];
-      expect(filter.indexOf('volume=-3dB')).toBeGreaterThan(filter.indexOf('alimiter='));
-    }
-    const plain = mixArgs({ video: 'v.mp4', sfx: 'fx.wav', music: null, out: 'o.mp4', seconds: 90 });
-    expect(plain[plain.indexOf('-filter_complex') + 1]).not.toContain('dB');
   });
 });

@@ -6,8 +6,6 @@ import type { GameEntry, LogStep } from './gamelog.js';
 import { ACTIONS, directionsFrom, type Action } from './decide.js';
 import { NEXT_LABEL, span } from './frame.js';
 
-/** Frames a second of a level video. */
-export const FPS = 24;
 /** The workspace the actions log is read for. */
 export const WORKSPACE_SLUG = 'snake';
 
@@ -21,7 +19,6 @@ export interface TradeRow {
 }
 
 /** One row of the video's panel, already worded. */
-export interface PanelRow { age: string; handle: string; what: string; cr: string }
 
 /** A level video shows a whole complete level or does not exist. */
 export function refuseUnlessWhole(g: GameEntry): void {
@@ -103,59 +100,8 @@ export function betRows(trades: TradeRow[], next: LogStep): BetRow[] {
   }));
 }
 
-export function panelRows(trades: TradeRow[], next: LogStep): PanelRow[] {
-  const option = optionsByBook(trades, next);
-  return [...trades].sort(newestFirst).slice(0, 5).map(t => {
-    const opt = option.get(String(t.detail?.marketId ?? '')) ?? null;
-    const call = Number(t.detail?.callAfter);
-    const what = `${t.detail?.side === 'sell' ? 'sold' : 'bought'} ${t.detail?.direction === 'lower' ? 'lower' : 'higher'}${opt ? ` on ${NEXT_LABEL[opt]}` : ''} at ${Number.isFinite(call) ? call.toFixed(1) : '-'}`;
-    return { age: age(t.at, next.at), handle: t.actor?.handle ?? '?', what, cr: `${Math.round(Math.abs(Number(t.detail?.cost) || 0)).toLocaleString('en-US')} cr` };
-  });
-}
-
-export interface LevelContext { game: GameEntry; games: GameEntry[]; entries: LogStep[]; byMove: TradeRow[][] }
-
 const levelSpan = (g: GameEntry) => span(ms(g.endedAt ?? g.startedAt) - ms(g.startedAt));
 const tradesIn = (entries: LogStep[], trades: TradeRow[]) => tradesByMove(entries, trades).flat();
-
-/** The facts line of the last frame. */
-function factsLine(ctx: LevelContext): string {
-  const last = ctx.entries[ctx.entries.length - 1];
-  return `${ctx.entries.length - 1} moves · ${last.deaths} deaths · ${ctx.byMove.flat().length} trades · ${levelSpan(ctx.game)}`;
-}
-
-/** The stream frame's payload for entry `i`, and the instant its timers read. */
-export function videoState(ctx: LevelContext, i: number): { state: any; now: number } {
-  const { game, games, entries, byMove } = ctx;
-  const e = entries[i];
-  const next = entries[i + 1] ?? null;
-  const last = next === null;
-  let first = i;
-  while (first > 0 && entries[first].deaths === entries[first - 1].deaths) first--;
-  const quotes = Object.fromEntries(ACTIONS.map(a => [a, { m60: { price: next ? next.prices[a] : null, lead: null } }]));
-  const state = {
-    game: { snake: e.snake, heading: e.heading, food: e.food, length: e.length, deaths: e.deaths, step: e.step, size: game.size, gameNumber: game.number, complete: last },
-    grid: game.size,
-    gameNumber: game.number,
-    complete: last,
-    attempt: e.deaths + 1,
-    attemptStartedAt: entries[first].at,
-    levels: games
-      .filter(g => g.number <= game.number)
-      .map(g => ({ number: g.number, size: g.size, startedAt: g.startedAt, endedAt: g.number === game.number && !last ? null : g.endedAt })),
-    open: next ? { step: next.step, directions: directionsFrom(e.heading), quotes } : null,
-    next: next ? { direction: next.direction, decided: true } : null,
-    secondsToDecision: null,
-    video: {
-      chosen: next && !next.undecided ? next.action : null,
-      undecided: next?.undecided === true,
-      rows: next ? panelRows(byMove[i] ?? [], next) : [],
-      bets: next ? betRows(byMove[i] ?? [], next) : [],
-      facts: last ? factsLine(ctx) : null,
-    },
-  };
-  return { state, now: ms(e.at) };
-}
 
 /** The sidecar JSON uploaded with the video: its title, description and facts. */
 export function sidecar(game: GameEntry, entries: LogStep[], trades: TradeRow[]) {

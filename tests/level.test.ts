@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  refuseUnlessWhole, tradesByMove, optionOfBook, panelRows, videoState, sidecar, readLevel, FPS,
+  refuseUnlessWhole, tradesByMove, optionOfBook, sidecar, readLevel,
   type TradeRow,
 } from '../src/level.js';
-import { drawnTexts, renderFrame, pillRects, WIDTH, LAYOUT } from '../src/frame.js';
 import type { GameEntry, LogStep } from '../src/gamelog.js';
 
 // docs/snake.md, "The level videos".
@@ -87,145 +86,6 @@ describe('an option is named on a trade only when the match is unambiguous', () 
   });
   it('names nothing for a book with no trades', () => {
     expect(optionOfBook([], prices)).toBeNull();
-  });
-});
-
-describe('the panel rows', () => {
-  const next = entry(1, { prices: { forward: 2, left: 3, right: 4 } });
-  it('at most five, newest first, aged from the next entry, the option named when unambiguous', () => {
-    const trades = [
-      trade('1', at(0, 55), { marketId: 'L', callAfter: 3, handle: 'ann' }),
-      trade('2', at(0, 50), { marketId: 'X', callAfter: 9, side: 'sell', direction: 'lower', cost: -12.4, handle: 'bob' }),
-      trade('3', at(0, 40)), trade('4', at(0, 30)), trade('5', at(0, 20)), trade('6', at(0, 10)),
-    ];
-    const rows = panelRows(trades, next);
-    expect(rows).toHaveLength(5);
-    expect(rows[0]).toEqual({ age: '5s', handle: 'ann', what: 'bought higher on Turn left at 3.0', cr: '10 cr' });
-    expect(rows[1]).toEqual({ age: '10s', handle: 'bob', what: 'sold lower at 9.0', cr: '12 cr' });
-    expect(rows[4].age).toBe('40s');
-  });
-  it('is empty for a move nobody traded', () => {
-    expect(panelRows([], next)).toEqual([]);
-  });
-});
-
-describe('every frame is the stream frame drawn from the record', () => {
-  const entries = [
-    entry(0),
-    entry(1, { action: 'left', direction: 'up', heading: 'up', prices: { forward: 5, left: 1.25, right: 3 } }),
-    entry(2, { action: 'forward', direction: 'up', heading: 'up', deaths: 1, length: 2 }),
-    entry(3, { undecided: true, action: 'forward', direction: 'up', heading: 'up', deaths: 1, prices: { forward: null, left: null, right: null } }),
-    entry(4, { snake: Array.from({ length: 16 }, (_, k) => ({ x: k % 4, y: Math.floor(k / 4) })), length: 16, deaths: 1 }),
-  ];
-  const trades = [trade('t', at(0, 30), { handle: 'ann', callAfter: 1.25, marketId: 'L' })];
-  const ctx = () => ({ game, games: [earlier, game], entries, byMove: tradesByMove(entries, trades) });
-  const texts = (i: number) => { const { state, now } = videoState(ctx(), i); return drawnTexts(state, now); };
-
-  it('the pills carry the next move\'s recorded prices, one decimal', () => {
-    const t = texts(0);
-    expect(t).toEqual(expect.arrayContaining(['5.0', '1.3', '3.0']));
-  });
-
-  it('outlines the chosen option in green even when another option priced higher', () => {
-    const { state, now } = videoState(ctx(), 0);
-    const buf = renderFrame(state, now);
-    const rects = pillRects(state);
-    const green = (r: { x: number; y: number; w: number }) => {
-      const i = (r.y * WIDTH + Math.floor(r.x + r.w / 2)) * 3;
-      return buf[i + 1] > 150 && buf[i] < 150;
-    };
-    // order is forward, left, right; the market chose left at 1.25 while forward read 5
-    expect(rects.map(green)).toEqual([false, true, false]);
-  });
-
-  it('an undecided move outlines no option and says undecided', () => {
-    const { state, now } = videoState(ctx(), 2);
-    const buf = renderFrame(state, now);
-    const lit = pillRects(state).some(r => { const i = (r.y * WIDTH + Math.floor(r.x + r.w / 2)) * 3; return buf[i + 1] > 150 && buf[i] < 150; });
-    expect(lit).toBe(false);
-    expect(drawnTexts(state, now)).toContain('undecided');
-  });
-
-  it('a decided move reads decided and no countdown is drawn', () => {
-    const t = texts(0);
-    expect(t).toContain('decided');
-    expect(t.some(s => /^\d:\d\d$/.test(s))).toBe(false); // the countdown is m:ss; the timers are mm:ss
-  });
-
-  it('the panel is one page of this move\'s trades: no dots label, no Top traders', () => {
-    const t = texts(0);
-    expect(t).toContain('TRADES ON THIS MOVE');
-    expect(t).not.toContain('TOP TRADERS');
-    expect(t).toContain('ann');
-    expect(t.some(s => s.startsWith('bought higher on Turn left at 1.3'))).toBe(true);
-    expect(t).toContain('30s');
-  });
-
-  it('a move nobody traded says so', () => {
-    expect(texts(1)).toContain('No trades on this move');
-  });
-
-  it('the attempt and its time count from the attempt\'s first entry', () => {
-    const t = texts(3);
-    expect(t).toContain('NOW · ATTEMPT 2');
-    expect(t).toContain('01:00'); // attempt began at entry 2, this is entry 3
-  });
-
-  it('the level line is the grid and the time since the game started, then earlier games', () => {
-    const t = texts(3);
-    expect(t).toContain('LEVEL 4X4');
-    expect(t).toContain('03:00');
-    expect(t).toContain('4x4 3h 20m');
-  });
-
-  it('the chevron points at the next move and the last entry draws none', () => {
-    expect(videoState(ctx(), 0).state.next).toEqual({ direction: 'up', decided: true });
-    expect(videoState(ctx(), 4).state.next).toBeNull();
-  });
-
-  it('the last frame draws no chevron or wall bar on the board, whatever the heading', () => {
-    const accentOnBoard = (i: number) => {
-      const { state, now } = videoState(ctx(), i);
-      const buf = renderFrame(state, now);
-      let n = 0;
-      for (let y = 24; y < 696; y++) for (let x = 24; x < 696; x++) {
-        const k = (y * WIDTH + x) * 3;
-        if (buf[k] > 150 && buf[k + 1] > 80 && buf[k + 1] < 180 && buf[k + 2] < 60) n++;
-      }
-      return n;
-    };
-    expect(accentOnBoard(0)).toBeGreaterThan(0); // the guard: a chevron is found when one is drawn
-    expect(accentOnBoard(4)).toBe(0);
-  });
-
-  it('the complete game\'s lines sit below the level line, never over it', () => {
-    expect(LAYOUT.completeBaseline - 20).toBeGreaterThan(LAYOUT.levelBaseline);
-    expect(LAYOUT.completeBaseline + 28 + 6).toBeLessThan(LAYOUT.panelLabelBaseline - 13);
-  });
-
-  it('the last frame draws no trades panel, since no move follows it', () => {
-    const t = texts(4);
-    expect(t).not.toContain('TRADES ON THIS MOVE');
-    expect(t).not.toContain('No trades on this move');
-  });
-
-  it('the last frame is the full grid with the complete line and the level\'s facts', () => {
-    const t = texts(4);
-    expect(t).toContain('The snake filled the grid.');
-    expect(t).toContain('4 moves · 1 deaths · 1 trades · 04:00');
-    expect(t).toContain('telarchy.com/snake');
-  });
-
-  it('never draws a price the record does not hold', () => {
-    const t = texts(2); // the next move (entry 3) recorded no prices
-    // the only one-decimal number left is the entry's own length
-    expect(t.filter(s => /^\d+\.\d$/.test(s))).toEqual(['2.0']);
-  });
-});
-
-describe('encoding', () => {
-  it('24 frames a second', () => {
-    expect(FPS).toBe(24);
   });
 });
 

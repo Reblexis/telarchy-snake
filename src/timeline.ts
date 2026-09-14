@@ -3,7 +3,7 @@
 import type { LogStep } from './gamelog.js';
 import type { TradeRow } from './level.js';
 import type { Moment } from './moments.js';
-import { attempts } from './fun.js';
+import { attempts } from './attempts.js';
 
 export const TL_FPS = 30;
 export const FULL_MAX = 5 * 60 * TL_FPS;

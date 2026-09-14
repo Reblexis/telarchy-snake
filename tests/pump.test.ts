@@ -1,53 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { planFrames, pump, animates } from '../src/pump.js';
-import type { Shot } from '../src/fun.js';
+import { pump } from '../src/pump.js';
 
-// docs/snake.md, "The fun cuts" (a bet beat pops chips and counts prices frame by frame)
-// and "The level videos", Encoding (a render holds a bounded amount of memory).
-
-const shot = (frames: number, over: Partial<Shot> = {}): Shot => ({ entry: 0, frames, badge: null, fx: null, card: null, caption: null, ...over });
-const stateOf = () => ({ state: {}, now: 0 });
-
-function drawSpy() {
-  const calls: number[] = [];
-  const draw = (_s: any, _n: number, _shot: Shot, k: number) => { calls.push(k); return Buffer.from([k]); };
-  return { calls, draw };
-}
-
-describe('every animated frame is drawn, a still is drawn once', () => {
-  it('a bet beat is drawn frame by frame, so its chips pop and its prices count', () => {
-    const { calls, draw } = drawSpy();
-    const out = [...planFrames([shot(14, { bet: 1, more: 0 })], stateOf, draw)];
-    expect(calls).toEqual(Array.from({ length: 14 }, (_, k) => k));
-    expect(out.map(b => b[0])).toEqual(calls);
-  });
-  it('a caption that ends inside its shot is drawn frame by frame, so it can go', () => {
-    const { calls, draw } = drawSpy();
-    [...planFrames([shot(10, { caption: 'A market picks every move.', captionFrames: 4 })], stateOf, draw)];
-    expect(calls).toHaveLength(10);
-  });
-  it('crashes, eats, the fill and the end card animate', () => {
-    for (const over of [{ fx: 'death' }, { fx: 'eat' }, { fx: 'fill' }, { card: 'end' }] as Array<Partial<Shot>>) {
-      const { calls, draw } = drawSpy();
-      [...planFrames([shot(5, over)], stateOf, draw)];
-      expect(calls, JSON.stringify(over)).toEqual([0, 1, 2, 3, 4]);
-    }
-  });
-  it('a plain move, or a caption held for the whole shot, is drawn once and repeated', () => {
-    for (const over of [{}, { caption: 'A market picks every move.', captionFrames: 6 }] as Array<Partial<Shot>>) {
-      const { calls, draw } = drawSpy();
-      const out = [...planFrames([shot(6, over)], stateOf, draw)];
-      expect(calls, JSON.stringify(over)).toEqual([0]);
-      expect(out).toHaveLength(6);
-    }
-    expect(animates(shot(6))).toBe(false);
-    expect(animates(shot(6, { bet: 2 }))).toBe(true);
-  });
-  it('shots come out in order, each for its number of frames', () => {
-    const { draw } = drawSpy();
-    expect([...planFrames([shot(2), shot(3, { fx: 'eat' }), shot(1)], stateOf, draw)]).toHaveLength(6);
-  });
-});
+// docs/snake.md, "The level videos": a render holds a bounded amount of memory.
 
 describe('the pump', () => {
   it('yields to the event loop after every frame, so each frame\'s native pixel copy can be released', async () => {

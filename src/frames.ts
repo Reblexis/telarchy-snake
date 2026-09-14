@@ -1,7 +1,7 @@
 // What every output frame of a level video shows, docs/level-video.md "Frames".
 // Pure: the renderer draws only what this describes.
 import type { LogStep } from './gamelog.js';
-import { attempts } from './fun.js';
+import { attempts } from './attempts.js';
 import { positionAt, type Segment } from './timeline.js';
 
 const CHIP_F = 10, LOCK_F = 3, MOVE_F = 12;

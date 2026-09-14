@@ -1,7 +1,7 @@
 // The sound plan of a level video, docs/level-video.md "Sound": every sound by frame,
 // kind, variant, gain relative to the music, and how far the music ducks under it.
 import type { LogStep } from './gamelog.js';
-import { attempts, fxOf } from './fun.js';
+import { attempts, fxOf } from './attempts.js';
 import { positionAt, type Segment } from './timeline.js';
 
 export type SoundKind = 'coin' | 'eat' | 'crash' | 'fill' | 'record';

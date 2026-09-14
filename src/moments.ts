@@ -2,7 +2,7 @@
 import type { GameEntry, LogStep } from './gamelog.js';
 import type { TradeRow } from './level.js';
 import { ACTIONS, turn } from './decide.js';
-import { attempts, fxOf } from './fun.js';
+import { attempts, fxOf } from './attempts.js';
 import { span } from './frame.js';
 
 export type MomentKind = 'near miss' | 'whale' | 'crowd' | 'tie' | 'new best' | 'record crash' | 'milestone' | 'fill';
