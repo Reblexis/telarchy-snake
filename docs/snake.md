@@ -764,13 +764,32 @@ for attribution is never used without it.
 die close together; a sound plays only when the last sound of the same kind
 started at least a fifth of a second earlier.
 
-**The full cut keeps the story and skips the waiting.** An attempt that
-sets a new record (reaches a length above every earlier attempt of the level)
-or fills the grid plays at four moves a second with its bet beats; every
-other attempt plays at twelve moves a second with a `x3` badge on the board,
-its crashes kept short and without the board's red flash, so a run of quick
-deaths never strobes; the burst, the buzz and the counter still mark each one.
-Its facts, frame and panel are as above.
+**The full cut runs five minutes at most, and the boring parts go fast.** Every
+move gets an **interest score** from what happened on it:
+
+- the move that fills the grid, and the crash that ends a record attempt (one that
+  reached a length above every earlier attempt), are always kept;
+- a move that eats scores 3;
+- the credits traded on the move score log2(1 + credits), so a 1-credit trade adds
+  1, 100 credits about 6.7, 1,000 credits about 10;
+- options whose recorded prices are 5 or more apart (the market disagreed) score 2;
+- a move of a record or filling attempt scores 2, and a move of the winning attempt
+  2 more.
+
+The cut keeps the highest-scoring moves at four moves a second, each traded one
+with its bet beat, as many as fit in three fifths of the five minutes (ties go to
+the earlier move). Every other move is **boring**: it plays in a run at one speed
+for the whole cut, the slowest of x3, x6, x12, x24 and x48 at which the whole cut
+fits in five minutes, with that badge on the board. A run at xS shows every
+(S/6)-th move for one frame (x3 shows every move for two frames, x6 every move for
+one), and a crash shown in a run draws its burst without the board's flash. The
+opening, the always-kept moves and the fill are never cut; if x48 still does not
+fit, fewer high-scoring moves stay at normal pace until it does. A level short
+enough to play whole at normal pace plays whole, without a badge.
+
+`npm run cut-report -- <game>` prints where a level's full cut spends its time (by
+kind of shot, kept and boring moves, the chosen speed), which is how a person checks
+what the cut calls boring.
 
 **The Short** is vertical, built for a phone, and tells one story in this
 order:

@@ -52,49 +52,9 @@ describe('attempts', () => {
   });
 });
 
-describe('the full cut keeps the story and skips the waiting', () => {
-  const full = () => fullCutPlan(L, SIZE, TC);
-
-  it('trades land before the snake moves, and a death is drawn from the position before it', () => {
-    expect(full().map(s => [s.entry, kind(s)])).toEqual([
-      [0, 'move'],
-      [0, 'bet'], [1, 'move'],
-      [1, 'bet'], [1, 'crash'], [2, 'move'],
-      [3, 'move'], [4, 'move'],
-      [4, 'crash'], [5, 'move'],
-      [6, 'move'],
-      [6, 'crash'], [7, 'move'],
-      [8, 'move'],
-      [8, 'bet'], [9, 'move'],
-      [10, 'fill'],
-    ]);
-  });
-
-  it('a bet beat shows at most three trades, a third of a second each, then a quarter second for the pick', () => {
-    const bets = full().filter(s => kind(s) === 'bet');
-    expect(bets.map(s => [s.bet, s.more ?? 0, s.frames])).toEqual([[2, 0, 22], [1, 0, 14], [3, 2, 30]]);
-  });
-
-  it('sped-up stretches play no beat, even on a move with trades', () => {
-    expect(full().some(s => kind(s) === 'bet' && s.entry === 5)).toBe(false);
-  });
-
-  it('record and filling attempts play at four moves a second, the others at twelve with an x3 badge', () => {
-    const moves = full().filter(s => kind(s) === 'move' && s.entry > 0);
-    const of = (e: number) => moves.find(s => s.entry === e)!;
-    expect(of(1)).toMatchObject({ frames: 6, badge: null });
-    expect(of(4)).toMatchObject({ frames: 6, badge: null });
-    expect(of(6)).toMatchObject({ frames: 2, badge: 'x3' });
-    expect(of(8)).toMatchObject({ frames: 6, badge: null });
-  });
-
-  it('a crash holds a second in a record attempt and a third of a second when sped up', () => {
-    const crashes = full().filter(s => kind(s) === 'crash');
-    expect(crashes.map(s => s.frames)).toEqual([24, 24, 8]);
-  });
-
-  it('opens on the game: no static hold, the caption across the first two and a half seconds', () => {
-    const plan = full();
+describe('the full cut opens on the game', () => {
+  it('no static hold, the caption across the first two and a half seconds', () => {
+    const plan = fullCutPlan(L, SIZE, TC);
     expect(plan[0]).toMatchObject({ entry: 0, frames: 6 });
     let at = 0;
     for (const s of plan) {
@@ -103,12 +63,15 @@ describe('the full cut keeps the story and skips the waiting', () => {
       at += s.frames;
     }
   });
-
-  it('an eat is marked on the entry it happens on, the fill holds five seconds', () => {
-    expect(full().filter(s => s.fx === 'eat').map(s => s.entry)).toEqual([3, 9]);
-    expect(full().at(-1)).toMatchObject({ entry: 10, fx: 'fill', frames: 5 * FPS });
+  it('a bet beat shows at most three trades, a third of a second each, then a quarter second for the pick', () => {
+    const bets = fullCutPlan(L, SIZE, TC).filter(s => kind(s) === 'bet');
+    expect(bets.map(s => [s.bet, s.more ?? 0, s.frames])).toEqual([[2, 0, 22], [1, 0, 14], [3, 1, 30], [3, 2, 30]]);
   });
-
+  it('an eat is marked on the entry it happens on, the fill holds five seconds', () => {
+    const plan = fullCutPlan(L, SIZE, TC);
+    expect(plan.filter(s => s.fx === 'eat').map(s => s.entry)).toEqual([3, 9]);
+    expect(plan.at(-1)).toMatchObject({ entry: 10, fx: 'fill', frames: 5 * FPS });
+  });
   it('without trade counts there are no beats', () => {
     expect(fullCutPlan(L, SIZE).some(s => kind(s) === 'bet')).toBe(false);
   });
@@ -433,8 +396,10 @@ describe('the sidecars', () => {
   });
   it('the full cut\'s duration is its plan\'s, trades included, and the credit ends the description', () => {
     const s = fullSidecar(game, fourEntries, [trade], 'Music: X');
-    const tc = tradesByMove(fourEntries, [trade]).map(l => l.length);
-    expect(s.durationSeconds).toBe(fullCutPlan(fourEntries, 4, tc).reduce((a, x) => a + x.frames, 0) / FPS);
+    const moves = tradesByMove(fourEntries, [trade]);
+    const tc = moves.map(l => l.length);
+    const cr = moves.map(l => l.reduce((a, r) => a + Math.abs(Number(r.detail.cost) || 0), 0));
+    expect(s.durationSeconds).toBe(fullCutPlan(fourEntries, 4, tc, cr).reduce((a, x) => a + x.frames, 0) / FPS);
     expect(s.description.endsWith('\nMusic: X')).toBe(true);
     expect(s.title).toBe(sidecar(game, fourEntries, [trade]).title);
   });
