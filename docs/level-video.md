@@ -58,19 +58,26 @@ text sits inside 60 px at the sides, 180 px at the top and 390 px at the bottom.
 
 ## The trades: race bars
 
-The market is three horizontal **race bars**, one lane per option in a fixed order,
-`↰ LEFT`, `↑ STRAIGHT`, `↱ RIGHT`, beside the board in the full cut and under it in the
-Short. Each option keeps one hue for the whole video (left cyan, straight violet, right
-magenta), and the option's arrow on the board uses the same hue. Green belongs to the
-snake, red to death, gold to records.
+The market is three horizontal **race bars**, one lane per option in a fixed order (turn
+left, straight on, turn right), beside the board in the full cut, centred on it, and
+under it in the Short. A lane is labelled with the arrow of the direction the option moves
+the snake on screen, and the same arrow, larger and outlined, sits on the board in the
+cell ahead; an option that runs into the wall keeps its arrow, pinned inside the head's
+cell against that wall. Each option keeps one hue for the whole video (turn left cyan, straight on
+violet, turn right magenta). Green belongs to the snake, red to death, gold to records.
 
-- A bar's length is the option's price on an axis from 0 to the full grid, with a faint
-  tick at the snake's current length. The price is printed at the bar's end in large
-  tabular figures and counts as it moves.
-- Each trade is a chip, `+<credits>` over the trader's handle, that flies from the lane's
-  start to the bar's tip in a quarter second, eased out; the bar then grows with a small
-  overshoot. A thin strip under the lane adds up the credits traded on the decision. At
-  most three chips fly per decision; the rest roll into `+N more`.
+- A bar's length is the option's price on an axis from 0 to the full grid; a price under
+  1 is a thin sliver, never a round stub. The price is printed after the lane in large
+  tabular figures and counts as it moves, with the credits traded on the option under it
+  in small type.
+- Each trade of at least one credit is a chip, `+<credits>` over the trader's handle,
+  that flies from the lane's start to the bar's tip in a quarter second, eased out; the
+  bar then grows with a small overshoot. A trade whose option cannot be named lands in a
+  small pot above the bars instead. Chips never overlap: a chip waits until the one
+  before it has landed, and `+N more` sits next to the pot. At most three chips fly per decision; the rest roll into
+  `+N more`.
+- At speed the race bars are hidden; the board and the counters stay, with a progress bar
+  of the best length so far against the full grid in their place.
 - The leading lane is fully saturated, the others at 60 percent. At the lock the losing
   lanes dim to 30 percent, the winner flashes once, its arrow on the board reaches into
   the next cell, and the snake moves.
@@ -82,8 +89,9 @@ the lock, then the move. A moment (above) gets a beat when its weight is among t
 strongest of the level; everything between beats plays at speed, the speed shown as a
 small badge only while it is not normal speed. Speed ramps ease over 8 to 15 frames into
 slow motion and about 8 frames out of it. A crash and a lock hold for three frames (hit
-stop), the fill for four. The camera is still by default, pushes in to 108 percent on the
-snake's head during a beat and eases back after it, and shakes only on a crash.
+stop), the fill for four. The camera is still by default, pushes in toward the snake's
+head during a beat (at most 108 percent, and never so far that any of the board leaves the
+frame) and eases back after it, and shakes only on a crash.
 
 ## Motion and type
 
@@ -92,7 +100,8 @@ along the body), and above eight moves a second it jumps cell to cell with a sho
 trail on the head. Entrances ease out, moves ease in and out, durations are 150, 300 or
 600 ms. Type is Inter at 600 to 800 weight with tabular figures; handles in JetBrains
 Mono. Counters are at least 48 px in the full cut and 96 px in the Short, and nothing in
-the Short is under 40 px. Text is left-aligned; only a single-line title or a lone number
+the Short is under 40 px. A caption never covers the snake's head; in the Short the hook's
+caption sits above the board, in place of the counters. Text is left-aligned; only a single-line title or a lone number
 is centred.
 
 ## Sound
