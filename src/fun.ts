@@ -388,12 +388,14 @@ export function synthSfx(events: Array<{ at: number; kind: Sound }>, seconds: nu
 }
 
 /** The ffmpeg arguments that put the effects (and the music, looped and faded, well under them) on a silent cut. */
-export function mixArgs(o: { video: string; sfx: string; music: string | null; out: string; seconds: number }): string[] {
+export function mixArgs(o: { video: string; sfx: string; music: string | null; out: string; seconds: number; gainDb?: number }): string[] {
   const head = ['-hide_banner', '-loglevel', 'error', '-y', '-i', o.video, '-i', o.sfx];
   const tail = ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-t', String(o.seconds), '-movflags', '+faststart', o.out];
   // YouTube plays at -14 LUFS; normalizing to it keeps every video level whatever the track
   // a limiter after it (0.7 is -3 dBFS) leaves room for the encoder's overshoot, so the file peaks under 0 dBFS
-  const loud = 'loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.7:level=disabled';
+  // a correction measured on the encoded file (docs/level-video.md, "Encoding") comes last
+  const gain = o.gainDb ? `,volume=${Number(o.gainDb.toFixed(2))}dB` : '';
+  const loud = `loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.7:level=disabled${gain}`;
   if (!o.music) return [...head, '-filter_complex', `[1:a]${loud}[a]`, '-map', '0:v', '-map', '[a]', ...tail];
   const fadeOut = Math.max(0, o.seconds - 2);
   const filter = `[2:a]volume=0.25,afade=t=in:st=0:d=1,afade=t=out:st=${fadeOut}:d=2[m];[1:a][m]amix=inputs=2:duration=first:normalize=0,${loud}[a]`;

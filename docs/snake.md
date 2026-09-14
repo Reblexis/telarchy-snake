@@ -620,6 +620,9 @@ depends on a system font or a network read. Every line is readable at
 
 ## The level videos
 
+The production spec (moments, the script, pacing, visuals and sound) is
+`docs/level-video.md`; this section covers the data and the command.
+
 One video per complete game (a **level**), for the Telarchy YouTube
 channel (account agents@telarchy.com, the login in the keyring,
 `telarchy/google-agents.env`). It is marketing: a level took the market

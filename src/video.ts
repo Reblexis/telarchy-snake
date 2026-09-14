@@ -10,6 +10,7 @@ import { FPS, readLevel, tradesByMove, videoState, type LevelContext } from './l
 import { frameCount, fullCutPlan, fullSidecar, mixArgs, sfxEvents, shortPlan, shortSidecar, synthSfx, type Shot } from './fun.js';
 import { renderFunFrame, renderShortFrame, SHORT_W, SHORT_H } from './fun-frame.js';
 import { planFrames, pump } from './pump.js';
+import { parseTruePeak, peakCorrectionDb } from './loudness.js';
 
 const argv = process.argv.slice(2);
 const flag = (name: string): string | null => {
@@ -53,6 +54,14 @@ const stateOf = (i: number) => {
 
 import type { Draw } from './pump.js';
 
+async function truePeakOf(file: string): Promise<number | null> {
+  const ff = spawn('ffmpeg', ['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128=peak=true', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let err = '';
+  ff.stderr.on('data', d => { err += String(d); });
+  await once(ff, 'exit');
+  return parseTruePeak(err);
+}
+
 async function run(args: string[]) {
   const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'inherit', 'inherit'] });
   const [code] = await once(ff, 'exit');
@@ -84,7 +93,16 @@ async function cut(name: string, w: number, h: number, plan: Shot[], draw: Draw,
   try {
     await encode(video, w, h, plan, draw);
     writeFileSync(fx, synthSfx(sfxEvents(plan), seconds));
-    await run(mixArgs({ video, sfx: fx, music, out: part, seconds }));
+    // measure the encoded file and lower the mix until it cannot clip (docs/level-video.md, "Encoding")
+    let gainDb = 0;
+    for (let pass = 0; pass < 4; pass++) {
+      await run(mixArgs({ video, sfx: fx, music, out: part, seconds, gainDb }));
+      const peak = await truePeakOf(part);
+      const correction = peak === null ? 0 : peakCorrectionDb(peak);
+      console.error(`${name}: true peak ${peak} dBFS${correction ? `, lowering the mix ${correction.toFixed(1)} dB` : ''}`);
+      if (correction === 0 || pass === 3) break;
+      gainDb += correction;
+    }
     renameSync(part, out);
     writeFileSync(`videos/${name}.json`, `${JSON.stringify(meta, null, 2)}\n`);
     console.error(`wrote ${out} and videos/${name}.json`);
