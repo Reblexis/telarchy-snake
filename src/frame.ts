@@ -149,10 +149,12 @@ const PILL_H = LAYOUT.pillHeight;
 function pills(s: any): Pill[] {
   if (!s?.open || !s?.game) return [];
   const quotes = (s.open.quotes ?? {}) as Quotes;
-  const best = decide(quotes, s.game.heading).approved;
+  // A level video outlines the option the market chose, whatever the prices
+  // say (docs/snake.md, "The level videos"); the stream outlines the leader.
+  const best = s.video ? s.video.chosen : decide(quotes, s.game.heading).approved;
   const parts = ACTIONS.map(a => {
     const dir = s.open.directions?.[a];
-    return { action: a, label: `${dir ? `${ARROW[dir] ?? ''} ` : ''}${NEXT_LABEL[a]}`, price: one(priceOf(quotes[a])), lead: a === best && priceOf(quotes[a]) !== null };
+    return { action: a, label: `${dir ? `${ARROW[dir] ?? ''} ` : ''}${NEXT_LABEL[a]}`, price: one(priceOf(quotes[a])), lead: s.video ? a === best : a === best && priceOf(quotes[a]) !== null };
   });
   const gap = 10, pad = 16, inner = 8;
   let size = 18;
@@ -321,7 +323,8 @@ function draw(s: any, now: number, texts: string[]): Canvas {
   text(Number.isFinite(attemptAt) ? span(now - attemptAt) : '-', cellX(1), valueY, LAYOUT.statSize, FG, 600, 'mono');
   label(next && ARROW[next.direction] ? `Next move ${ARROW[next.direction]}` : 'Next move', cellX(2), 190, third - 20);
   const secs: number | null = s.secondsToDecision ?? next?.seconds ?? null;
-  if (next?.decided) text('decided', cellX(2), valueY - 4, 26, SNAKE, 600, 'mono');
+  if (s.video?.undecided) text('undecided', cellX(2), valueY - 4, 26, MUTE, 600, 'mono');
+  else if (next?.decided) text('decided', cellX(2), valueY - 4, 26, SNAKE, 600, 'mono');
   else if (secs !== null && Number.isFinite(secs)) text(clock(Math.max(0, Math.round(secs))), cellX(2), valueY, LAYOUT.statSize, LEAD, 600, 'mono');
   else text('-', cellX(2), valueY, LAYOUT.statSize, MUTE, 600, 'mono');
 
@@ -363,16 +366,18 @@ function draw(s: any, now: number, texts: string[]): Canvas {
     }
   } else if (s.complete) {
     text('The snake filled the grid.', X, 304, 20, FG, 500, 'sans');
-    if (s.nextGameAt) {
+    if (s.video?.facts) text(s.video.facts, X, 332, 20, FG2, 400, 'sans');
+    else if (s.nextGameAt) {
       const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000));
       text(`Next game on ${nextGridLabel(N)} in ${m} min.`, X, 332, 20, FG2, 400, 'sans');
     }
   }
 
   // 5. the panel: Log or Top traders, with the dots saying which
-  const page = panelFor(now, s);
-  label(page === 'log' ? 'Log' : 'Top traders', X, LAYOUT.panelLabelBaseline, W - 40);
-  [0, 1].forEach(i => {
+  // A level video's panel is one page, this move's trades, with no dots.
+  const page = s.video ? 'log' : panelFor(now, s);
+  label(s.video ? 'Trades on this move' : page === 'log' ? 'Log' : 'Top traders', X, LAYOUT.panelLabelBaseline, W - 40);
+  if (!s.video) [0, 1].forEach(i => {
     ctx.fillStyle = (page === 'log' ? 0 : 1) === i ? FG : STRONG;
     ctx.beginPath(); ctx.arc(RIGHT - 19 + i * 15, LAYOUT.panelLabelBaseline - 5, 4, 0, Math.PI * 2); ctx.fill();
   });
@@ -380,14 +385,17 @@ function draw(s: any, now: number, texts: string[]): Canvas {
   if (page === 'log') {
     const orders: any[] = Array.isArray(s.restingOrders) ? s.restingOrders : [];
     const trades: any[] = Array.isArray(s.recentTrades) ? s.recentTrades : [];
-    const rows = [
+    const rows: Array<{ at?: string; age?: string; handle: string; what: string; cr: string; colour: string }> = s.video
+      ? (Array.isArray(s.video.rows) ? s.video.rows : []).slice(0, 5).map((r: any) => ({ ...r, colour: FG }))
+      : [
       ...orders.map(o => ({ at: String(o.at), handle: String(o.handle ?? '?'), what: `limit ${o.side === 'lower' ? 'lower' : 'higher'} on ${NEXT_LABEL[o.action] ?? o.action} at ${level(Number(o.level))}`, cr: credits(Number(o.credits) || 0), colour: LEAD })),
       ...trades.map(t => ({ at: String(t.at), handle: String(t.handle ?? '?'), what: `${t.kind === 'sell' ? 'sold' : 'bought'} ${t.side === 'lower' ? 'lower' : 'higher'} on ${NEXT_LABEL[t.action] ?? t.action} at ${one(t.price)}`, cr: credits(Math.abs(Number(t.cost) || 0)), colour: FG })),
     ].slice(0, 5);
+    if (s.video && rows.length === 0) text('No trades on this move', X, rowTop(0) + 26, 15, MUTE, 400, 'sans');
     rows.forEach((r, i) => {
       const top = rowTop(i), base = top + 26;
       hairline(X, top, RIGHT, top);
-      text(ago(r.at, now), X, base, 14, MUTE, 500, 'mono');
+      text(r.age ?? ago(String(r.at), now), X, base, 14, MUTE, 500, 'mono');
       const crW = measureText(r.cr, 16, 500, 'mono');
       text(r.cr, RIGHT, base, 16, r.colour, 500, 'mono', 'right');
       const handle = clip(r.handle, 17, 124, 600, 'sans');

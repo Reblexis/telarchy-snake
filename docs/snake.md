@@ -610,6 +610,84 @@ at render time, and the logo is bundled under `assets/`; the frame never
 depends on a system font or a network read. Every line is readable at
 720p.
 
+## The level videos
+
+One video per complete game (a **level**), for the Telarchy YouTube
+channel (account agents@telarchy.com, the login in the keyring,
+`telarchy/google-agents.env`). It is marketing: a level took the market
+hours or days, and the video shows the whole of it in minutes, every move
+with the prices and the trades that chose it.
+
+**Made by one command, from public reads only.** `npm run video -- <game>`
+(`node dist/video.js <game>`) reads the snake's own feed (`SNAKE_FEED_URL`,
+default `https://snake.telarchy.com`): `/games` for the game's row and
+`/history` paged from index 0 with the largest window until `total` entries
+are read; and Telarchy's public actions log
+(`GET /api/data-room/actions?workspace=snake&kinds=trade&after=<startedAt>&before=<endedAt>`,
+following `next` until it is null). It needs no credential and can run on
+any machine with ffmpeg. It writes `videos/snake-level-<game>.mp4` and
+`videos/snake-level-<game>.json` in the working directory. A game that is
+not complete, or whose log is `partial`, is refused with a message and a
+non-zero exit, and nothing is written: a level video shows a whole level
+or does not exist.
+
+**Every frame is the stream frame** ("The stream"), drawn from the record
+instead of `/state`:
+
+- the board is the entry's snake, food and heading, and the chevron is the
+  direction of the next entry's move, solid (every recorded move was
+  decided or ruled undecided); the last entry draws no chevron;
+- `NOW · ATTEMPT N` is the entry's length and attempt (`deaths + 1`);
+  `THIS ATTEMPT` is the time from the attempt's first entry to this one's
+  `at`; the next-move cell reads `decided`, or `undecided` in muted mono for
+  an undecided move; no countdown is drawn;
+- the level line is the game's grid and the time from `startedAt` to the
+  entry's `at`, then the earlier complete games from `/games` as the stream
+  draws them;
+- the pills are the next move's options with the prices recorded at its
+  decision (`prices` of the next entry); the chosen option is the one
+  outlined in green, whatever the prices say, and an undecided move
+  outlines none;
+- the panel is one page, labelled `TRADES ON THIS MOVE`, with no dots and no
+  Top traders page (the leaderboard is not recorded): the trades whose
+  `at` falls after this entry's `at` and at or before the next entry's,
+  newest first, at most five, each row as the stream's log row with its age
+  counted back from the next entry's `at`. A trade row names its option
+  only when its book's last trade on that move left a call equal (to one
+  decimal) to exactly one option's recorded price; otherwise the row names
+  no option (`bought higher at 2.3`). A move nobody traded shows one muted
+  line, `No trades on this move`;
+- the link is the stream's link.
+
+The last frame is the full grid: the complete game's line, "The snake
+filled the grid.", in place of the pills, and a second line with the level's
+facts, `<moves> moves · <deaths> deaths · <trades> trades · <span>`.
+
+**Pace.** 24 frames a second. The first entry holds 3 seconds, every move
+holds 6 frames (a quarter second, four moves a second), a move that kills
+the snake holds 24 frames so the death is seen, and the last frame holds 5
+seconds. A silent stereo audio track is muxed in. H.264, yuv420p, 1280 by
+720, `+faststart`.
+
+**The sidecar** `snake-level-<game>.json` is `{ game, size, title,
+description, moves, deaths, trades, traders, startedAt, endedAt,
+durationSeconds }`, where `traders` counts distinct handles in the level's
+trades and `durationSeconds` is the video's. The title is
+`Futarchy snake, level <game> (<size>x<size>): a market chose every move`.
+The description is, line by line:
+
+```
+A prediction market played this game of snake. Every minute three options (continue, turn left, turn right) were priced by traders on telarchy.com, and the highest price was the move.
+Level <game> on a <size>x<size> grid: <moves> moves over <span>, <deaths> deaths, <trades> trades by <traders> traders.
+Trade the next move: https://telarchy.com/snake
+Watch it live: https://www.twitch.tv/telarchy
+```
+
+**Publishing is a person's step.** The file is uploaded in YouTube Studio
+as public, with the sidecar's title and description, on the channel above.
+The YouTube Data API keeps uploads from an unaudited project private, so
+uploading is not automated.
+
 ## Operation
 
 The service is one process: engine, operator loop, board, `/state`. It
@@ -677,3 +755,7 @@ to production.
   instead.
 - The operator never trades.
 - The board never shows a price the workspace did not report.
+- A level video shows a whole complete level and nothing the record does
+  not hold: every price is a recorded price, every trade row is a row of
+  the public actions log, and an option is named on a trade only when the
+  match is unambiguous.
