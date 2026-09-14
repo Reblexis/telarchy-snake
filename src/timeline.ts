@@ -32,17 +32,29 @@ const beat = (byMove: TradeRow[][], move: number, extra: Partial<Segment> = {}):
   return { kind: 'beat', move, chips, frames: beatFrames(chips), ...extra } as Segment;
 };
 
-/** Distance covered by n ramp frames climbing from 4 moves a second toward `speed`. */
-const rampDist = (n: number, v0: number, vb: number) => n * v0 + ((vb - v0) / EASE_F) * ((n * (n - 1)) / 2);
+/** The per-frame advances of a run of D moves at `speed`: ramps of 12 frames from and back to
+ *  4 moves a second next to beats, and when the ramps would cover the run on their own they are
+ *  shortened to meet in the middle, so a faster run never takes longer. */
+function advances(D: number, speed: number, easeIn: boolean, easeOut: boolean, capMiddle = Infinity): { head: number[]; middle: number; vb: number; tail: number[] } {
+  const v0 = MIN_SPEED / TL_FPS, vb = speed / TL_FPS;
+  const ramp = (k: number) => v0 + ((vb - v0) * k) / EASE_F;
+  const head: number[] = [], tail: number[] = [];
+  let covered = 0;
+  const inLen = easeIn ? EASE_F : 0, outLen = easeOut ? EASE_F : 0;
+  // take ramp frames from both ends in step until they are used up or the run is covered
+  for (let k = 0; k < Math.max(inLen, outLen) && covered < D; k++) {
+    if (k < inLen) { head.push(ramp(k)); covered += ramp(k); }
+    if (k < outLen && covered < D) { tail.unshift(ramp(k)); covered += ramp(k); }
+  }
+  const middle = covered >= D ? 0 : Math.min(capMiddle, Math.ceil((D - covered) / vb));
+  return { head, middle, vb, tail };
+}
 
 /** How many frames a run of D moves takes at `speed`, easing next to beats. */
 export function runFrames(D: number, speed: number, easeIn: boolean, easeOut: boolean): number {
   if (D <= 0) return 0;
-  const v0 = MIN_SPEED / TL_FPS, vb = speed / TL_FPS;
-  const inLen = easeIn ? EASE_F : 0, outLen = easeOut ? EASE_F : 0;
-  const ramps = rampDist(inLen, v0, vb) + rampDist(outLen, v0, vb);
-  if (ramps >= D) return Math.max(1, Math.ceil(D / v0));
-  return inLen + outLen + Math.ceil((D - ramps) / vb);
+  const a = advances(D, speed, easeIn, easeOut);
+  return a.head.length + a.middle + a.tail.length;
 }
 
 const cumulative = new WeakMap<object, number[]>();
@@ -52,19 +64,10 @@ export function positionAt(seg: Run, f: number): number {
   if (D <= 0) return seg.from;
   let cum = cumulative.get(seg);
   if (!cum) {
-    const v0 = MIN_SPEED / TL_FPS, vb = seg.speed / TL_FPS;
-    const inLen = seg.easeIn ? EASE_F : 0, outLen = seg.easeOut ? EASE_F : 0;
-    const adv: number[] = [];
-    if (rampDist(inLen, v0, vb) + rampDist(outLen, v0, vb) >= D) {
-      for (let k = 0; k < seg.frames; k++) adv.push(v0);
-    } else {
-      for (let k = 0; k < inLen; k++) adv.push(v0 + ((vb - v0) * k) / EASE_F);
-      const middle = seg.frames - inLen - outLen;
-      for (let k = 0; k < middle; k++) adv.push(vb);
-      for (let k = outLen - 1; k >= 0; k--) adv.push(v0 + ((vb - v0) * k) / EASE_F);
-    }
+    const a = advances(D, seg.speed, seg.easeIn, seg.easeOut);
+    const adv = [...a.head, ...Array.from({ length: Math.max(0, seg.frames - a.head.length - a.tail.length) }, () => a.vb), ...a.tail];
     cum = [0];
-    for (const a of adv) cum.push(cum[cum.length - 1] + a);
+    for (const x of adv) cum.push(cum[cum.length - 1] + x);
     cumulative.set(seg, cum);
   }
   const k = Math.max(0, Math.min(seg.frames, Math.round(f)));
@@ -77,9 +80,12 @@ const run = (from: number, to: number, speed: number, easeIn: boolean, easeOut: 
 
 /** The largest ladder speed at most `target`. */
 const ladderFloor = (target: number) => [...SPEED_LADDER].reverse().find(s => s <= target) ?? MIN_SPEED;
-/** The fastest ladder speed at which D moves still take at least GAP_F frames. */
-const capForGap = (D: number, easeIn: boolean, easeOut: boolean) =>
-  [...SPEED_LADDER].reverse().find(s => runFrames(D, s, easeIn, easeOut) >= GAP_F) ?? MIN_SPEED;
+/** The fastest ladder speed at which D moves still take at least GAP_F frames (a faster run never takes longer). */
+const capForGap = (D: number, easeIn: boolean, easeOut: boolean) => {
+  let best: number = MIN_SPEED;
+  for (const sp of SPEED_LADDER) { if (runFrames(D, sp, easeIn, easeOut) >= GAP_F) best = sp; else break; }
+  return best;
+};
 const total = (segs: Segment[]) => segs.reduce((a, s) => a + s.frames, 0);
 
 /** The story from move 1 to the fill, with beats on `beats` and the runs of the struggle at `speed`. */
@@ -104,13 +110,14 @@ function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Ma
       const a = cuts[k], b = cuts[k + 1];
       if (b <= a) continue;
       const easeIn = k === 0 && afterBeat, easeOut = k + 2 === cuts.length && beforeBeat;
+      // the fill-based speed only ever falls; a gap between two beats slows its own run and nothing after it
       let s = speed;
       if (a >= winStart) {
         const frac = entries[a].length / (size * size);
         s = Math.min(winSpeed, ladderFloor(speed * (1 - frac) + MIN_SPEED * frac));
+        winSpeed = s;
       }
       if (betweenBeats && cuts.length === 2) s = Math.min(s, capForGap(b - a, easeIn, easeOut));
-      if (a >= winStart) winSpeed = s;
       out.push(run(a, b, s, easeIn, easeOut));
     }
   };
@@ -133,7 +140,8 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const list = attempts(entries, size);
   const winStart = list[list.length - 1].start;
   const finaleFrom = Math.max(1, last - (FINALE_BEATS - 1));
-  const coldMoment = moments.filter(m => m.kinds.includes('near miss') && m.credits > 0).sort((a, b) => b.weight - a.weight || a.move - b.move)[0];
+  // the cold open never gives away the fill: its moment comes from before the finale
+  const coldMoment = moments.filter(m => m.kinds.includes('near miss') && m.credits > 0 && m.move < finaleFrom).sort((a, b) => b.weight - a.weight || a.move - b.move)[0];
   const cold: Segment[] = coldMoment ? [beat(byMove, coldMoment.move, { cold: true, caption: HOOK_CAPTION })] : [];
   const tail: Segment[] = [{ kind: 'hold', fx: 'hitstop', entry: last, frames: 4 }, { kind: 'hold', fx: 'filled', entry: last, frames: 90 }, { kind: 'credits', frames: CREDITS_FRAMES }];
 
@@ -172,7 +180,9 @@ export function shortTimeline(entries: LogStep[], size: number, byMove: TradeRow
   const last = entries.length - 1;
   const list = attempts(entries, size);
   const winStart = list[list.length - 1].start;
-  const hookMove = moments.filter(m => m.move > winStart && m.kinds.includes('near miss')).at(-1)?.move ?? last;
+  const beforeFinale = Math.max(winStart + 1, last - (FINALE_BEATS - 1));
+  const hookMove = moments.filter(m => m.move > winStart && m.move < beforeFinale && m.kinds.includes('near miss')).at(-1)?.move
+    ?? moments.filter(m => m.move < beforeFinale).sort((a, b) => b.weight - a.weight)[0]?.move ?? Math.max(1, beforeFinale - 1);
   const out: Segment[] = [beat(byMove, hookMove, { caption: HOOK_CAPTION })];
   for (const a of list.slice(0, -1).filter(x => x.record).slice(-4)) {
     const from = Math.max(0, a.end - SHORT_CRASH_MOVES);

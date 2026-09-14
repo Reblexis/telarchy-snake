@@ -98,19 +98,22 @@ here are the contract the renderer and the tests share.
   3 frames of hit stop at the lock, then 12 frames of the snake moving into the cell. A
   move nobody traded has a beat of the lock and the move alone.
 - **Choosing beats.** The cold open uses the level's strongest near miss that was
-  traded. The first traded decision of the level is always a beat, carrying the caption
+  traded, from before the finale's last 8 moves, so the opening never gives away the
+  fill. The first traded decision of the level is always a beat, carrying the caption
   `Traders bet. The highest price moves.`. Then the strongest moments (by weight) get
   beats, strongest first, as long as beats take at most half of the story's time and the
   full cut stays within five minutes with the runs at the slowest ladder speed that fits.
   Outside the finale, between two beats there are always at least 90 frames of run, so
   two beats are at least 13 moves apart.
 - **The finale.** The winning attempt plays in runs split at each fifth of the grid
-  filled, each run no faster than the one before, at a speed that falls as the grid
+  filled, each run no faster than the one before (not counting a short run between two
+  beats, which slows only itself), at a speed that falls as the grid
   fills, from the struggle's speed at its start to 4 moves a second at the end; its last
   8 moves are beats; the fill holds 4 frames of hit stop and then 90 frames of `FILLED`.
 - **Credits** last 540 frames (18 seconds).
 - **The Short** is at most 1,500 frames (50 seconds): the hook is a beat on the winning
-  attempt's last near miss with the caption `A market picks every move.`; then the last
+  attempt's last near miss before its final 8 moves, with the caption
+  `A market picks every move.`; then the last
   6 moves before each of the latest four record crashes, each a crash run at 16 moves a
   second; then the
   winning attempt as a run ending by frame 1,200 with beats on its two strongest moments;
