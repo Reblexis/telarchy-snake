@@ -57,8 +57,8 @@ describe('a run\'s length', () => {
       }
     }
   });
-  it('a run too short for its ramps is shortened: one eased move takes fewer frames than two full ramps', () => {
-    for (const s of SPEED_LADDER) expect(runFrames(1, s, true, true), String(s)).toBeLessThan(24);
+  it('a run too short for its ramps is shortened: one eased move takes less than a single full ramp', () => {
+    for (const s of SPEED_LADDER) expect(runFrames(1, s, true, true), String(s)).toBeLessThan(12);
   });
 
   it('covers its distance exactly with the frames it is given', () => {
