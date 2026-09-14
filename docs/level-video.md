@@ -119,6 +119,30 @@ here are the contract the renderer and the tests share.
   winning attempt as a run ending by frame 1,200 with beats on its two strongest moments;
   then the fill; the last 6 frames repeat the first frame so it loops.
 
+## Frames
+
+Every output frame is described before it is drawn: which point of the level it shows and
+what sits over it. The renderer draws only what the description says.
+
+- **Where the snake is.** In a run, the entry the run has reached at that frame (a
+  fraction between two entries while the snake glides). In a beat, the entry before the
+  decided move through the chips and the lock, then gliding into the move over the last
+  12 frames, arriving on its final frame. In a hold, the level's last entry.
+- **A beat's phases.** Chip `k` (from 0) plays during frames `10k` to `10k + 9` of the
+  beat, with its progress from 0 to 1 across them; the lock is the three frames after the
+  chips; the move is the last 12.
+- **The push-in.** The zoom is 1 outside beats. During a beat it eases up to 1.08 over
+  its first 8 frames, holds, and eases back to 1 over its last 8; the renderer keeps the
+  whole board in frame.
+- **The speed badge** reads `x<speed / 4>` in a run faster than 4 moves a second, and is
+  absent everywhere else.
+- **Captions.** A beat that carries a caption shows it for the whole beat; no other
+  frame has one.
+- **Record cards.** When a run or a beat reaches the crash that ends a record attempt, a
+  lower third `RECORD <length> · attempt <n>` shows for 60 frames; a later card replaces
+  an earlier one.
+- **Holds and credits** say which they are and how far through they are, from 0 to 1.
+
 ## Pacing
 
 A **decision beat** is one move shown in slow motion: the race bars fill trade by trade,
