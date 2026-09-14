@@ -203,6 +203,12 @@ describe('every frame is the stream frame drawn from the record', () => {
     expect(LAYOUT.completeBaseline + 28 + 6).toBeLessThan(LAYOUT.panelLabelBaseline - 13);
   });
 
+  it('the last frame draws no trades panel, since no move follows it', () => {
+    const t = texts(4);
+    expect(t).not.toContain('TRADES ON THIS MOVE');
+    expect(t).not.toContain('No trades on this move');
+  });
+
   it('the last frame is the full grid with the complete line and the level\'s facts', () => {
     const t = texts(4);
     expect(t).toContain('The snake filled the grid.');

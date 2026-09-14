@@ -384,8 +384,10 @@ function draw(s: any, now: number, texts: string[]): Canvas {
   }
 
   // 5. the panel: Log or Top traders, with the dots saying which
-  // A level video's panel is one page, this move's trades, with no dots.
+  // A level video's panel is one page, this move's trades, with no dots; its
+  // last frame has no following move and so no panel.
   const page = s.video ? 'log' : panelFor(now, s);
+  if (!(s.video && !s.open)) {
   label(s.video ? 'Trades on this move' : page === 'log' ? 'Log' : 'Top traders', X, LAYOUT.panelLabelBaseline, W - 40);
   if (!s.video) [0, 1].forEach(i => {
     ctx.fillStyle = (page === 'log' ? 0 : 1) === i ? FG : STRONG;
@@ -425,6 +427,8 @@ function draw(s: any, now: number, texts: string[]): Canvas {
       text(amount, RIGHT, base, 18, profit >= 0 ? SNAKE : FOOD, 500, 'mono', 'right');
       text(clip(String(r.handle ?? '?'), 19, RIGHT - amountW - 16 - (X + 34), 500, 'sans'), X + 34, base, 19, FG, 500, 'sans');
     });
+  }
+
   }
 
   // 6. the link
