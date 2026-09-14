@@ -106,7 +106,7 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(1);
   });
 
-  it('the description is the proposal in the snake\'s first person, one line per option in option order, then the state, the cell and the rule', async () => {
+  it('the description is the proposal in the snake\'s first person, one line per option in option order, then the state, what it is priced on and the rule', async () => {
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, newGame(rng, 12, 1), rng, { boardUrl: 'https://snake.telarchy.com' });
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
@@ -120,8 +120,9 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(rest).toMatch(/length 2\b/i);
     expect(rest).toMatch(/record 2\b/i);
     expect(rest).toMatch(/food at \(\d+,\d+\)/);
-    expect(rest).toContain('11:00');
-    expect(rest).not.toContain('10:01');
+    expect(rest).toMatch(/length this attempt reaches/);
+    expect(rest).toMatch(/settles when the attempt ends/);
+    expect(rest).not.toMatch(/\d\d:\d\d UTC/);
     expect(rest).toMatch(/highest price at :58/);
     expect(rest).toMatch(/void/);
     expect(rest).toMatch(/refund/);
@@ -253,28 +254,27 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls[second + 1].name).toBe('postProposal');
   });
 
-  it('one cell per attempt: the first step sets the horizon to the minute sixty ahead, before the proposals, and later steps of the attempt keep it', async () => {
+  it('one book per attempt: the first step writes the until-settled horizon before the proposal, and later steps keep it', async () => {
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
     await op.openStep(T0);
     const names = calls.map(c => c.name);
-    expect(calls.find(c => c.name === 'setHorizon')!.args).toEqual(['2026-09-11T11:00']);
+    expect(calls.find(c => c.name === 'setHorizon')!.args).toEqual(['until-settled']);
     expect(names.indexOf('setHorizon')).toBeLessThan(names.indexOf('postProposal'));
     expect(names.indexOf('setHorizon')).toBeLessThan(names.lastIndexOf('refreshBooks'));
-    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:00' });
+    expect(op.open?.cells).toEqual({ m60: 'until-settled' });
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z'));
     await op.closeStep(new Date('2026-09-11T10:01:58Z'));
     await op.tick(new Date('2026-09-11T10:02:00Z'));
     expect(calls.filter(c => c.name === 'setHorizon')).toHaveLength(1);
-    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:00' });
-    expect(calls.filter(c => c.name === 'readQuotes').every(c => c.args[1] === '2026-09-11T11:00')).toBe(true);
+    expect(op.open?.cells).toEqual({ m60: 'until-settled' });
+    expect(calls.filter(c => c.name === 'readQuotes').every(c => c.args[1] === 'until-settled')).toBe(true);
     const desc = String(calls.filter(c => c.name === 'postProposal').pop()!.args[1]);
-    expect(desc).toContain('11:00');
-    expect(desc).not.toContain('11:02');
+    expect(desc).not.toMatch(/\d\d:\d\d UTC/);
   });
 
-  it('a death ends the cell: the next step sets a new one sixty minutes ahead of it', async () => {
+  it('a death settles the metric and writes no new horizon: the next step refreshes the books on the same date', async () => {
     const { client, calls } = fakeClient(allTen);
     const g = { ...newGame(rng, 12, 1), snake: [{ x: 11, y: 6 }, { x: 10, y: 6 }], length: 2, food: { x: 0, y: 0 } };
     const op = new Operator(client, g, rng);
@@ -282,33 +282,41 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     await op.tick(new Date('2026-09-11T10:01:00Z')); // dies
     expect(op.game.deaths).toBe(1);
-    expect(calls.filter(c => c.name === 'setHorizon').map(c => c.args[0])).toEqual(['2026-09-11T11:00', '2026-09-11T11:01']);
-    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:01' });
+    expect(calls.filter(c => c.name === 'setHorizon').map(c => c.args[0])).toEqual(['until-settled']);
+    expect(op.open?.cells).toEqual({ m60: 'until-settled' });
     const names = calls.map(c => c.name);
-    expect(names.lastIndexOf('settleMetric')).toBeLessThan(names.lastIndexOf('setHorizon'));
+    expect(names.lastIndexOf('settleMetric')).toBeLessThan(names.lastIndexOf('refreshBooks'));
+    expect(names.lastIndexOf('postReading')).toBeLessThan(names.lastIndexOf('refreshBooks'));
   });
 
-  it('when the cell\'s minute has passed with the attempt alive, the next step sets the next cell', async () => {
+  it('an attempt alive past an hour keeps its one book: no step rewrites the horizon on the clock', async () => {
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
     await op.openStep(T0);
-    op.cell = '2026-09-11T10:00'; // as if the attempt had been running an hour
-    op.open!.cells = { m60: '2026-09-11T10:00' };
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
-    await op.tick(new Date('2026-09-11T10:01:00Z'));
-    expect(calls.filter(c => c.name === 'setHorizon').map(c => c.args[0]).pop()).toBe('2026-09-11T11:01');
-    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:01' });
+    await op.tick(new Date('2026-09-11T11:01:00Z'));
+    expect(calls.filter(c => c.name === 'setHorizon')).toHaveLength(1);
+    expect(op.open?.cells).toEqual({ m60: 'until-settled' });
   });
 
-  it('the cell survives a restart', async () => {
+  it('a minute cell restored from an older build is replaced by the attempt date at the next step', async () => {
+    const { client, calls } = fakeClient(allTen);
+    const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
+    op.cell = '2026-09-11T10:30';
+    await op.openStep(T0);
+    expect(calls.filter(c => c.name === 'setHorizon').map(c => c.args[0])).toEqual(['until-settled']);
+    expect(op.cell).toBe('until-settled');
+  });
+
+  it('the attempt date survives a restart', async () => {
     const { client } = fakeClient(allTen);
     const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
     await op.openStep(T0);
     const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng);
-    expect(back.cell).toBe('2026-09-11T11:00');
+    expect(back.cell).toBe('until-settled');
   });
 
-  it('if setting the cell fails the step still runs and the next step tries again', async () => {
+  it('if writing the horizon fails the step still runs and the next step tries again', async () => {
     const { client, calls } = fakeClient(allTen, {}, [], false, true);
     const op = new Operator(client, { ...newGame(rng, 12, 1), food: { x: 0, y: 0 } }, rng);
     await op.openStep(T0);
@@ -319,12 +327,12 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.filter(c => c.name === 'setHorizon')).toHaveLength(2);
   });
 
-  it('the quotes are read for the attempt\'s cell, so the client can name it', async () => {
+  it('the quotes are read for the attempt date, so the client can name it', async () => {
     const { client, calls } = fakeClient(upWins);
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00.700Z'));
     await op.closeStep(new Date('2026-09-11T10:00:58Z'));
-    expect(calls.find(c => c.name === 'readQuotes')!.args[1]).toBe('2026-09-11T11:00');
+    expect(calls.find(c => c.name === 'readQuotes')!.args[1]).toBe('until-settled');
   });
 
   it('a step never opens with under ten seconds to its deadline (a restart late in the minute waits for the next one)', async () => {
@@ -471,12 +479,13 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(s.open?.directions).toEqual({ forward: 'right', left: 'up', right: 'down' });
     expect(s.open?.decideAt).toBe('2026-09-11T10:00:58.000Z');
     expect(s.open?.deadline).toBe('2026-09-11T10:01:00.000Z');
-    expect(s.open?.cells).toEqual({ m60: '2026-09-11T11:00' });
+    expect(s.open?.cells).toEqual({ m60: 'until-settled' });
     expect(s.nextStepAt).toBe('2026-09-11T10:01:00.000Z');
     expect(s.complete).toBe(false);
     expect(s.secondsToDecision).toBe(38);
     expect(typeof s.rule).toBe('string');
-    expect(s.rule).toMatch(/hour/);
+    expect(s.rule).toMatch(/when the attempt ends/);
+    expect(s.rule).not.toMatch(/hour/);
     expect(s.recentDecisions).toEqual([]);
     expect(s.deathsToday).toBe(0);
     expect(s.workspaceId).toBe('ws-1');
@@ -839,9 +848,10 @@ describe('activity on /state (docs/snake.md, "The board" and "The feed")', () =>
     expect(op.publicState(new Date('2026-09-11T10:01:01Z')).settleFailures).toBe(1);
   });
 
-  it('the rule names one proposal with three options, the highest price, the void with refund, and the attempt\'s one book an hour after it starts', () => {
+  it('the rule names one proposal with three options, the highest price, the void with refund, and the attempt\'s one book settled when it ends', () => {
     expect(RULE).toMatch(/reached|attempt/i);
-    expect(RULE).toMatch(/one hour|hour mark/);
+    expect(RULE).toMatch(/when the attempt ends/);
+    expect(RULE).not.toMatch(/hour/);
     expect(RULE).toMatch(/one proposal/i);
     expect(RULE).toMatch(/three options/i);
     expect(RULE).toMatch(/highest price/);
@@ -1099,16 +1109,15 @@ describe('THE FEED IS TRADEABLE FROM ONE READ', () => {
     const op = new Operator(client, newGame(rng), rng, opts);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
     const s = op.publicState(new Date('2026-09-11T10:00:20Z')) as Record<string, any>;
-    expect(typeof s.schema).toBe('number');
+    expect(s.schema).toBe(3);
     expect(s.attempt).toBe(1);
-    // The cell key keeps its display form; the instant is a real instant.
-    expect(s.cell).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
-    expect(s.cellEndsAt).toBe(`${s.cell}:00Z`);
-    expect(Number.isNaN(Date.parse(s.cellEndsAt))).toBe(false);
+    // The attempt's date has no clock: the key names it and no instant is invented.
+    expect(s.cell).toBe('until-settled');
+    expect(s.cellEndsAt).toBeNull();
     expect(s.rules).toEqual({
       decideSecond: 58,
       moveSecond: 0,
-      horizonMinutes: 60,
+      horizon: 'until-settled',
       tieBreak: ['forward', 'left', 'right'],
       voidRefund: true,
       settlesEarlyOnDeath: true,
@@ -1273,25 +1282,16 @@ describe('THE SNAKE NEVER MOVES BLIND (docs/snake.md, "The step" and "What must 
   const never = () => new Promise<never>(() => {});
   const fresh = () => ({ ...newGame(rng, 12, 1), food: { x: 0, y: 0 } });
 
-  it('THE MOVE AT THE HOUR WAS DECIDED ON A CLOSED BOOK (moves 479 and 1133): the step that opens at its cell\'s own minute moves to the next cell before it posts', async () => {
+  it('THE MOVE AT THE HOUR WAS DECIDED ON A CLOSED BOOK (moves 479 and 1133): the step at the hour mark is priced on the attempt\'s open book, which no clock minute closes', async () => {
     const { client, calls } = fakeClient(allTen);
     const op = new Operator(client, fresh(), rng);
-    op.cell = '2026-09-11T10:00'; // the attempt has run an hour
-    await op.openStep(new Date('2026-09-11T10:00:00.300Z'));
-    expect(calls.filter(c => c.name === 'setHorizon').map(c => c.args[0])).toEqual(['2026-09-11T11:00']);
-    expect(op.open?.cells).toEqual({ m60: '2026-09-11T11:00' });
-    const names = calls.map(c => c.name);
-    expect(names.indexOf('setHorizon')).toBeLessThan(names.indexOf('postProposal'));
-    expect(String(calls.find(c => c.name === 'postProposal')!.args[1])).toContain('11:00 UTC');
-  });
-
-  it('a step decided before its cell\'s minute keeps the cell: nothing renews early', async () => {
-    const { client, calls } = fakeClient(allTen);
-    const op = new Operator(client, fresh(), rng);
-    op.cell = '2026-09-11T10:00';
-    await op.openStep(new Date('2026-09-11T09:59:00.300Z'));
+    op.cell = 'until-settled'; // the attempt has run an hour on its one book
+    await op.openStep(new Date('2026-09-11T11:00:00.300Z'));
     expect(calls.filter(c => c.name === 'setHorizon')).toHaveLength(0);
-    expect(op.open?.cells).toEqual({ m60: '2026-09-11T10:00' });
+    expect(op.open?.cells).toEqual({ m60: 'until-settled' });
+    expect(String(calls.find(c => c.name === 'postProposal')!.args[1])).not.toMatch(/\d\d:\d\d UTC/);
+    await op.closeStep(new Date('2026-09-11T11:00:58Z'));
+    expect(calls.filter(c => c.name === 'readQuotes').every(c => c.args[1] === 'until-settled')).toBe(true);
   });
 
   it('A FAILED POST MOVED THE SNAKE BLIND (moves 776 and 777): when the next proposal cannot be posted, no later minute moves the snake until one is', async () => {

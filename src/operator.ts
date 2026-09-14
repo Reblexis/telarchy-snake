@@ -5,7 +5,7 @@ import { decide, ACTIONS, proposalTitle, proposalOptions, HORIZONS, directionsFr
   mergeQuotes,
 } from './decide.js';
 import type { GameLog, LogStep } from './gamelog.js';
-import { minuteCells } from './client.js';
+import { ATTEMPT_DATE } from './client.js';
 import { commentary } from './commentary.js';
 
 /** The step's one proposal: its id, its number in the workspace and its public url. */
@@ -54,8 +54,8 @@ export interface TelarchyClient {
    *  its baseline book before the proposal is posted (docs/snake.md,
    *  "The workspace"). */
   refreshBooks(): Promise<void>;
-  /** Make `cell` (YYYY-MM-DDTHH:MM) the metric's only horizon: one book per
-   *  attempt (docs/snake.md, "The workspace"). Throws when Telarchy refuses. */
+  /** Make the attempt's date (`until-settled`) the metric's only horizon: one
+   *  book per attempt (docs/snake.md, "The workspace"). Throws when Telarchy refuses. */
   setHorizon(cell: string): Promise<void>;
   /** Raise the metric's market range to `max` (the new full grid). Throws when
    *  Telarchy refuses (an open traded book), so the caller retries later. */
@@ -108,19 +108,19 @@ export interface OperatorOptions {
 
 /** The feed's version, raised whenever a field changes meaning or leaves
  *  (docs/snake.md, "The feed"). */
-export const FEED_SCHEMA = 2;
+export const FEED_SCHEMA = 3;
 
 /** The same rule as RULE, for a program (docs/snake.md, "The rule in machine form"). */
 export const RULES = {
   decideSecond: 58,
   moveSecond: 0,
-  horizonMinutes: 60,
+  horizon: ATTEMPT_DATE,
   tieBreak: ['forward', 'left', 'right'],
   voidRefund: true,
   settlesEarlyOnDeath: true,
 };
 
-export const RULE = 'Every minute one proposal with three options, continue forward, turn left and turn right, each option priced by its own book on the attempt\'s cell: the length the attempt will have reached one hour after it started (or at the next hour mark while it lives); when the attempt ends (a death or a full grid) the books settle at the length it reached. At :58 the option with the highest price is chosen and the other two void with refund; ties and unreadable prices continue forward; if Telarchy cannot be reached, the snake waits. The snake moves at :00.';
+export const RULE = 'Every minute one proposal with three options, continue forward, turn left and turn right, each option priced by its own book on the length the attempt will reach, settled when the attempt ends (a death or a full grid) at the length it reached. At :58 the option with the highest price is chosen and the other two void with refund; ties and unreadable prices continue forward; if Telarchy cannot be reached, the snake waits. The snake moves at :00.';
 
 /** One recorded move of a game, docs/snake.md "The feed" (`/replay`). */
 export interface ReplayMove {
@@ -340,23 +340,22 @@ export class Operator {
     if (this.open && !this.open.decision) throw new Error(`step ${this.open.step} is already open`);
     if (this.game.complete) throw new Error('the game is complete');
     if (!this.canOpen(now)) throw new Error('too close to the deadline to open a step');
-    // One cell per attempt (docs/snake.md, "The workspace"): set when the
-    // attempt starts or when this step would be decided on or after its
-    // cell's minute, because a book stops trading at its minute and the step
-    // opened AT that minute would find no book; a refusal leaves it unset so
-    // the next step tries again, and this step runs on whatever pair
-    // Telarchy gives it (the undecided path covers none).
-    const decidesAt = isoMinute(now).getTime() + DECIDE_SECOND * 1000;
-    if (!this.cell || Date.parse(`${this.cell}:00Z`) <= decidesAt) {
-      const cell = minuteCells(now).m60;
+    // One book per attempt (docs/snake.md, "The workspace"): the metric's
+    // only horizon is the attempt's clockless date, written when the metric
+    // does not carry it yet (a first start, or a minute cell restored from an
+    // older build) and never on the clock; a refusal leaves it unwritten so
+    // the next step tries again, and this step runs on whatever pair Telarchy
+    // gives it (the undecided path covers none).
+    if (this.cell !== ATTEMPT_DATE) {
       try {
-        await this.client.setHorizon(cell);
-        this.cell = cell;
+        await this.client.setHorizon(ATTEMPT_DATE);
+        this.cell = ATTEMPT_DATE;
       } catch (e) {
-        console.error(`set horizon ${cell} failed: ${(e as Error).message}`);
+        console.error(`set horizon ${ATTEMPT_DATE} failed: ${(e as Error).message}`);
       }
     }
-    // Every step: make sure the attempt's cell has its baseline book.
+    // Every step: make sure the attempt has its baseline book (a new attempt's
+    // opens here, after the settlement and the new reading).
     // A failure here only costs this step's prices (the undecided path).
     try { await this.client.refreshBooks(); } catch { /* undecided path covers it */ }
     const stepNo = this.game.step + 1;
@@ -364,9 +363,8 @@ export class Operator {
     const openedAt = isoMinute(now);
     const deadline = new Date(openedAt.getTime() + 60_000);
     const decideAt = new Date(openedAt.getTime() + DECIDE_SECOND * 1000);
-    const cells: Record<Horizon, string> = { m60: this.cell ?? minuteCells(now).m60 };
+    const cells: Record<Horizon, string> = { m60: ATTEMPT_DATE };
     const directions = directionsFrom(g.heading);
-    const hhmm = (c: string) => c.slice(11);
     // The proposal in the snake's own first person, one line per option in
     // option order (docs/snake.md, "The step"), then the state a trader
     // prices on, the cell, and the rule in one clause. No board address: the
@@ -378,7 +376,7 @@ export class Operator {
     const description =
       ACTIONS.map(a => `I will ${verb[a]} at move ${move} of attempt ${attempt}, game ${gameNo}: from (${g.snake[0].x},${g.snake[0].y}) heading ${g.heading}, that is ${directions[a]}.`).join('\n') +
       `\nLength ${g.length}, record ${this.bestLength}, food at (${g.food.x},${g.food.y}). ` +
-      `Each option is priced on the length this attempt reaches by ${hhmm(cells.m60)} UTC; when the attempt ends every open book settles at the length it reached. ` +
+      `Each option is priced on the length this attempt reaches; its book settles when the attempt ends, at the length it reached. ` +
       `The option with the highest price at :58 is chosen, the other two void with refund; ties continue forward; the snake moves at :00.`;
     const proposal = await this.client.postProposal(proposalTitle(gameNo, attempt, move), description, deadline, proposalOptions());
     this.open = {
@@ -568,7 +566,6 @@ export class Operator {
         this.settleFailures++;
         console.error(`settle failed (${reason}): ${(e as Error).message}`);
       }
-      this.cell = null; // the next step sets the new attempt's cell
     }
     // The reading is the snake's length (docs/snake.md, "What must hold"),
     // stamped at the minute it was taken; the last one before midnight is
@@ -788,8 +785,9 @@ export class Operator {
       bestLength: this.bestLength,
       settleFailures: this.settleFailures,
       cell: this.cell,
-      // The same moment as an instant, so nothing parses a string with no zone.
-      cellEndsAt: this.cell ? `${this.cell}:00Z` : null,
+      // The attempt's date has no clock, so no instant (docs/snake.md, "The
+      // instants are instants"); only a minute cell restored from an older build has one.
+      cellEndsAt: this.cell && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(this.cell) ? `${this.cell}:00Z` : null,
       attempt: this.game.deaths + 1,
       quotesAt: this.quotesAt,
       traders,

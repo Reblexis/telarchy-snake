@@ -84,10 +84,12 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(html).toMatch(/Record \$\{s\.bestLength/);
   });
 
-  it('the provisioning script creates the one metric, Reached length, on the +60min horizon alone, and tells the floor about one proposal with three options', () => {
+  it('the provisioning script creates the one metric, Reached length, on the attempt date alone, titled this attempt, and tells the floor about one proposal with three options', () => {
     const sh = fs.readFileSync(new URL('../scripts/provision.sh', import.meta.url), 'utf8');
     expect(sh).toContain('"name": "Reached length"');
-    expect(sh).toMatch(/"customHorizons": \["\+60min"\]/);
+    expect(sh).toMatch(/"customHorizons": \["until-settled"\]/);
+    expect(sh).toMatch(/"horizonTitles": \{ "until-settled": "this attempt" \}/);
+    expect(sh).not.toMatch(/\+60min/);
     expect(sh).not.toMatch(/\+1min|\+5min/);
     expect(sh).not.toMatch(/three proposals|approved minus declined|highest impact/i);
     expect(sh).toMatch(/three options/i);

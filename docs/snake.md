@@ -73,24 +73,19 @@ and the cooldown lasts that long. The operator posts a reading after
 every step, so the metric's chart is the length minute by minute, back
 to 2 at every death.
 
-The metric is priced on **one book at a time, fixed for the attempt**.
-When an attempt starts the operator sets the metric's only horizon to the
-one-minute cell sixty minutes ahead (an absolute `YYYY-MM-DDTHH:MM` in
-`customHorizons`, not a rolling `+60min`, so the cell does not move with
-the clock) and refreshes the workspace's markets, which opens that cell's
-baseline book. Every proposal of the attempt is priced on that same cell:
-the question on the floor is "what length will this attempt have reached
-at HH:MM", asked once, not a new question every minute, with one answer
-per option. The book settles
-on the last reading inside its minute if the attempt is still alive then,
-or at the attempt's end (below), whichever comes first. A book stops
-trading at its own minute, so **a step whose decision would fall on or after
-its cell's minute sets the next cell first**, sixty minutes ahead again,
-before it posts its proposal, and the attempt carries on under it. The step
-that opens AT the cell's minute is that step: priced on the old cell it
-would be decided against a closed book, find no price on any option, and
-move blind.
-No other horizon and no calendar horizon is priced.
+The metric is priced on **one book per attempt, with no clock**. The
+metric's only horizon is Telarchy's `until-settled` date (the app's
+`docs/guides/time-preference.md`, "A date that settles when you settle
+it"), titled `this attempt` in `horizonTitles`, so the question on the
+floor is "what length will this attempt reach", asked once per attempt,
+with one answer per option, and answered only when the attempt ends: the
+book never settles at a clock minute, so it trades for the whole attempt
+however long the snake lives, and the market's chart of it spans the
+attempt. The operator writes that horizon at its first step and whenever
+the metric does not carry it (a refusal is retried at the next step), never
+per attempt and never on the clock, and refreshes the workspace's markets
+at every step, which opens the attempt's baseline book. No other horizon and
+no calendar horizon is priced.
 
 **When the attempt ends the answer is known.** Right after the move that
 kills the snake (or fills the grid), before it posts the new attempt's
@@ -101,15 +96,18 @@ with the reason `Game G, attempt A ended at length L`. That settles every
 open book on the metric at once, the attempt's baseline book and the
 chosen options of its proposals alike, so a trader is paid the moment
 the question is answered rather than an hour later on a number from the
-next attempt. The next step sets the new attempt's cell and opens its
-book. If the call fails the operator logs it and carries on; those books
-then settle on the readings inside their own minute.
+next attempt. Telarchy opens the new attempt's book at the next step's
+refresh, after the new attempt's reading, so it opens at length 2. If the
+call fails the operator logs it, counts it in `settleFailures` and carries
+on, never retrying it (a late retry would settle the next attempt's books
+at the last attempt's length); those books then stay open and the next
+attempt is priced on them until the next settlement.
 
 The operator forces the workspace's market refresh at every step, before
 posting the proposal, so the attempt's baseline book exists and the
-proposal gets its three option books. If setting the cell fails the step
-still runs (the undecided path covers a missing book) and the next step
-tries again.
+proposal gets its three option books. If writing the horizon fails the
+step still runs (the undecided path covers a missing book) and the next
+step tries again.
 
 **The floor is closed to outside proposals.** The workspace setting
 `externalProposalsDisabled` is true (set 2026-09-14): only the operator,
@@ -119,21 +117,20 @@ Trading is open to everyone as before. The floor draws no propose
 control for a visitor.
 
 Liquidity: every option book a proposal opens is funded by the workspace
-owner through the metric's proposal credits on the 60-move horizon (1,000
+owner through the metric's proposal credits on the attempt's date (1,000
 credits an option, so a five-credit trade is an opinion and a
 hundred-credit one does not pin the book), never by the proposer; the
 operator posts with no subsidy of its own. A step opens three books, one
 per option, so it puts 3,000 credits out and gets 2,000 back within the
 minute (the two options not chosen void and refund); the chosen option's
-1,000 stays out until that book settles, at its minute or at the attempt's
-end, so at most 61 steps' worth, 63,000 credits (sixty chosen books plus
-the open step's three), is ever out at once. The operator's float must
-stay above that or Telarchy refuses the proposal (`Insufficient balance
-for forecast subsidy`); what traders win off the chosen books is the only
-thing that draws it down. The attempt's main book, the one book on the cell that is
+1,000 stays out until the attempt ends, so an attempt N moves long has
+N thousand credits out by its last move, plus the open step's three. The
+operator's float must stay above the longest attempt's or Telarchy refuses
+the proposal (`Insufficient balance for forecast subsidy`); what traders
+win off the chosen books is the only thing that draws it down. The attempt's main book, the one book on its date that is
 not an option (the price every option book opens from), opens with 3,000
-credits, always: the operator writes 3,000 for the book on every cell it
-sets, whatever the metric carried before, so a main book that sits below
+credits, always: the operator writes 3,000 for the book whenever it
+writes the horizon, whatever the metric carried before, so a main book that sits below
 the snake's length is worth correcting. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
@@ -156,15 +153,15 @@ this fixed order and with these ids: `forward` "Continue forward",
 `left` "Turn left", `right` "Turn right" (Telarchy's proposals with
 options, its `docs/guides/proposals.md`, "More than two options"). The
 action is the option's id, exactly one of the three. Telarchy opens one
-conditional market per option on the attempt's cell, so the three books
+conditional market per option on the attempt's book, so the three books
 close together at the proposal's one deadline, the top of the next
 minute, and the deadline a trader sees is the real one. The description
 is the proposal in the snake's own first person, one line per option
 (record: the telarchy umbrella's `notes/futarchy-snake-proposal-38.md`):
 "I will turn right at move 2 of attempt 55, game 1: from (9,6) heading
 right, that is down." Then the state a trader prices on (length, record,
-food), the cell the proposal is priced on (the length this attempt
-reaches by a clock minute, UTC), and the rule in one clause (the option
+food), what the proposal is priced on (the length this attempt reaches,
+settled when it ends), and the rule in one clause (the option
 with the highest price at :58 is chosen, the others void with refund,
 ties continue forward). No board address: the game is on the floor
 itself.
@@ -181,8 +178,8 @@ attempt to reach if the snake takes that option). Then:
 
 - the option with the highest price is **chosen**: the operator approves
   the proposal naming that option (`POST /api/proposals/:id/approve
-  { option }`); its book stays open to settle on the reached length, at
-  its minute or when the attempt ends, and Telarchy voids the other two
+  { option }`); its book stays open to settle on the reached length when
+  the attempt ends, and Telarchy voids the other two
   options' books and refunds every stake in them;
 - ties (prices within a billionth of each other) go to the current
   heading, then to the option whose direction comes first in up, right,
@@ -192,7 +189,7 @@ attempt to reach if the snake takes that option). Then:
   (`POST /api/proposals/:id/decline { refund: true }`), which voids all
   three books; the step is logged as undecided, and the record says why
   (`undecidedReason` on the decision, shown on `/state`): which option
-  had no price and what was missing (no book on the cell, no options on
+  had no price and what was missing (no book on the attempt's date, no options on
   the proposal, no consensus, no answer from Telarchy), or the error the
   approval returned. When the approval itself fails the operator declines
   with refund the same way, so nothing stays pending past the deadline;
@@ -389,7 +386,7 @@ right: { m60: { price, lead, marketId, reason? } } }`, where `price` is
 the option book's consensus, `lead` the price minus the best other
 option's price, positive for the leader and negative for the rest, both
 null while unpriced, and `reason` says what is missing when `price` is
-null), the cell key, the decide instant and the next step instant, the
+null), the date key, the decide instant and the next step instant, the
 decision rule in words, recent decisions (each with the chosen option,
 every option's price at the close in `prices`, and its `undecidedReason`,
 null when the step was decided) and counters. A bot needs one read of
@@ -412,15 +409,16 @@ has passed; `tradeable` is how a bot tells a step it can still bet on
 from one that is only being shown. A restored step whose deadline has
 already passed is dropped rather than served.
 
-**The instants are instants.** `cell` stays the display key
-(`2026-09-12T07:15`, the clock minute the attempt settles on) and
-`cellEndsAt` carries the same moment as a full UTC instant, so nothing
-has to parse a string without a zone. `attempt` is the attempt number the
+**The instants are instants.** `cell` is the key of the date the attempt
+is priced on, `until-settled`, and `cellEndsAt` is null, because that date
+has no clock: nothing on the feed names a moment the book settles at, and a
+bot learns the settlement from the metric's `market:resolved` event or from
+the attempt ending. `attempt` is the attempt number the
 step belongs to, as a number, beside `game.attemptStep`.
 
 **The rule in machine form.** `rule` stays the sentence a person reads;
 `rules` carries the same thing for a program:
-`{ "decideSecond": 58, "moveSecond": 0, "horizonMinutes": 60,
+`{ "decideSecond": 58, "moveSecond": 0, "horizon": "until-settled",
 "tieBreak": ["forward", "left", "right"], "voidRefund": true,
 "settlesEarlyOnDeath": true }`.
 
@@ -433,7 +431,9 @@ is worth and how to bet on it.
 
 **`schema`** is the feed's version, an integer, raised whenever a field
 changes meaning or leaves. A bot that reads a `schema` it does not know
-should keep reading the fields it recognises and say so, not guess.
+should keep reading the fields it recognises and say so, not guess. It is
+3: `rules.horizonMinutes` left for `rules.horizon`, and `cell` and
+`cellEndsAt` now name the attempt's clockless date (above).
 
 The activity fields on `/state`, all read from Telarchy's public
 workspace endpoints, never from the operator's own books:
@@ -766,8 +766,8 @@ the open proposal carries its three option books. A stalled operator is
 restarted, at most once in five minutes; a stopped stream is started unless its unit is disabled; a
 fault on the floor's side is logged and left alone, because the host
 cannot fix it. **A fault that heals itself is not answered with a
-restart.** The books of a new attempt's cell exist a beat after the cell is
-set, so the first step of an attempt can read as unplayable and be well
+restart.** The book of a new attempt exists a beat after the settlement
+that ended the last one, so the first step of an attempt can read as unplayable and be well
 again the next minute; a missing book and a missing proposal therefore wait
 for a second consecutive unhealthy minute, because a restart neither creates
 a book nor waits for one. A stalled step, a dead feed and an overdue next
@@ -807,10 +807,10 @@ to production.
 - The move that ends an attempt settles the metric at the length the
   attempt reached, before the new attempt's reading is posted, and never
   otherwise.
-- One cell per attempt: the metric's horizon is set when an attempt
-  starts and when a step's decision would fall on or after its cell's
-  minute, never in between; the step's proposal is priced on the current
-  cell, so no step is decided on a closed book.
+- One book per attempt: the metric's only horizon is the `until-settled`
+  date titled `this attempt`, written when the metric does not carry it and
+  never on the clock; its book settles only when the attempt ends, so no
+  step is decided on a closed book.
 - The snake never moves on a minute Telarchy did not run: no posted
   proposal, no answer at the decision, or a failed approval, and it waits
   instead.
