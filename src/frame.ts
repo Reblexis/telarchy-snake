@@ -100,7 +100,7 @@ export function span(ms: number): string {
   return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
 }
 /** Where the column's blocks sit, so the timers never crowd the pills, the panel or the link. */
-export const LAYOUT = { statsTop: 164, statsBottom: 262, statSize: 36, levelBaseline: 290, pillTop: 304, pillHeight: 46, panelLabelBaseline: 384, rowsTop: 394, rowHeight: 38, linkTop: 612 } as const;
+export const LAYOUT = { statsTop: 164, statsBottom: 262, statSize: 36, levelBaseline: 290, pillTop: 304, pillHeight: 46, panelLabelBaseline: 384, rowsTop: 394, rowHeight: 38, linkTop: 612, completeBaseline: 326 } as const;
 const ago = (at: string, now: number) => {
   const secs = Math.max(0, Math.round((now - Date.parse(at)) / 1000));
   if (!Number.isFinite(secs)) return '';
@@ -298,7 +298,9 @@ function draw(s: any, now: number, texts: string[]): Canvas {
   const dirs = ['up', 'down', 'left', 'right'];
   const next = s.next ?? null;
   const nextDir = next && dirs.includes(next.direction) ? next.direction : g.heading;
-  drawBoard(ctx, g, N, dirs.includes(nextDir) ? { direction: nextDir, decided: next?.decided === true } : null);
+  // A level video's last frame has no next move, so it draws no chevron (docs/snake.md, "The level videos").
+  const noNext = s.video && !next;
+  drawBoard(ctx, g, N, !noNext && dirs.includes(nextDir) ? { direction: nextDir, decided: next?.decided === true } : null);
 
   // 1. the lockup, small and at its own aspect ratio
   if (LOGO_NATURAL.w > 0) ctx.drawImage(logo, X, 28, LOGO_BOX.w, LOGO_BOX.h);
@@ -365,11 +367,11 @@ function draw(s: any, now: number, texts: string[]): Canvas {
       text(p.price, p.x + p.w - 16, base, p.size, p.lead ? SNAKE : FG2, 500, 'mono', 'right');
     }
   } else if (s.complete) {
-    text('The snake filled the grid.', X, 304, 20, FG, 500, 'sans');
-    if (s.video?.facts) text(s.video.facts, X, 332, 20, FG2, 400, 'sans');
+    text('The snake filled the grid.', X, LAYOUT.completeBaseline, 20, FG, 500, 'sans');
+    if (s.video?.facts) text(s.video.facts, X, LAYOUT.completeBaseline + 28, 20, FG2, 400, 'sans');
     else if (s.nextGameAt) {
       const m = Math.max(0, Math.round((Date.parse(s.nextGameAt) - Date.now()) / 60_000));
-      text(`Next game on ${nextGridLabel(N)} in ${m} min.`, X, 332, 20, FG2, 400, 'sans');
+      text(`Next game on ${nextGridLabel(N)} in ${m} min.`, X, LAYOUT.completeBaseline + 28, 20, FG2, 400, 'sans');
     }
   }
 
