@@ -19,13 +19,14 @@ const HUE: Record<Action, string> = { left: '#38bdf8', forward: '#a78bfa', right
 const GLYPH: Record<string, string> = { up: '↑', down: '↓', left: '←', right: '→' };
 const DELTA: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const ORDER: Action[] = ['left', 'forward', 'right'];
-const BG = '#0b0b0e', FG = '#f2ecdc', MUTE = '#8d897f', CHIP = '#fbbf24', GOLD = '#facc15', RED = '#f87171';
+const BG = '#0b0b0e', FG = '#f2ecdc', MUTE = '#8d897f', CHIP = '#fbbf24', AGAINST = '#a3a8b3', GOLD = '#facc15', RED = '#f87171';
 const CONFETTI = ['#38bdf8', '#a78bfa', '#f472b6', '#fbbf24', '#facc15', '#4ade80'];
 
 type Cell = { x: number; y: number };
 type Face = 'sans' | 'mono' | 'serif';
 type Rect = { x: number; y: number; w: number; h: number };
-export interface DrawnText { text: string; size: number }
+/** A drawn text and its box: from the cap height above the baseline to the descent below it. */
+export interface DrawnText { text: string; size: number; x: number; y: number; w: number; h: number }
 export interface ChipRect extends Rect { text: string; option: Action | null }
 export interface Drawn {
   buffer: Buffer;
@@ -104,7 +105,9 @@ class Painter {
   text(s: string, x: number, y: number, size: number, color: string, weight = 700, face: Face = 'sans', align: CanvasTextAlign = 'left') {
     if (!s) return;
     const px = Math.max(this.minSize, size);
-    this.texts.push({ text: s, size: px });
+    const w = measureText(s, px, weight, face);
+    const left = align === 'center' ? x - w / 2 : align === 'right' || align === 'end' ? x - w : x;
+    this.texts.push({ text: s, size: px, x: left, y: y - px * 0.8, w, h: px });
     const c = this.ctx;
     c.font = `${weight} ${px}px "${FONTS[face]}"`;
     c.fillStyle = color;
@@ -235,8 +238,15 @@ function raceBars(p: Painter, scene: Scene, info: FrameInfo, x0: number, cy: num
   const credits: Record<Action, number> = { left: 0, forward: 0, right: 0 };
   let pot = 0;
   for (const b of bets) { if (b.option) credits[b.option] += b.credits; else pot += b.credits; }
+  const creditSize = Math.max(p.minSize, big * 0.32);
+  const creditText = (opt: Action) => (credits[opt] > 0 ? `${Math.round(credits[opt]).toLocaleString('en-US')} cr` : '');
+  const glyphW = big * 1.1;
   const gap = lane * 0.55, top = cy - (3 * lane + 2 * gap) / 2;
-  const glyphW = big * 1.1, priceW = big * 2.9;
+  const numberW = measureText('88.8', big, 800, 'sans');
+  const creditW = Math.max(...ORDER.map(o => measureText(creditText(o), creditSize, 700, 'mono')));
+  // the credits line goes under the price when a lane is tall enough for both, beside it otherwise
+  const stacked = lane + gap >= big * 1.2 + creditSize * 1.05;
+  const priceW = big * 0.35 + (stacked ? Math.max(numberW, creditW) : numberW + big * 0.3 + creditW);
   const barX = x0 + glyphW, barW = w - glyphW - priceW;
   const lead = ORDER.reduce((a, b) => ((prices[b] ?? 0) > (prices[a] ?? 0) ? b : a), 'left' as Action);
   const lanes = {} as Record<Action, Rect>;
@@ -259,8 +269,11 @@ function raceBars(p: Painter, scene: Scene, info: FrameInfo, x0: number, cy: num
     } else {
       p.round(barX, ly, Math.min(len, barW), lane, lane / 2, rgba(HUE[opt], a));
     }
-    p.text((prices[opt] ?? 0) === null ? '-' : price.toFixed(1), barX + barW + big * 0.35, ly + lane * 0.62, big, rgba(FG, locked && opt !== chosen ? 0.35 : 1), 800);
-    if (credits[opt] > 0) p.text(`${Math.round(credits[opt]).toLocaleString('en-US')} cr`, barX + barW + big * 0.38, ly + lane * 0.62 + big * 0.46, big * 0.32, rgba(CHIP, a), 700, 'mono');
+    const priceBase = ly + lane * 0.62;
+    p.text((prices[opt] ?? 0) === null ? '-' : price.toFixed(1), x0 + w, priceBase, big, rgba(FG, locked && opt !== chosen ? 0.35 : 1), 800, 'sans', 'right');
+    // stacked, the credits line's cap height clears the price's descent; beside, it shares the price's baseline
+    if (stacked) p.text(creditText(opt), x0 + w, priceBase + big * 0.2 + creditSize * 0.85, creditSize, rgba(CHIP, a), 700, 'mono', 'right');
+    else p.text(creditText(opt), x0 + w - numberW - big * 0.3, priceBase, creditSize, rgba(CHIP, a), 700, 'mono', 'right');
   });
   const lineY = top - big * 0.45;
   const smaller = bets.length - largest.length;
@@ -270,7 +283,10 @@ function raceBars(p: Painter, scene: Scene, info: FrameInfo, x0: number, cy: num
   const chips: ChipRect[] = [];
   if (!locked && beat.chip < largest.length) {
     const b = largest[beat.chip];
-    const label = `+${Math.round(b.credits).toLocaleString('en-US')}`;
+    // a trade that lowered its option's price is a bet against it
+    const against = Number.isFinite(b.from) && Number.isFinite(b.to) && b.to < b.from;
+    const label = `${against ? '−' : '+'}${Math.round(b.credits).toLocaleString('en-US')}`;
+    const fill = against ? AGAINST : CHIP;
     const h = lane * 0.86;
     const size = Math.max(p.minSize, h * 0.46);
     const handleSize = Math.max(p.minSize, size * 0.62);
@@ -284,14 +300,14 @@ function raceBars(p: Painter, scene: Scene, info: FrameInfo, x0: number, cy: num
       p.ctx.save();
       p.ctx.shadowColor = 'rgba(0,0,0,0.6)';
       p.ctx.shadowBlur = 14;
-      p.round(cx, cy2, cw, h, h / 2, CHIP);
+      p.round(cx, cy2, cw, h, h / 2, fill);
       p.ctx.restore();
       p.text(label, cx + h * 0.4, cy2 + h * 0.66, size, BG, 800);
       p.text(b.handle, cx + h * 0.5 + measureText(label, size, 800, 'sans'), cy2 + h * 0.63, handleSize, rgba(BG, 0.8), 700, 'mono');
       chips.push({ text: label, option: b.option, x: cx, y: cy2, w: cw, h });
     } else {
       const cy2 = lineY - h - big * 0.2;
-      p.round(x0 + w * 0.3, cy2, cw, h, h / 2, CHIP);
+      p.round(x0 + w * 0.3, cy2, cw, h, h / 2, fill);
       p.text(label, x0 + w * 0.3 + h * 0.4, cy2 + h * 0.66, size, BG, 800);
     }
   }
@@ -310,12 +326,15 @@ function counters(p: Painter, scene: Scene, info: FrameInfo, x: number, y: numbe
   p.text('DEATHS', dx + dw + size * 0.18, y - size * 0.1, size * 0.26, MUTE, 700, 'mono');
 }
 
-function caption(p: Painter, text: string, x: number, y: number, size: number, w: number): Rect {
-  const h = size * 1.9;
+function caption(p: Painter, text: string, x: number, y: number, want: number, w: number): Rect {
+  // the caption shrinks to fit its band, never under the frame's smallest size
+  let size = want;
+  while (size > p.minSize && measureText(text, size, 800, 'sans') > w - size * 1.2) size -= 1;
+  const h = want * 1.9;
   p.round(x, y, w, h, size * 0.35, 'rgba(24,24,28,0.95)');
   p.ctx.fillStyle = CHIP;
   p.ctx.fillRect(x, y + h * 0.2, size * 0.14, h * 0.6);
-  p.text(text, x + size * 0.6, y + h * 0.64, size, FG, 800);
+  p.text(text, x + size * 0.6, y + h * 0.5 + size * 0.36, size, FG, 800);
   return { x, y, w, h };
 }
 
@@ -339,7 +358,10 @@ function lowerThird(p: Painter, text: string, x: number, y: number, size: number
 
 function credits(p: Painter, scene: Scene, x: number, y: number, w: number, big: number, vertical: boolean) {
   const s = scene.stats;
-  p.text('The market filled the grid.', x, y, big * 1.2, FG, 800);
+  const title = 'The market filled the grid.';
+  let titleSize = big * 1.2;
+  while (titleSize > p.minSize && measureText(title, titleSize, 800, 'sans') > w) titleSize -= 1;
+  p.text(title, x, y, titleSize, FG, 800);
   const stats: Array<[string, string]> = [
     [s.moves.toLocaleString('en-US'), 'MOVES'], [s.deaths.toLocaleString('en-US'), 'DEATHS'],
     [s.trades.toLocaleString('en-US'), 'TRADES'], [String(s.traders), 'TRADERS'], [s.span, 'REAL TIME'],
@@ -350,13 +372,13 @@ function credits(p: Painter, scene: Scene, x: number, y: number, w: number, big:
     p.text(v, sx, sy, big, FG, 800);
     p.text(l, sx, sy + big * 0.7, big * 0.36, MUTE, 700, 'mono');
   });
-  const ty = vertical ? y + big * 9.6 : y + big * 5;
+  const ty = vertical ? y + big * 8.6 : y + big * 5;
   p.text('TOP TRADERS', x, ty, big * 0.4, MUTE, 700, 'mono');
   scene.topTraders.forEach((t, k) => {
     p.text(t.handle, x, ty + big * (0.9 + k * 0.85), big * 0.56, FG, 700, 'mono');
     p.text(`${Math.round(t.credits).toLocaleString('en-US')} cr`, x + w * (vertical ? 0.62 : 0.4), ty + big * (0.9 + k * 0.85), big * 0.56, CHIP, 800);
   });
-  const ly = vertical ? ty + big * 6 : ty;
+  const ly = vertical ? ty + big * 5.2 : ty;
   const lx = vertical ? x : x + w * 0.62;
   if (LOGO_NATURAL.w > 0) p.ctx.drawImage(logoImage, lx, ly - big * 0.2, (big * LOGO_NATURAL.w) / LOGO_NATURAL.h, big);
   p.text('Bet on the next move', lx, ly + big * 1.9, big * 0.8, FG, 800);
@@ -416,30 +438,31 @@ export function drawShort(scene: Scene, info: FrameInfo): Drawn {
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, w, h);
   const p = new Painter(ctx, 40);
-  const box: Box = { x: 60, y: 300, px: 960 };
+  // text stays inside 60 px at the sides, 180 at the top and 390 at the bottom, where YouTube draws over a Short
+  const box: Box = { x: 95, y: 310, px: 890 };
   const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null };
   if (info.credits !== null) {
-    credits(p, scene, 60, 360, 960, 84, true);
+    credits(p, scene, 60, 260, 960, 72, true);
     return { buffer: rgb(canvas, w, h), texts: p.texts, rects };
   }
-  // the caption sits above the board, in place of nothing that matters
-  if (info.caption) rects.caption = caption(p, info.caption, 60, 110, 56, 960);
   rects.head = board(p, scene, info, box);
-  counters(p, scene, info, 60, 1400, 104);
+  // the counters sit above the board; the hook's caption takes their place
+  if (info.caption) rects.caption = caption(p, info.caption, 60, 200, 52, 960);
+  else counters(p, scene, info, 60, 290, 96);
   if (info.beat) {
-    const r = raceBars(p, scene, info, 60, 1650, 960, 96, 72);
+    const r = raceBars(p, scene, info, 60, 1383, 960, 56, 60);
     rects.lanes = r.lanes;
     rects.chips = r.chips;
     rects.chosen = r.chosen;
   } else if (info.hold?.fx === 'filled') {
     p.text('FILLED', box.x + box.px / 2, box.y + box.px / 2 + 50, 150, FG, 800, 'sans', 'center');
   } else {
-    bestSoFar(p, scene, info, 60, 1520, 960, 72);
+    bestSoFar(p, scene, info, 60, 1290, 960, 64);
   }
   if (info.badge) {
-    p.round(w - 60 - 170, 1330, 170, 76, 38, 'rgba(255,255,255,0.08)');
-    p.text(info.badge, w - 60 - 85, 1383, 44, FG, 800, 'sans', 'center');
+    p.round(w - 60 - 170, 222, 170, 76, 38, 'rgba(255,255,255,0.08)');
+    p.text(info.badge, w - 60 - 85, 275, 44, FG, 800, 'sans', 'center');
   }
-  if (info.lowerThird) lowerThird(p, info.lowerThird.text, 60, 1270 - 56 * 1.9, 56);
+  if (info.lowerThird) lowerThird(p, info.lowerThird.text, 60, box.y + box.px - 24 - 56 * 1.9, 56);
   return { buffer: rgb(canvas, w, h), texts: p.texts, rects };
 }

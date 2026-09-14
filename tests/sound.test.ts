@@ -18,9 +18,9 @@ for (let i = 0; i <= 40; i++) {
 const entries: LogStep[] = lengths.map((length, i) => ({ step: i, at: at(i), snake: [{ x: 0, y: 0 }], food: { x: 1, y: 1 }, heading: 'right', action: i ? 'forward' : null, direction: 'right', undecided: false, prices: { forward: 1, left: 2, right: 3 }, length, deaths: deaths[i] }));
 const TL: Segment[] = [
   { kind: 'run', from: 0, to: 11, speed: 32, frames: 20, easeIn: false, easeOut: true },
-  { kind: 'beat', move: 12, chips: 2, frames: 35 },
+  { kind: 'beat', move: 12, chips: 2, frames: 76 },
   { kind: 'run', from: 12, to: 39, speed: 4, frames: 200, easeIn: true, easeOut: false },
-  { kind: 'beat', move: 40, chips: 3, frames: 45 },
+  { kind: 'beat', move: 40, chips: 3, frames: 96 },
   { kind: 'hold', fx: 'hitstop', entry: 40, frames: 4 },
   { kind: 'hold', fx: 'filled', entry: 40, frames: 90 },
   { kind: 'credits', frames: 540 },
@@ -30,14 +30,18 @@ const plan = () => soundPlan(TL, entries, 4);
 describe('the sound plan', () => {
   it('a coin at the start of every chip inside a beat, and none elsewhere', () => {
     const coins = plan().filter(e => e.kind === 'coin').map(e => e.frame);
-    expect(coins).toEqual([20, 30, 255, 265, 275]);
+    expect(coins).toEqual([20, 40, 296, 316, 336]);
+  });
+  it('in a slow beat the coins are 40 frames apart', () => {
+    const slow: Segment[] = [{ kind: 'beat', move: 12, chips: 2, frames: 152, slow: true, caption: 'Traders bet. The highest price moves.' }];
+    expect(soundPlan(slow, entries, 4).filter(e => e.kind === 'coin').map(e => e.frame)).toEqual([0, 40]);
   });
   it('no eat or crash inside a run faster than 8 moves a second', () => {
     expect(plan().filter(e => e.frame < 20 && e.kind !== 'coin')).toEqual([]);
   });
   it('eats and the crash where they happen at slow speed, the fill once', () => {
     const p = plan();
-    expect(p.filter(e => e.kind === 'crash').map(e => e.frame)).toEqual([54]);
+    expect(p.filter(e => e.kind === 'crash').map(e => e.frame)).toEqual([95]);
     expect(p.filter(e => e.kind === 'eat').length).toBeGreaterThan(5);
     expect(p.filter(e => e.kind === 'fill')).toHaveLength(1);
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment } from '../src/timeline.js';
+import { fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment, RULES_CAPTION } from '../src/timeline.js';
 import { momentsOf } from '../src/moments.js';
 import type { LogStep } from '../src/gamelog.js';
 import type { TradeRow } from '../src/level.js';
@@ -104,9 +104,12 @@ describe('the full cut timeline', () => {
     }
   });
 
-  it('a beat is 10 frames a chip up to three, 3 of hit stop, 12 of the move', () => {
-    for (const s of tl().filter(x => x.kind === 'beat') as Array<Extract<Segment, { kind: 'beat' }>>) {
-      expect(s.frames).toBe(10 * s.chips + 3 + 12);
+  it('a beat is 20 frames a chip up to three, 18 of lock, 18 of move; the cold open and the rules beat twice that', () => {
+    const beats = tl().filter(x => x.kind === 'beat') as Array<Extract<Segment, { kind: 'beat' }>>;
+    expect(beats.some(s => s.caption)).toBe(true);
+    for (const s of beats) {
+      expect(Boolean(s.slow), JSON.stringify(s)).toBe(Boolean(s.cold || s.caption === RULES_CAPTION));
+      expect(s.frames).toBe((20 * s.chips + 18 + 18) * (s.slow ? 2 : 1));
       expect(s.chips).toBeLessThanOrEqual(3);
       expect(s.chips).toBe(Math.min(3, (byMove[s.move - 1] ?? []).filter(r => Math.abs(Number(r.detail.cost)) >= 1).length));
     }
@@ -237,6 +240,9 @@ describe('the Short timeline', () => {
   it('hooks on a beat with the caption, then the record crashes at 16 moves a second', () => {
     const t = tl();
     expect(t[0]).toMatchObject({ kind: 'beat', caption: 'A market picks every move.' });
+    // the Short's hook plays at normal speed
+    expect((t[0] as any).slow).toBeFalsy();
+    expect(t[0].frames).toBe(20 * (t[0] as any).chips + 36);
     const crashes = t.filter(s => s.kind === 'run' && (s as any).crash);
     expect(crashes.every(s => (s as any).speed === 16)).toBe(true);
     expect(crashes.length).toBeGreaterThan(0);

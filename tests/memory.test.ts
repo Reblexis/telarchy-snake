@@ -17,7 +17,7 @@ const entries: LogStep[] = [0, 1, 2, 3].map(i => ({ step: i, at: at(i), snake: [
 const game: GameEntry = { number: 1, size: 4, startedAt: at(0), endedAt: at(3), steps: 3, bestLength: 4, deaths: 0 };
 const trade = { id: 't', at: at(0.5), kind: 'trade', actor: { id: 'ann', handle: 'ann' }, detail: { side: 'buy', direction: 'higher', shares: 1, cost: 400, callBefore: 2, callAfter: 3, marketId: 'm' } } as any;
 const TL: Segment[] = [
-  { kind: 'beat', move: 1, chips: 1, frames: 25 },
+  { kind: 'beat', move: 1, chips: 1, frames: 56 },
   { kind: 'run', from: 1, to: 3, speed: 8, frames: 8, easeIn: false, easeOut: false },
   { kind: 'credits', frames: 20 },
 ];

@@ -2,9 +2,8 @@
 // Pure: the renderer draws only what this describes.
 import type { LogStep } from './gamelog.js';
 import { attempts } from './attempts.js';
-import { positionAt, type Segment } from './timeline.js';
+import { positionAt, type Segment, BEAT } from './timeline.js';
 
-const CHIP_F = 10, LOCK_F = 3, MOVE_F = 12;
 const ZOOM_MAX = 1.08, ZOOM_EASE = 8, CARD_FRAMES = 60;
 
 export interface FrameInfo {
@@ -21,6 +20,13 @@ export interface FrameInfo {
   hold: { fx: 'hitstop' | 'filled'; progress: number } | null;
   credits: number | null;
   cold: boolean;
+}
+
+/** A beat's phase lengths: a slow beat plays at half speed, and the move is whatever the beat has left. */
+function phasesOf(s: Extract<Segment, { kind: 'beat' }>) {
+  const slow = s.slow ? 2 : 1;
+  const chipF = BEAT.chip * slow, chipsEnd = chipF * s.chips, lockEnd = chipsEnd + BEAT.lock * slow;
+  return { chipF, chipsEnd, lockEnd, moveF: Math.max(1, s.frames - lockEnd) };
 }
 
 export const frameCountOf = (tl: Segment[]) => tl.reduce((a, s) => a + s.frames, 0);
@@ -67,9 +73,10 @@ function layout(tl: Segment[], entries: LogStep[]) {
 function positionOf(s: Segment, lf: number, entries: LogStep[], tl: Segment[]): number {
   if (s.kind === 'run') return positionAt(s, lf);
   if (s.kind === 'beat') {
-    const lockEnd = CHIP_F * s.chips + LOCK_F;
+    const { chipF, lockEnd, moveF } = phasesOf(s);
+    void chipF;
     if (lf < lockEnd) return s.move - 1;
-    return s.move - 1 + Math.min(1, (lf - lockEnd + 1) / MOVE_F);
+    return s.move - 1 + Math.min(1, (lf - lockEnd + 1) / moveF);
   }
   if (s.kind === 'hold') return s.entry;
   if (s.kind === 'loop') return tl.length ? positionOf(tl[0], 0, entries, tl) : 0;
@@ -88,10 +95,10 @@ export function frameAt(tl: Segment[], entries: LogStep[], frame: number): Frame
   let beat: FrameInfo['beat'] = null;
   let zoom = 1;
   if (s.kind === 'beat') {
-    const chipsEnd = CHIP_F * s.chips, lockEnd = chipsEnd + LOCK_F;
-    if (lf < chipsEnd) beat = { move: s.move, phase: 'chips', chip: Math.floor(lf / CHIP_F), progress: (lf % CHIP_F) / CHIP_F };
-    else if (lf < lockEnd) beat = { move: s.move, phase: 'lock', chip: s.chips - 1, progress: (lf - chipsEnd) / LOCK_F };
-    else beat = { move: s.move, phase: 'move', chip: s.chips - 1, progress: (lf - lockEnd) / MOVE_F };
+    const { chipF, chipsEnd, lockEnd, moveF } = phasesOf(s);
+    if (lf < chipsEnd) beat = { move: s.move, phase: 'chips', chip: Math.floor(lf / chipF), progress: (lf % chipF) / chipF };
+    else if (lf < lockEnd) beat = { move: s.move, phase: 'lock', chip: s.chips - 1, progress: (lf - chipsEnd) / (lockEnd - chipsEnd) };
+    else beat = { move: s.move, phase: 'move', chip: s.chips - 1, progress: (lf - lockEnd) / moveF };
     const up = easeInOut(lf / ZOOM_EASE), down = easeInOut((s.frames - 1 - lf) / ZOOM_EASE);
     zoom = 1 + (ZOOM_MAX - 1) * Math.min(up, down);
   }

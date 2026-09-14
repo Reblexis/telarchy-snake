@@ -13,7 +13,7 @@ const entries: LogStep[] = [0, 1, 2, 3].map(i => ({ step: i, at: at(i), snake: [
 const game: GameEntry = { number: 1, size: 2, startedAt: at(0), endedAt: at(3), steps: 3, bestLength: 4, deaths: 0 };
 const TL: Segment[] = [
   { kind: 'run', from: 0, to: 2, speed: 8, frames: 8, easeIn: false, easeOut: true },
-  { kind: 'beat', move: 3, chips: 0, frames: 15 },
+  { kind: 'beat', move: 3, chips: 0, frames: 36 },
   { kind: 'hold', fx: 'filled', entry: 3, frames: 5 },
   { kind: 'credits', frames: 4 },
 ];

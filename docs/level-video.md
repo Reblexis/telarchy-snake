@@ -54,7 +54,9 @@ site chrome, no link and no panel while the game plays.
 **The Short, 45 seconds:** the final near miss in slow motion as the hook (0 to 2 s), the
 record crashes at speed (to 20 s), the winning attempt with two or three decision beats
 (to 40 s), the fill (to 45 s), and a last frame that matches the first so it loops. All
-text sits inside 60 px at the sides, 180 px at the top and 390 px at the bottom.
+text sits inside 60 px at the sides, 180 px at the top and 390 px at the bottom, where
+YouTube draws over the Short: the counters sit above the board (the hook's caption takes
+their place), and the race bars, or the best-so-far bar at speed, sit under it.
 
 ## The trades: race bars
 
@@ -71,12 +73,14 @@ violet, turn right magenta). Green belongs to the snake, red to death, gold to r
   tabular figures and counts as it moves, with the credits traded on the option under it
   in small type.
 - The chips are the decision's **three largest trades**, shown in the order they were
-  made; every smaller trade rolls into `+N more`. A chip, `+<credits>` over the trader's
-  handle, travels inside its own lane, from the lane's start to the bar's tip in a quarter
+  made; every smaller trade rolls into `+N more`. A chip is the credits over the trader's
+  handle: `+<credits>` on a gold chip when the trade raised its option's price, and
+  `−<credits>` on a grey chip when it lowered it (a bet against the option). A chip travels inside its own lane, from the lane's start to the bar's tip in a quarter
   second, eased out, and never covers another lane; the bar then grows with a small
   overshoot. A trade whose option cannot be named lands in a small pot above the bars
   instead. Chips never overlap: a chip waits until the one before it has landed.
-  `+N more` and the pot share one line above the bars.
+  `+N more` and the pot share one line above the bars, clear of the counters. Every
+  price, credit line and chip stays inside the frame's safe area.
 - At speed the race bars are hidden; the board and the counters stay, with a progress bar
   of the best length so far against the full grid in their place.
 - The leading lane is fully saturated, the others at 60 percent. At the lock the losing
@@ -94,9 +98,12 @@ here are the contract the renderer and the tests share.
   climbs from 4 moves a second to its own over its first 12 frames, and falls back to 4
   over its last 12, so the snake never jumps from slow to fast. A run's frames take it
   from its first entry to its last exactly, never backward.
-- **Beats.** A beat is one decided move: 10 frames for each chip it shows (up to three),
-  3 frames of hit stop at the lock, then 12 frames of the snake moving into the cell. A
-  move nobody traded has a beat of the lock and the move alone.
+- **Beats.** A beat is one decided move in slow motion: 20 frames for each chip it shows
+  (up to three), 18 frames of the lock (its first 3 a hit stop, then the winner held while
+  the losers dim), then 18 frames of the snake moving into the cell. A move nobody traded
+  has a beat of the lock and the move alone. The cold open and the rules beat play at
+  half speed, every phase twice as long, so their caption can be read; the Short's hook
+  plays at normal speed.
 - **Choosing beats.** The cold open uses the level's strongest near miss that was
   traded, from before the finale's last 8 moves, so the opening never gives away the
   fill. The first traded decision of the level is always a beat, carrying the caption
@@ -126,11 +133,11 @@ what sits over it. The renderer draws only what the description says.
 
 - **Where the snake is.** In a run, the entry the run has reached at that frame (a
   fraction between two entries while the snake glides). In a beat, the entry before the
-  decided move through the chips and the lock, then gliding into the move over the last
-  12 frames, arriving on its final frame. In a hold, the level's last entry.
-- **A beat's phases.** Chip `k` (from 0) plays during frames `10k` to `10k + 9` of the
-  beat, with its progress from 0 to 1 across them; the lock is the three frames after the
-  chips; the move is the last 12.
+  decided move through the chips and the lock, then gliding into the move over its move
+  phase, arriving on its final frame. In a hold, the level's last entry.
+- **A beat's phases.** With `c` the chip length (20 frames, 40 in a half-speed beat), chip `k`
+  (from 0) plays during frames `ck` to `ck + c - 1` of the beat, with its progress from 0 to
+  1 across them; the lock is the next 18 frames (36 at half speed); the move is the rest.
 - **The push-in.** The zoom is 1 outside beats. During a beat it eases up to 1.08 over
   its first 8 frames, holds, and eases back to 1 over its last 8; the renderer keeps the
   whole board in frame.

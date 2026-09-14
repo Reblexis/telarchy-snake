@@ -24,27 +24,29 @@ for (let i = 0; i <= 30; i++) {
   else if (i > 0) { off++; if (i % 5 === 0) len++; }
   entries.push({ step: i, at: at(i), snake: snakeOf(len, off), food: path[Math.min(off + len + 2, path.length - 1)], heading: 'right', action: i ? 'forward' : null, direction: 'right', undecided: false, prices: PRICES, length: len, deaths });
 }
-const trade = (move: number, credits: number, handle: string, option: 'forward' | 'left' | 'right', k: number): TradeRow => ({
+/** A trade on an option; `against` lowered the option's price instead of raising it. */
+const trade = (move: number, credits: number, handle: string, option: 'forward' | 'left' | 'right', k: number, against = false): TradeRow => ({
   id: `t${move}-${k}`, at: at(move - 1, 5 + k), kind: 'trade', actor: { id: handle, handle },
-  detail: { side: 'buy', direction: 'higher', shares: 1, cost: credits, callBefore: 1, callAfter: PRICES[option], marketId: `m-${option}` },
+  detail: { side: 'buy', direction: against ? 'lower' : 'higher', shares: 1, cost: credits, callBefore: against ? 30 : 1, callAfter: PRICES[option], marketId: `m-${option}` },
 });
 const byMove: TradeRow[][] = entries.map(() => []);
-// move 20 (entries 19 -> 20): five trades, the three largest 900, 400, 300, and all of forward's credits 900 + 50 = 950
-byMove[19] = [trade(20, 50, 'ann', 'forward', 0), trade(20, 900, 'vi0', 'forward', 1), trade(20, 400, 'bob', 'left', 2), trade(20, 20, 'cy', 'right', 3), trade(20, 300, 'dee', 'left', 4)];
+// move 20 (entries 19 -> 20): five trades, the three largest 900, 400, 300 (dee's against left), and all of forward's credits 900 + 50 = 950
+byMove[19] = [trade(20, 50, 'ann', 'forward', 0), trade(20, 900, 'vi0', 'forward', 1), trade(20, 400, 'bob', 'left', 2), trade(20, 20, 'cy', 'right', 3), trade(20, 300, 'dee', 'left', 4, true)];
 const game: GameEntry = { number: 2, size, startedAt: at(0), endedAt: at(30), steps: 30, bestLength: len, deaths: 1 };
 const scene = () => buildScene(game, [game], entries, byMove);
 
 const TL: Segment[] = [
   { kind: 'run', from: 0, to: 19, speed: 24, frames: 30, easeIn: false, easeOut: true },
-  { kind: 'beat', move: 20, chips: 3, frames: 45, caption: 'Traders bet. The highest price moves.' },
+  { kind: 'beat', move: 20, chips: 3, frames: 192, slow: true, caption: 'Traders bet. The highest price moves.' },
   { kind: 'run', from: 20, to: 30, speed: 4, frames: 75, easeIn: true, easeOut: false },
   { kind: 'hold', fx: 'hitstop', entry: 30, frames: 4 },
   { kind: 'hold', fx: 'filled', entry: 30, frames: 90 },
   { kind: 'credits', frames: 540 },
 ];
 const info = (f: number) => frameAt(TL, entries, f);
-const gameplayFrames = [0, 10, 29, 30, 45, 62, 74, 80, 120, 160, 200];
-const creditsFrame = 30 + 45 + 75 + 4 + 90 + 100;
+// the captioned beat plays at half speed: chips on frames 30 to 149 (40 each), the lock 150 to 185, the move to 221
+const gameplayFrames = [0, 10, 29, 30, 45, 62, 74, 80, 120, 160, 200, 230, 280, 300, 350];
+const creditsFrame = 30 + 192 + 75 + 4 + 90 + 100;
 
 describe('the gliding snake', () => {
   it('at a whole position the snake is exactly that entry', () => {
@@ -83,12 +85,12 @@ describe('the full cut frame', () => {
       else expect(d.rects.lanes, `${i.kind} frame ${f}`).toBeNull();
     }
     expect(drawFull(sc, info(10)).texts.some(t => t.text === 'BEST SO FAR')).toBe(true);
-  });
+  }, 60_000);
 
   it('the chips are the three largest trades, each inside its own lane', () => {
     const sc = scene();
     const seen = new Set<string>();
-    for (let lf = 0; lf < 30; lf++) {
+    for (let lf = 0; lf < 120; lf++) {
       const d = drawFull(sc, info(30 + lf));
       for (const c of d.rects.chips) {
         seen.add(c.text);
@@ -97,7 +99,22 @@ describe('the full cut frame', () => {
         expect(c.y + c.h, JSON.stringify(c)).toBeLessThanOrEqual(lane.y + lane.h + 1);
       }
     }
-    expect([...seen].sort()).toEqual(['+300', '+400', '+900']);
+    expect([...seen].sort()).toEqual(['+400', '+900', '−300']);
+  });
+
+  it('a trade that raised its option\'s price is a gold +credits chip, one that lowered it a grey −credits chip', () => {
+    const sc = scene();
+    const chipAt = (lf: number) => { const d = drawFull(sc, info(30 + lf)); return { d, c: d.rects.chips[0] }; };
+    const colour = (d: ReturnType<typeof drawFull>, c: { x: number; y: number; w: number; h: number }) => {
+      const k = (Math.floor(c.y + c.h * 0.12) * 1920 + Math.floor(c.x + c.w / 2)) * 3;
+      return [d.buffer[k], d.buffer[k + 1], d.buffer[k + 2]];
+    };
+    const up = chipAt(50), down = chipAt(110);
+    expect(up.c.text).toBe('+400');
+    expect(down.c.text).toBe('−300');
+    const [ur, , ub] = colour(up.d, up.c), [dr, dg, db] = colour(down.d, down.c);
+    expect(ur - ub).toBeGreaterThan(100);
+    expect(Math.max(dr, dg, db) - Math.min(dr, dg, db)).toBeLessThan(30);
   });
 
   it('a lane\'s credits count every trade on its option, not only the chips', () => {
@@ -121,8 +138,8 @@ describe('the full cut frame', () => {
     const low: LogStep[] = [0, 1, 2].map(i => ({ step: i, at: at(i), snake: [{ x: 1 + i, y: 5 }, { x: i, y: 5 }], food: { x: 0, y: 0 }, heading: 'right', action: i ? 'forward' : null, direction: 'right', undecided: false, prices: PRICES, length: 2, deaths: 0 }));
     const g: GameEntry = { number: 1, size, startedAt: at(0), endedAt: at(2), steps: 2, bestLength: 2, deaths: 0 };
     const sc = buildScene(g, [g], low, [[], []]);
-    const tl: Segment[] = [{ kind: 'beat', move: 1, chips: 0, frames: 15, caption: 'A market picks every move.' }, { kind: 'beat', move: 2, chips: 0, frames: 15 }];
-    for (let f = 0; f < 15; f++) {
+    const tl: Segment[] = [{ kind: 'beat', move: 1, chips: 0, frames: 72, slow: true, caption: 'A market picks every move.' }, { kind: 'beat', move: 2, chips: 0, frames: 36 }];
+    for (let f = 0; f < 72; f += 3) {
       const d = drawFull(sc, frameAt(tl, low, f));
       const { caption, head } = d.rects;
       expect(caption).not.toBeNull();
@@ -131,7 +148,7 @@ describe('the full cut frame', () => {
   });
 
   it('at the lock the chosen lane is bright and the others are dimmed', () => {
-    const d = drawFull(scene(), info(30 + 31));
+    const d = drawFull(scene(), info(30 + 125));
     const { lanes, chosen } = d.rects;
     expect(chosen).toBe('forward');
     const brightness = (r: { x: number; y: number; h: number }) => {
@@ -144,12 +161,36 @@ describe('the full cut frame', () => {
 
   it('the fill says FILLED, a fast run shows its badge', () => {
     const sc = scene();
-    expect(drawFull(sc, info(30 + 45 + 75 + 4 + 30)).texts.map(t => t.text)).toContain('FILLED');
+    expect(drawFull(sc, info(30 + 192 + 75 + 4 + 30)).texts.map(t => t.text)).toContain('FILLED');
     expect(drawFull(sc, info(10)).texts.map(t => t.text)).toContain('x6');
   });
 });
 
 describe('the Short frame', () => {
+  it('every text sits inside 60 px at the sides, 180 px at the top and 390 px at the bottom', () => {
+    const sc = scene();
+    for (const f of [...gameplayFrames, creditsFrame]) {
+      for (const t of drawShort(sc, info(f)).texts) {
+        const where = `${t.text} at frame ${f}: ${JSON.stringify(t)}`;
+        expect(t.x, where).toBeGreaterThanOrEqual(60);
+        expect(t.x + t.w, where).toBeLessThanOrEqual(1080 - 60);
+        expect(t.y, where).toBeGreaterThanOrEqual(180);
+        expect(t.y + t.h, where).toBeLessThanOrEqual(1920 - 390);
+      }
+    }
+  });
+  it('no two texts overlap: the smaller-trades line stays clear of the counters', () => {
+    const sc = scene();
+    for (const f of gameplayFrames) {
+      const texts = drawShort(sc, info(f)).texts;
+      for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+        const a = texts[i], b = texts[j];
+        const overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        expect(overlap, `frame ${f}: ${JSON.stringify(a)} over ${JSON.stringify(b)}`).toBe(false);
+      }
+    }
+  });
+
   it('is 1080 by 1920, sets nothing under 40 px, and puts the caption above the board', () => {
     expect(SHORT_SIZE).toEqual({ w: 1080, h: 1920 });
     const sc = scene();
@@ -158,6 +199,7 @@ describe('the Short frame', () => {
       expect(d.buffer.length).toBe(1080 * 1920 * 3);
       if (d.texts.length) expect(Math.min(...d.texts.map(t => t.size)), String(f)).toBeGreaterThanOrEqual(40);
       if (d.rects.caption) expect(d.rects.caption.y + d.rects.caption.h).toBeLessThanOrEqual(d.rects.board.y);
+      if (d.rects.caption) expect(d.texts.map(t => t.text)).not.toContain('LENGTH');
     }
   });
 });

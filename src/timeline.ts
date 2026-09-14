@@ -12,11 +12,11 @@ export const CREDITS_FRAMES = 18 * TL_FPS;
 export const SPEED_LADDER = [4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128] as const;
 export const HOOK_CAPTION = 'A market picks every move.';
 export const RULES_CAPTION = 'Traders bet. The highest price moves.';
-const CHIP_F = 10, LOCK_F = 3, MOVE_F = 12, GAP_F = 90, EASE_F = 12, MIN_SPEED = 4;
+const GAP_F = 90, EASE_F = 12, MIN_SPEED = 4;
 const FINALE_BEATS = 8, SHORT_FILL_BY = 1200, SHORT_CRASH_MOVES = 6, SHORT_CRASH_SPEED = 16;
 
 export type Segment =
-  | { kind: 'beat'; move: number; chips: number; frames: number; cold?: boolean; caption?: string }
+  | { kind: 'beat'; move: number; chips: number; frames: number; cold?: boolean; slow?: boolean; caption?: string }
   | { kind: 'run'; from: number; to: number; speed: number; frames: number; easeIn: boolean; easeOut: boolean; crash?: boolean }
   | { kind: 'hold'; fx: 'hitstop' | 'filled'; entry: number; frames: number }
   | { kind: 'credits'; frames: number }
@@ -26,10 +26,12 @@ type Run = Extract<Segment, { kind: 'run' }>;
 /** Chips a beat shows: the move's trades of at least one credit, three at most. */
 export const chipsOf = (byMove: TradeRow[][], move: number) =>
   Math.min(3, (byMove[move - 1] ?? []).filter(r => Math.abs(Number(r.detail?.cost) || 0) >= 1).length);
-export const beatFrames = (chips: number) => CHIP_F * chips + LOCK_F + MOVE_F;
+/** A beat's phases in frames: each chip, the lock (its first 3 a hit stop), the move. A slow beat plays them at half speed. */
+export const BEAT = { chip: 20, lock: 18, move: 18 } as const;
+export const beatFrames = (chips: number, slow = false) => (BEAT.chip * chips + BEAT.lock + BEAT.move) * (slow ? 2 : 1);
 const beat = (byMove: TradeRow[][], move: number, extra: Partial<Segment> = {}): Segment => {
   const chips = chipsOf(byMove, move);
-  return { kind: 'beat', move, chips, frames: beatFrames(chips), ...extra } as Segment;
+  return { kind: 'beat', move, chips, frames: beatFrames(chips, Boolean((extra as { slow?: boolean }).slow)), ...extra } as Segment;
 };
 
 /** The per-frame advances of a run of D moves at `speed`: ramps of 12 frames from and back to
@@ -125,7 +127,8 @@ function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Ma
   for (const m of moves) {
     if (m - 1 > pos) pushRuns(pos, m - 1, true, prevWasBeat, prevWasBeat);
     const caption = beats.get(m);
-    out.push(beat(byMove, m, caption ? { caption } : {}));
+    // the rules beat plays at half speed so its caption can be read
+    out.push(beat(byMove, m, caption ? { caption, slow: true } : {}));
     pos = m;
     prevWasBeat = true;
   }
@@ -142,7 +145,7 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const finaleFrom = Math.max(1, last - (FINALE_BEATS - 1));
   // the cold open never gives away the fill: its moment comes from before the finale
   const coldMoment = moments.filter(m => m.kinds.includes('near miss') && m.credits > 0 && m.move < finaleFrom).sort((a, b) => b.weight - a.weight || a.move - b.move)[0];
-  const cold: Segment[] = coldMoment ? [beat(byMove, coldMoment.move, { cold: true, caption: HOOK_CAPTION })] : [];
+  const cold: Segment[] = coldMoment ? [beat(byMove, coldMoment.move, { cold: true, slow: true, caption: HOOK_CAPTION })] : [];
   const tail: Segment[] = [{ kind: 'hold', fx: 'hitstop', entry: last, frames: 4 }, { kind: 'hold', fx: 'filled', entry: last, frames: 90 }, { kind: 'credits', frames: CREDITS_FRAMES }];
 
   const base = new Map<number, string | undefined>();
@@ -161,7 +164,7 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   let chosen = new Map(base);
   let best = build(chosen);
   const storyBudget = FULL_MAX - total(cold) - total(tail);
-  const beatTime = (beats: Map<number, string | undefined>) => [...beats.keys()].reduce((a, m) => a + beatFrames(chipsOf(byMove, m)), 0);
+  const beatTime = (beats: Map<number, string | undefined>) => [...beats.keys()].reduce((a, m) => a + beatFrames(chipsOf(byMove, m), Boolean(beats.get(m))), 0);
   const candidates = moments.filter(m => m.move < finaleFrom - 12 && !chosen.has(m.move)).sort((a, b) => b.weight - a.weight || a.move - b.move).slice(0, 300);
   for (const c of candidates) {
     const spaced = [...chosen.keys()].every(b => b >= finaleFrom || Math.abs(b - c.move) >= 13);

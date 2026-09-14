@@ -2,12 +2,11 @@
 // kind, variant, gain relative to the music, and how far the music ducks under it.
 import type { LogStep } from './gamelog.js';
 import { attempts, fxOf } from './attempts.js';
-import { positionAt, type Segment } from './timeline.js';
+import { BEAT, positionAt, type Segment } from './timeline.js';
 
 export type SoundKind = 'coin' | 'eat' | 'crash' | 'fill' | 'record';
 export interface SoundEvent { frame: number; kind: SoundKind; variant: number; gainDb: number; duckDb: number }
 
-const CHIP_F = 10;
 const VARIANTS = 4;
 /** At or under this speed (moves a second) a run plays its per-event sounds. */
 const SOUNDING_SPEED = 8;
@@ -40,7 +39,7 @@ export function soundPlan(tl: Segment[], entries: LogStep[], size: number): Soun
   let start = 0;
   for (const s of tl) {
     if (s.kind === 'beat') {
-      for (let k = 0; k < s.chips; k++) raw.push({ frame: start + CHIP_F * k, kind: 'coin' });
+      for (let k = 0; k < s.chips; k++) raw.push({ frame: start + BEAT.chip * (s.slow ? 2 : 1) * k, kind: 'coin' });
       // the move lands on the beat's last frame
       if (!s.cold) eventsOfMove(s.move, start + s.frames - 1);
     } else if (s.kind === 'run' && s.speed <= SOUNDING_SPEED) {
