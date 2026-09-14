@@ -31,9 +31,10 @@ describe('a near miss', () => {
     expect(m[0]).toMatchObject({ move: 1, kinds: ['near miss'], weight: 5 });
   });
   it('is not a near miss when the snake was shorter than 6', () => {
-    const short = [c(0, 1), c(0, 2), c(1, 2), c(1, 1)]; // east (1,1) is body, west the wall: one way out, but only 4 long
-    const entries = [step(0, short), step(1, [c(0, 0), c(0, 1), c(0, 2), c(1, 2)])];
-    expect(momentsOf(entries, 4, [[]])).toEqual([]);
+    // 5 long, tail at (1,0): west is the wall, east (1,1) is body, so only up lives, a real single way out
+    const short = [c(0, 1), c(0, 2), c(1, 2), c(1, 1), c(1, 0)];
+    const entries = [step(0, short), step(1, [c(0, 0), ...short.slice(0, -1)])];
+    expect(momentsOf(entries, 4, [[]]).filter(x => x.kinds.includes('near miss'))).toEqual([]);
   });
   it('the tail cell counts as free, because the tail moves away', () => {
     // east of the head is the tail: two ways out, so no near miss
@@ -80,6 +81,19 @@ describe('the story kinds', () => {
     expect(one.kinds).toEqual(expect.arrayContaining(['new best', 'milestone']));
     expect(m.find(x => x.move === 3)?.kinds ?? []).not.toContain('new best');
   });
+  it('a crash that ends an attempt without a new record is not a record crash', () => {
+    const s = (n: number) => Array.from({ length: n }, (_, k) => c(k % 2, Math.floor(k / 2)));
+    // attempt 1 reaches 3 and dies (a record); attempt 2 reaches 2 and dies (no record); attempt 3 fills
+    const entries = [
+      step(0, s(2)), step(1, s(3), { length: 3 }), step(2, s(2), { deaths: 1, length: 2 }),
+      step(3, s(2), { deaths: 1, length: 2 }), step(4, s(2), { deaths: 2, length: 2 }),
+      step(5, s(3), { deaths: 2, length: 3 }), step(6, s(4), { deaths: 2, length: 4 }),
+    ];
+    const m = momentsOf(entries, 2, [[], [], [], [], [], []]);
+    expect(m.find(x => x.move === 2)?.kinds).toContain('record crash');
+    expect(m.find(x => x.move === 4)?.kinds ?? []).not.toContain('record crash');
+  });
+
   it('the crash that ends a record attempt, and the fill', () => {
     const s = (n: number) => Array.from({ length: n }, (_, k) => c(k % 2, Math.floor(k / 2)));
     const entries = [step(0, s(2)), step(1, s(3), { length: 3 }), step(2, s(2), { deaths: 1, length: 2 }), step(3, s(3), { length: 3, deaths: 1 }), step(4, s(4), { length: 4, deaths: 1 })];
