@@ -220,10 +220,12 @@ describe('the synthesized effects track', () => {
     expect(wav.readUInt16LE(34)).toBe(16);
     expect(wav.length - 44).toBe(2 * 44100 * 2);
   });
-  it('every effect is loud: its peak reaches at least half of full scale', () => {
+  it('every effect is moderate: heard over the music, peaking at about 40 percent of full scale', () => {
     for (const kind of ['eat', 'death', 'fill', 'trade'] as const) {
       const wav = synthSfx([{ at: 0.1, kind }], 1);
-      expect(peak(wav, 0.1, 0.4)).toBeGreaterThan(16384);
+      const p = peak(wav, 0.1, 0.4);
+      expect(p, kind).toBeGreaterThan(8000);
+      expect(p, kind).toBeLessThanOrEqual(14000);
     }
   });
   it('is silent where there is no effect', () => {
@@ -247,7 +249,7 @@ describe('the music', () => {
     expect(args[loop + 1]).toBe('-1');
     expect(args[loop + 3]).toBe('song.mp3');
     const filter = args[args.indexOf('-filter_complex') + 1];
-    expect(filter).toContain('volume=0.25');
+    expect(filter).toContain('[2:a]volume=0.25');
     expect(filter).toContain('afade=t=in:st=0:d=1');
     expect(filter).toContain('afade=t=out:st=88:d=2');
     expect(filter).toContain('amix');
@@ -258,8 +260,10 @@ describe('the music', () => {
       const args = mixArgs({ video: 'v.mp4', sfx: 'fx.wav', music, out: 'o.mp4', seconds: 90 });
       const filter = args[args.indexOf('-filter_complex') + 1];
       expect(filter).toContain('loudnorm=I=-14:TP=-1.5');
-      // a limiter after the normalization holds the peak through encoding
+      // a limiter after the normalization, set low enough to hold the peak through encoding
       expect(filter.indexOf('alimiter=')).toBeGreaterThan(filter.indexOf('loudnorm='));
+      const limit = Number(/alimiter=limit=([0-9.]+)/.exec(filter)?.[1]);
+      expect(limit).toBeLessThanOrEqual(0.7);
     }
   });
   it('without music the cut carries the effects alone', () => {
