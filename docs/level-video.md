@@ -83,6 +83,39 @@ violet, turn right magenta). Green belongs to the snake, red to death, gold to r
   lanes dim to 30 percent, the winner flashes once, its arrow on the board reaches into
   the next cell, and the snake moves.
 
+## The timeline
+
+The pipeline turns a level into a **timeline**: every output frame at 30 frames a
+second says which part of the level it shows and what is drawn over it. The numbers
+here are the contract the renderer and the tests share.
+
+- **Runs.** A run plays a stretch of moves forward at a speed in moves a second from the
+  ladder 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128. Next to a beat a run eases: its speed
+  climbs from 4 moves a second to its own over its first 12 frames, and falls back to 4
+  over its last 12, so the snake never jumps from slow to fast. A run's frames take it
+  from its first entry to its last exactly, never backward.
+- **Beats.** A beat is one decided move: 10 frames for each chip it shows (up to three),
+  3 frames of hit stop at the lock, then 12 frames of the snake moving into the cell. A
+  move nobody traded has a beat of the lock and the move alone.
+- **Choosing beats.** The cold open uses the level's strongest near miss that was
+  traded. The first traded decision of the level is always a beat, carrying the caption
+  `Traders bet. The highest price moves.`. Then the strongest moments (by weight) get
+  beats, strongest first, as long as beats take at most half of the story's time and the
+  full cut stays within five minutes with the runs at the slowest ladder speed that fits.
+  Outside the finale, between two beats there are always at least 90 frames of run, so
+  two beats are at least 13 moves apart.
+- **The finale.** The winning attempt plays in runs split at each fifth of the grid
+  filled, each run no faster than the one before, at a speed that falls as the grid
+  fills, from the struggle's speed at its start to 4 moves a second at the end; its last
+  8 moves are beats; the fill holds 4 frames of hit stop and then 90 frames of `FILLED`.
+- **Credits** last 540 frames (18 seconds).
+- **The Short** is at most 1,500 frames (50 seconds): the hook is a beat on the winning
+  attempt's last near miss with the caption `A market picks every move.`; then the last
+  6 moves before each of the latest four record crashes, each a crash run at 16 moves a
+  second; then the
+  winning attempt as a run ending by frame 1,200 with beats on its two strongest moments;
+  then the fill; the last 6 frames repeat the first frame so it loops.
+
 ## Pacing
 
 A **decision beat** is one move shown in slow motion: the race bars fill trade by trade,
