@@ -8,7 +8,7 @@ import {
   type Box,
 } from './frame.js';
 import { ACTIONS, type Action } from './decide.js';
-import { BEAT_PER_TRADE, HOOK_SUBCAPTION, type Shot } from './fun.js';
+import { BEAT_PER_TRADE, type Shot } from './fun.js';
 
 export const SHORT_W = 1080;
 export const SHORT_H = 1920;
@@ -340,6 +340,23 @@ function shaken(src: Canvas, w: number, h: number, box: Box, dx: number, dy: num
   return c;
 }
 
+/** The caption band across the top of the board, for the shot's caption frames. */
+function captionBand(ctx: SKRSContext2D, box: Box, shot: Shot, k: number, write: Write, start: number, min: number) {
+  if (!shot.caption || k >= (shot.captionFrames ?? shot.frames)) return;
+  const pad = start * 0.6;
+  const w = box.px - 24;
+  const size = fit(shot.caption, w - 2 * pad - 8, start, min, 700, 'sans');
+  const h = size * 1.9;
+  const x = box.x + 12, y = box.y + 12;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, size * 0.4);
+  ctx.fillStyle = 'rgba(16,16,19,0.92)';
+  ctx.fill();
+  ctx.fillStyle = PALETTE.LEAD;
+  ctx.fillRect(x, y + h * 0.18, Math.max(4, size * 0.12), h * 0.64);
+  write(shot.caption, x + pad + 8, y + h / 2 + size * 0.36, size, PALETTE.BONE, 700, 'sans');
+}
+
 const deathsShown = (s: any, shot: Shot) => (s.game?.deaths ?? 0) + (shot.fx === 'death' ? 1 : 0);
 
 function drawFun(s: any, now: number, shot: Shot, k: number, texts: string[]): Canvas {
@@ -353,6 +370,7 @@ function drawFun(s: any, now: number, shot: Shot, k: number, texts: string[]): C
   const z = SIZES.full;
   if (shot.fx !== 'death') market(ctx, box, s, shot, k, write, z);
   feel(ctx, box, s, shot, k, write, z);
+  captionBand(ctx, box, shot, k, write, 30, 16);
   // the death counter, bottom left on the board
   const counter = `DEATHS ${deathsShown(s, shot)}`;
   const cw = measureText(counter, z.counter, 600, 'mono') + 28;
@@ -422,15 +440,7 @@ function drawShort(s: any, now: number, shot: Shot, k: number, rec: Array<{ text
   drawBoard(ctx, g, N, null, box);
   if (shot.fx !== 'death') market(ctx, box, s, shot, k, write, z);
   feel(ctx, box, s, shot, k, write, z);
-
-  if (shot.card === 'hook') {
-    ctx.fillStyle = 'rgba(16,16,19,0.72)';
-    ctx.fillRect(SHORT_BOX.x, SHORT_BOX.y, SHORT_BOX.px, SHORT_BOX.px);
-    const line1 = shot.caption ?? '';
-    const mid = SHORT_BOX.y + SHORT_BOX.px / 2;
-    write(line1, 60, mid - 10, fit(line1, W - 36, 80, 40, 700, 'sans'), BONE, 700, 'sans');
-    if (k >= 18) write(HOOK_SUBCAPTION, 60, mid + 80, fit(HOOK_SUBCAPTION, W - 36, 56, 40, 600, 'sans'), SNAKE, 600, 'sans');
-  }
+  captionBand(ctx, box, shot, k, write, 64, 40);
 
   // the stats: length and the death counter
   const statsY = 1290;

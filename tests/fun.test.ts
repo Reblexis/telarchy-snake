@@ -93,6 +93,17 @@ describe('the full cut keeps the story and skips the waiting', () => {
     expect(crashes.map(s => s.frames)).toEqual([24, 24, 8]);
   });
 
+  it('opens on the game: no static hold, the caption across the first two and a half seconds', () => {
+    const plan = full();
+    expect(plan[0]).toMatchObject({ entry: 0, frames: 6 });
+    let at = 0;
+    for (const s of plan) {
+      if (at < 60) expect(s, JSON.stringify({ at, s })).toMatchObject({ caption: 'A market picks every move.', captionFrames: Math.min(s.frames, 60 - at) });
+      else expect(s.caption).toBeNull();
+      at += s.frames;
+    }
+  });
+
   it('an eat is marked on the entry it happens on, the fill holds five seconds', () => {
     expect(full().filter(s => s.fx === 'eat').map(s => s.entry)).toEqual([3, 9]);
     expect(full().at(-1)).toMatchObject({ entry: 10, fx: 'fill', frames: 5 * FPS });
@@ -104,12 +115,24 @@ describe('the full cut keeps the story and skips the waiting', () => {
 });
 
 describe('the Short tells one story in at most 59 seconds', () => {
-  it('hook, the record crashes, the winning attempt with its beats, the fill, the end card', () => {
+  it('the record crashes under the opening caption, the winning attempt with its beats, the fill, the end card', () => {
     const plan = shortPlan(L, SIZE, TC);
     expect(plan.map(s => [s.entry, kind(s)])).toEqual([
-      [0, 'hook'], [1, 'crash'], [4, 'crash'], [8, 'move'], [8, 'bet'], [9, 'move'], [10, 'fill'], [10, 'end'],
+      [1, 'crash'], [4, 'crash'], [8, 'move'], [8, 'bet'], [9, 'move'], [10, 'fill'], [10, 'end'],
     ]);
-    expect(plan[0]).toMatchObject({ frames: 3 * FPS, caption: 'A market picks every move.' });
+    // no title card: the caption rides the first two and a half seconds of the game
+    expect(plan.some(s => s.card === 'hook')).toBe(false);
+    let at = 0;
+    for (const s of plan) {
+      // the winning attempt's first bet beat carries its own caption, even inside the opening window
+      if (at < 60 && kind(s) !== 'bet') expect(s.caption, JSON.stringify({ at, s })).toBe('A market picks every move.');
+      at += s.frames;
+    }
+    expect(plan[0].captionFrames).toBe(24);
+    expect(plan[1].captionFrames).toBe(24);
+    expect(plan[2].captionFrames).toBe(6);
+    // the first bet beat of the winning attempt says how the market works
+    expect(plan[3]).toMatchObject({ caption: 'Traders bet. The highest price wins.', captionFrames: plan[3].frames });
     expect(plan.filter(s => kind(s) === 'crash').every(s => s.frames === FPS)).toBe(true);
     expect(plan.at(-2)!.frames).toBe(3 * FPS);
     expect(plan.at(-1)!.frames).toBe(3 * FPS);
@@ -131,7 +154,7 @@ describe('the Short tells one story in at most 59 seconds', () => {
     const plan = shortPlan(huge, SIZE, tc);
     expect(SHORT_MAX_FRAMES).toBe(59 * FPS);
     expect(plan.reduce((a, s) => a + s.frames, 0)).toBeLessThanOrEqual(SHORT_MAX_FRAMES);
-    expect(plan[0].card).toBe('hook');
+    expect(plan[0].caption).toBe('A market picks every move.');
     expect(plan.at(-1)!.card).toBe('end');
     expect(plan.at(-2)!.fx).toBe('fill');
     expect(plan.every(s => s.frames >= 1)).toBe(true);
@@ -351,7 +374,7 @@ describe('the Short frame is vertical and built for a phone', () => {
   });
   it('sets nothing smaller than 40 px, tags and chips included', () => {
     const cases: Array<[number, Shot]> = [
-      [0, shotFor(0, null, { card: 'hook', caption: 'A market picks every move.' })],
+      [0, shotFor(0, null, { caption: 'A market picks every move.', captionFrames: 60 })],
       [1, shotFor(1, 'eat')], [1, shotFor(1, 'death')], [1, shotFor(1, null, { bet: 1, more: 2, frames: 14 })],
       [3, shotFor(3, 'fill')], [3, shotFor(3, null, { card: 'end' })],
     ];
@@ -381,11 +404,15 @@ describe('the Short frame is vertical and built for a phone', () => {
     };
     expect(shortPillRects(state).map(green)).toEqual([false, true, false]);
   });
-  it('the hook says a market picks every move and how, the end card asks for a bet and gives the link', () => {
-    const hook = videoState(ctx(), 0);
-    const h = shortTexts(hook.state, hook.now, shotFor(0, null, { card: 'hook', caption: 'A market picks every move.' }), 30).map(x => x.text);
-    expect(h).toContain('A market picks every move.');
-    expect(h).toContain('Traders bet. The highest price wins.');
+  it('the caption sits over the moving game for its frames and then goes; the end card asks for a bet and gives the link', () => {
+    const open = videoState(ctx(), 1);
+    const captioned = shotFor(1, null, { caption: 'A market picks every move.', captionFrames: 10, frames: 24 });
+    const during = shortTexts(open.state, open.now, captioned, 9).map(x => x.text);
+    expect(during).toContain('A market picks every move.');
+    expect(during).toContain('5.0'); // the game is still there under the caption
+    expect(shortTexts(open.state, open.now, captioned, 10).map(x => x.text)).not.toContain('A market picks every move.');
+    expect(funTexts(open.state, open.now, captioned, 9)).toContain('A market picks every move.');
+    expect(funTexts(open.state, open.now, captioned, 10)).not.toContain('A market picks every move.');
     const end = videoState(ctx(), 3);
     const e = shortTexts(end.state, end.now, shotFor(3, null, { card: 'end' }), 0).map(x => x.text);
     expect(e).toContain('Bet on the next move');

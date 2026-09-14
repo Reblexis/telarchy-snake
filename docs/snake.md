@@ -697,9 +697,18 @@ the same record: the **full cut** (1280 by 720, the frame above) and the
 `videos/snake-level-<game>.mp4` and `videos/snake-level-<game>-short.mp4`,
 each with its sidecar.
 
+**Both cuts open on the game, not a title card.** The first frame is the board
+with the snake already moving, and `A market picks every move.` sits in one line
+across the top of the board for the first two and a half seconds while the first
+moves play under it. There is no logo sting and no static hold. (Measured on
+snake-game videos: an intro chapter goes with a third of the views per
+subscriber; record in the telarchy umbrella's `notes/youtube-channel-proposal-44.md`.)
+
 **A viewer sees that a market is playing.** The frame says it in words: in
 the full cut the question line reads `Traders bet on every move. The highest
-price wins.`, and the Short opens on it. And the market is on the board,
+price wins.`, and in the Short the first bet beat of the winning attempt carries
+that sentence as `Traders bet. The highest price wins.` across the top of the
+board, at the moment the chips pop. And the market is on the board,
 where the eye is: while a move is being decided, each cell the snake could
 move into carries a **tag** with that option's price as recorded at the
 decision, so the choices and their prices sit in front of the snake's head.
@@ -762,15 +771,13 @@ Its facts, frame and panel are as above.
 **The Short** is vertical, built for a phone, and tells one story in this
 order:
 
-1. the hook, three seconds: `A market picks every move.` over the board,
-   and under it `Traders bet. The highest price wins.`;
-2. the struggle: the crashes that ended the record attempts before the
+1. the struggle, opening the Short under its caption: the crashes that ended the record attempts before the
    winning one, the latest four at most, a second each, the death counter
    showing the real count as it jumps;
-3. the winning attempt, from its first move to the fill: bet beats on its
+2. the winning attempt, from its first move to the fill: bet beats on its
    moves with the most trades, as many as the time allows, and every move at
    the pace that fits (never slower than four moves a second);
-4. the fill, three seconds of confetti and `FILLED`, then the end card,
+3. the fill, three seconds of confetti and `FILLED`, then the end card,
    three seconds: `Bet on the next move` and `telarchy.com/snake`.
 
 The Short's frame is the board full width at the top, with its tags, chips

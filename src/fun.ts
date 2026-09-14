@@ -15,8 +15,11 @@ export interface Shot {
   /** Drawn on the board while the stretch is sped up. */
   badge: string | null;
   fx: Fx | null;
-  card: 'hook' | 'end' | null;
+  card: 'end' | null;
+  /** A one-line caption across the top of the board... */
   caption: string | null;
+  /** ...for this many frames from the shot's start (all of them when absent). */
+  captionFrames?: number;
   /** A bet beat: how many of the move's trades it shows (0 or absent: not a beat). */
   bet?: number;
   /** A bet beat: the move's trades beyond the ones it shows. */
@@ -34,10 +37,10 @@ const SLOW = 6; // four moves a second
 const FAST = 2; // twelve moves a second
 const DEATH_SLOW = FPS;
 const DEATH_FAST = 8;
-const FIRST = 3 * FPS;
 const FILL_FULL = 5 * FPS;
 const CARD = 3 * FPS;
-const HOOK = 3 * FPS;
+/** The opening caption rides the first two and a half seconds of either cut. */
+const OPENING = 60;
 const CRASH_SHORT = FPS;
 const SHORT_CRASHES = 4;
 /** A bet beat: a third of a second a shown trade, a quarter second for the pick, three trades at most. */
@@ -73,6 +76,21 @@ export function fxOf(entries: LogStep[], i: number, size: number): Fx | null {
 
 const shot = (entry: number, frames: number, over: Partial<Shot> = {}): Shot => ({ entry, frames, badge: null, fx: null, card: null, caption: null, ...over });
 
+/** Both cuts open on the game: the caption sits over whatever plays in the first
+ *  two and a half seconds; a shot that already has its own caption keeps it. */
+function withOpening(plan: Shot[]): Shot[] {
+  let at = 0;
+  for (const s of plan) {
+    if (at >= OPENING) break;
+    if (s.caption === null) {
+      s.caption = HOOK_CAPTION;
+      s.captionFrames = Math.min(s.frames, OPENING - at);
+    }
+    at += s.frames;
+  }
+  return plan;
+}
+
 /** The bet beat of the move out of entry `entry`, which had `n` trades. */
 function beat(entry: number, n: number): Shot {
   const shown = Math.min(BEAT_MAX, n);
@@ -84,7 +102,7 @@ function beat(entry: number, n: number): Shot {
 export function fullCutPlan(entries: LogStep[], size: number, tradeCounts: number[] = []): Shot[] {
   const list = attempts(entries, size);
   const last = entries.length - 1;
-  const plan: Shot[] = [shot(0, entries.length === 1 ? FILL_FULL : FIRST)];
+  const plan: Shot[] = [shot(0, entries.length === 1 ? FILL_FULL : SLOW)];
   let a = 0;
   for (let i = 1; i < entries.length; i++) {
     while (a < list.length - 1 && i > list[a].end) a++;
@@ -100,7 +118,7 @@ export function fullCutPlan(entries: LogStep[], size: number, tradeCounts: numbe
       plan.push(shot(i, fx === 'fill' || i === last ? FILL_FULL : slow ? SLOW : FAST, { fx, badge }));
     }
   }
-  return plan;
+  return withOpening(plan);
 }
 
 /** `n` items spread evenly over `items`, the first and the last included. */
@@ -117,9 +135,9 @@ export function shortPlan(entries: LogStep[], size: number, tradeCounts: number[
   const last = entries.length - 1;
   const final = list[list.length - 1];
   const crashes = list.slice(0, -1).filter(x => x.record).slice(-SHORT_CRASHES);
-  const plan: Shot[] = [shot(0, HOOK, { card: 'hook', caption: HOOK_CAPTION })];
+  const plan: Shot[] = [];
   for (const x of crashes) plan.push(shot(x.end - 1, CRASH_SHORT, { fx: 'death' }));
-  let room = SHORT_MAX_FRAMES - HOOK - crashes.length * CRASH_SHORT - CARD - CARD;
+  let room = SHORT_MAX_FRAMES - crashes.length * CRASH_SHORT - CARD - CARD;
 
   const moves: number[] = [];
   for (let i = final.start + 1; i < final.end; i++) moves.push(i);
@@ -158,7 +176,13 @@ export function shortPlan(entries: LogStep[], size: number, tradeCounts: number[
   if (lastBeat) plan.push(lastBeat);
   plan.push(shot(last, CARD, { fx: 'fill' }));
   plan.push(shot(last, CARD, { card: 'end' }));
-  return plan;
+  // the first bet beat says how the market works, at the moment the chips pop
+  const firstBeat = plan.find(s => (s.bet ?? 0) > 0);
+  if (firstBeat) {
+    firstBeat.caption = HOOK_SUBCAPTION;
+    firstBeat.captionFrames = firstBeat.frames;
+  }
+  return withOpening(plan);
 }
 
 export const frameCount = (plan: Shot[]) => plan.reduce((a, s) => a + s.frames, 0);
