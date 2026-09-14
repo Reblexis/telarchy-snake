@@ -45,6 +45,13 @@ function cellAt(openedAt: Date, minutes: number): string {
 }
 
 /** The one cell a step's proposals are priced on, sixty minutes out (docs/snake.md, "The workspace"). */
+/** The attempt's date (docs/snake.md, "The workspace"): Telarchy's clockless
+ *  `until-settled` horizon, whose book the operator settles when the attempt
+ *  ends and Telarchy reopens at the next refresh. */
+export const ATTEMPT_DATE = 'until-settled';
+/** What the floor reads for that date, after the metric: "reached length this attempt". */
+export const ATTEMPT_TITLE = 'this attempt';
+
 export function minuteCells(openedAt: Date): Record<Horizon, string> {
   return { m60: cellAt(openedAt, 60) };
 }
@@ -195,9 +202,9 @@ export class HttpTelarchyClient implements TelarchyClient {
     await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, { description: text });
   }
 
-  /** docs/snake.md "The workspace": the attempt's cell becomes the metric's
-   *  only horizon, an absolute minute; the credits the metric already has
-   *  move with it. */
+  /** docs/snake.md "The workspace": the attempt's date becomes the metric's
+   *  only horizon, titled for the floor; the proposal credits the metric
+   *  already has move with it. */
   async setHorizon(cell: string): Promise<void> {
     const m = await this.call('GET', `/metrics/${encodeURIComponent(this.o.metricId)}`);
     const credits: Record<string, unknown> = m?.timePreference?.horizonCredits ?? {};
@@ -214,7 +221,7 @@ export class HttpTelarchyClient implements TelarchyClient {
        nobody was paid enough to correct it. */
     const entry = { book: MAIN_BOOK_CREDITS, proposal: first?.proposal ?? 1000 };
     await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, {
-      timePreference: { enabled: false, customHorizons: [cell], horizonCredits: { [cell]: entry } },
+      timePreference: { enabled: false, customHorizons: [cell], horizonCredits: { [cell]: entry }, horizonTitles: { [cell]: ATTEMPT_TITLE } },
     });
   }
 
