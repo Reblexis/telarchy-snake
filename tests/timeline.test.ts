@@ -57,6 +57,10 @@ describe('a run\'s length', () => {
       }
     }
   });
+  it('a run too short for its ramps is shortened: one eased move takes fewer frames than two full ramps', () => {
+    for (const s of SPEED_LADDER) expect(runFrames(1, s, true, true), String(s)).toBeLessThan(24);
+  });
+
   it('covers its distance exactly with the frames it is given', () => {
     for (const D of [1, 5, 12, 40]) for (const s of [4, 24, 128]) {
       const seg = { kind: 'run' as const, from: 100, to: 100 + D, speed: s, easeIn: true, easeOut: true, frames: runFrames(D, s, true, true) };
@@ -197,6 +201,19 @@ describe('the full cut timeline', () => {
     expect(runs.length).toBeGreaterThan(1);
     for (let k = 1; k < runs.length; k++) expect(runs[k].speed).toBeLessThanOrEqual(runs[k - 1].speed);
     if (runs[0].speed > 4) expect(runs[runs.length - 1].speed).toBeLessThan(runs[0].speed);
+  });
+
+  it('after a long, fast struggle the winning attempt ends clearly slower than it starts', () => {
+    const size = 6;
+    // 1,500 quick deaths force a fast struggle, then an attempt that fills the grid
+    const lv = plainLevel('md'.repeat(1500) + 'me'.repeat(34), size);
+    const by: TradeRow[][] = lv.map(() => []);
+    const t = fullTimeline(lv, size, by, momentsOf(lv, size, by));
+    const winStart = lv.findIndex((e, k) => k > 0 && e.deaths === lv.at(-1)!.deaths && lv[k - 1].deaths < e.deaths);
+    const runs = t.filter(s => s.kind === 'run' && (s as any).from >= winStart && !((s as any).easeIn && (s as any).easeOut)) as Array<Extract<Segment, { kind: 'run' }>>;
+    expect(runs.length).toBeGreaterThan(1);
+    expect(runs[0].speed).toBeGreaterThan(4);
+    expect(runs[runs.length - 1].speed).toBeLessThan(runs[0].speed);
   });
 
   it('a level short enough plays its whole story slowly, still within the rules', () => {
