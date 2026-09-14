@@ -3,7 +3,7 @@ import {
   refuseUnlessWhole, tradesByMove, optionOfBook, panelRows, videoState, holds, sidecar, readLevel, FPS,
   type TradeRow,
 } from '../src/level.js';
-import { drawnTexts, renderFrame, pillRects, WIDTH } from '../src/frame.js';
+import { drawnTexts, renderFrame, pillRects, WIDTH, LAYOUT } from '../src/frame.js';
 import type { GameEntry, LogStep } from '../src/gamelog.js';
 
 // docs/snake.md, "The level videos".
@@ -181,6 +181,26 @@ describe('every frame is the stream frame drawn from the record', () => {
   it('the chevron points at the next move and the last entry draws none', () => {
     expect(videoState(ctx(), 0).state.next).toEqual({ direction: 'up', decided: true });
     expect(videoState(ctx(), 4).state.next).toBeNull();
+  });
+
+  it('the last frame draws no chevron or wall bar on the board, whatever the heading', () => {
+    const accentOnBoard = (i: number) => {
+      const { state, now } = videoState(ctx(), i);
+      const buf = renderFrame(state, now);
+      let n = 0;
+      for (let y = 24; y < 696; y++) for (let x = 24; x < 696; x++) {
+        const k = (y * WIDTH + x) * 3;
+        if (buf[k] > 150 && buf[k + 1] > 80 && buf[k + 1] < 180 && buf[k + 2] < 60) n++;
+      }
+      return n;
+    };
+    expect(accentOnBoard(0)).toBeGreaterThan(0); // the guard: a chevron is found when one is drawn
+    expect(accentOnBoard(4)).toBe(0);
+  });
+
+  it('the complete game\'s lines sit below the level line, never over it', () => {
+    expect(LAYOUT.completeBaseline - 20).toBeGreaterThan(LAYOUT.levelBaseline);
+    expect(LAYOUT.completeBaseline + 28 + 6).toBeLessThan(LAYOUT.panelLabelBaseline - 13);
   });
 
   it('the last frame is the full grid with the complete line and the level\'s facts', () => {
