@@ -3,7 +3,9 @@ import {
   attempts, fullCutPlan, shortPlan, sfxEvents, synthSfx, mixArgs, withCredit, shortSidecar, fullSidecar, SHORT_MAX_FRAMES,
   type Shot,
 } from '../src/fun.js';
-import { renderFunFrame, funTexts, renderShortFrame, shortTexts, shortPillRects, SHORT_W, SHORT_H } from '../src/fun-frame.js';
+import { renderFunFrame, funTexts, renderShortFrame, shortTexts, shortPillRects, tagRects, chipRects, burstAt, SIZES, SHORT_BOX, SHORT_W, SHORT_H } from '../src/fun-frame.js';
+import { MAIN_BOX, type Box } from '../src/frame.js';
+import { directionsFrom, ACTIONS } from '../src/decide.js';
 import { videoState, tradesByMove, sidecar, FPS, type TradeRow } from '../src/level.js';
 import { WIDTH } from '../src/frame.js';
 import type { GameEntry, LogStep } from '../src/gamelog.js';
@@ -390,5 +392,95 @@ describe('the sidecars', () => {
     expect(s.durationSeconds).toBe(fullCutPlan(fourEntries, 4, tc).reduce((a, x) => a + x.frames, 0) / FPS);
     expect(s.description.endsWith('\nMusic: X')).toBe(true);
     expect(s.title).toBe(sidecar(game, fourEntries, [trade]).title);
+  });
+});
+
+describe('the market marks look good: nothing collides, nothing leaves the board', () => {
+  type Rect = { x: number; y: number; w: number; h: number };
+  const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const inside = (r: Rect, box: Box) => r.x >= box.x && r.y >= box.y && r.x + r.w <= box.x + box.px && r.y + r.h <= box.y + box.px;
+  const headings = ['up', 'right', 'down', 'left'] as const;
+  /** A 4x4 position with the head at (x, y), every option priced, `bets` on the move. */
+  const position = (x: number, y: number, heading: typeof headings[number], bets: any[] = [], size = 4) => ({
+    game: { snake: [{ x, y }], heading, size, length: 2, deaths: 0 },
+    grid: size,
+    open: { directions: directionsFrom(heading), quotes: Object.fromEntries(ACTIONS.map(a => [a, { m60: { price: 2.5, lead: null } }])) },
+    next: { direction: directionsFrom(heading).left, decided: true },
+    video: { chosen: 'left', bets, rows: [] },
+  });
+  const everyPosition = () => {
+    const out: Array<ReturnType<typeof position>> = [];
+    for (const size of [4, 8, 12]) {
+      const cells = size === 4 ? [0, 1, 2, 3] : [0, 1, size >> 1, size - 2, size - 1];
+      for (const x of cells) for (const y of cells) for (const h of headings) out.push(position(x, y, h, [], size));
+    }
+    return out;
+  };
+
+  it('tags never overlap each other and stay inside the board, at every head position and heading, in both cuts', () => {
+    for (const [box, z] of [[MAIN_BOX, SIZES.full], [SHORT_BOX, SIZES.short]] as const) {
+      for (const s of everyPosition()) {
+        const rects = tagRects(s, box, z);
+        expect(rects).toHaveLength(3);
+        for (const r of rects) expect(inside(r, box), JSON.stringify({ head: s.game.snake[0], heading: s.game.heading, r })).toBe(true);
+        for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+          expect(overlap(rects[i], rects[j]), JSON.stringify({ head: s.game.snake[0], heading: s.game.heading })).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('the fun cuts draw no next-move chevron: no accent on the board outside a beat', () => {
+    const { state, now } = videoState(ctx(), 1);
+    const amber = (buf: Buffer, w: number, box: Box) => {
+      let n = 0;
+      for (let y = box.y; y < box.y + box.px; y += 2) for (let x = box.x; x < box.x + box.px; x += 2) {
+        const k = (y * w + x) * 3;
+        if (buf[k] > 200 && buf[k + 1] > 120 && buf[k + 1] < 180 && buf[k + 2] < 60) n++;
+      }
+      return n;
+    };
+    expect(amber(renderFunFrame(state, now, shotFor(1, null), 0), WIDTH, MAIN_BOX)).toBe(0);
+    expect(amber(renderShortFrame(state, now, shotFor(1, null), 0), SHORT_W, SHORT_BOX)).toBe(0);
+  });
+
+  it('a crash burst stays inside the board, however close the wall', () => {
+    for (const [box] of [[MAIN_BOX], [SHORT_BOX]] as const) {
+      for (const s of everyPosition()) {
+        for (const d of ['up', 'right', 'down', 'left']) {
+          const b = burstAt({ ...s, next: { direction: d, decided: true } }, box);
+          expect(b).not.toBeNull();
+          expect(b!.x - b!.r >= box.x && b!.y - b!.r >= box.y && b!.x + b!.r <= box.x + box.px && b!.y + b!.r <= box.y + box.px,
+            JSON.stringify({ head: s.game.snake[0], d, b })).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('chips are large in the Short, solid for half a second, and stay inside the board, unnamed trades above the head', () => {
+    expect(SIZES.short.chip).toBeGreaterThanOrEqual(52);
+    const bets = [
+      { handle: 'ann', option: 'forward', credits: 10, from: 2, to: 2.5 },
+      { handle: 'a-very-long-trader-handle', option: 'left', credits: 1200, from: 2, to: 2.5 },
+      { handle: 'bob', option: null, credits: 5, from: 2, to: 2.5 },
+    ];
+    const beat: Shot = { entry: 0, frames: 30, badge: null, fx: null, card: null, caption: null, bet: 3, more: 0 };
+    for (const [box, z] of [[MAIN_BOX, SIZES.full], [SHORT_BOX, SIZES.short]] as const) {
+      for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) for (const h of headings) {
+        const s = position(x, y, h, bets);
+        for (const k of [0, 4, 12, 20, 29]) {
+          for (const c of chipRects(s, beat, k, box, z)) {
+            expect(inside(c, box), JSON.stringify({ head: { x, y }, h, k, c })).toBe(true);
+            if (k - c.start <= 12) expect(c.alpha).toBe(1);
+          }
+        }
+      }
+    }
+    // the unnamed trade's chip sits over the head's column, not at the panel
+    const s = position(1, 2, 'right', bets);
+    const head = SHORT_BOX.x + Math.floor(SHORT_BOX.px / 4) * 1.5;
+    const unnamed = chipRects(s, beat, 17, SHORT_BOX, SIZES.short).find(c => c.handle === 'bob')!;
+    expect(unnamed).toBeDefined();
+    expect(Math.abs(unnamed.x + unnamed.w / 2 - head)).toBeLessThan(Math.floor(SHORT_BOX.px / 4) / 2);
   });
 });

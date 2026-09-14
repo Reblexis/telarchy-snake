@@ -1,7 +1,7 @@
 // The fun cuts' frames, docs/snake.md "The fun cuts": the stream frame with
-// the market on the board (price tags in front of the head, trade chips in a
-// bet beat), the game felt (a +1 on an eat, a crash with a red burst on a
-// death, confetti and FILLED on the fill), and the vertical Short frame.
+// the market on the board (price tags in front of the head that never collide,
+// trade chips in a bet beat), the game felt (a +1 on an eat, a crash with a red
+// burst on a death, confetti and FILLED on the fill), and the vertical Short frame.
 import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import {
   drawFrame, drawBoard, cellRect, measureText, MAIN_BOX, PALETTE, FONTS, WIDTH, HEIGHT, NEXT_LABEL, logoImage, LOGO_NATURAL,
@@ -12,19 +12,24 @@ import { BEAT_PER_TRADE, HOOK_SUBCAPTION, type Shot } from './fun.js';
 
 export const SHORT_W = 1080;
 export const SHORT_H = 1920;
-const SHORT_BOX: Box = { x: 24, y: 150, px: 1032 };
+export const SHORT_BOX: Box = { x: 24, y: 150, px: 1032 };
 const CONFETTI = ['#f59e0b', '#60a5fa', '#f472b6', '#facc15', '#a78bfa', '#22d3ee', '#f87171'];
 const ARROW: Record<string, string> = { up: '↑', right: '→', down: '↓', left: '←' };
 const DELTA: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 /** How the two frames size the market's marks: the Short never sets under 40 px. */
-const SIZES = {
-  full: { tag: 20, chip: 22, handle: 18, more: 20, plus: 30, filled: 100, counter: 18 },
-  short: { tag: 44, chip: 48, handle: 40, more: 44, plus: 60, filled: 150, counter: 56 },
+export const SIZES = {
+  full: { tag: 20, chip: 24, handle: 18, more: 20, plus: 30, filled: 100, counter: 18 },
+  short: { tag: 44, chip: 52, handle: 42, more: 44, plus: 60, filled: 150, counter: 56 },
 };
-type Sizes = typeof SIZES.full;
+export type Sizes = typeof SIZES.full;
+/** A chip is solid this many frames (half a second), then fades over CHIP_FADE. */
+const CHIP_SOLID = 12;
+const CHIP_FADE = 8;
+const EDGE = 4;
 
 type Face = keyof typeof FONTS;
 type Write = (str: string, x: number, y: number, size: number, colour: string, weight: number, face: Face, align?: 'left' | 'right' | 'center') => void;
+type Rect = { x: number; y: number; w: number; h: number };
 
 function writer(ctx: SKRSContext2D, record: (text: string, size: number) => void): Write {
   return (str, x, y, size, colour, weight, face, align = 'left') => {
@@ -59,6 +64,12 @@ const rand = (i: number) => {
 };
 
 const one = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? '-' : v.toFixed(1));
+const overlaps = (a: Rect, b: Rect, gap = 0) => a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+const clampInto = (r: Rect, box: Box): Rect => ({
+  ...r,
+  x: Math.min(Math.max(r.x, box.x + EDGE), box.x + box.px - EDGE - r.w),
+  y: Math.min(Math.max(r.y, box.y + EDGE), box.y + box.px - EDGE - r.h),
+});
 
 export function shakeOffset(shot: Shot, k: number): [number, number] {
   if (shot.fx !== 'death' || k >= 8) return [0, 0];
@@ -75,18 +86,54 @@ function pill(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, fi
 
 interface Bet { handle: string; option: Action | null; credits: number; from: number; to: number }
 
-/** Where an option's tag sits: on the cell the snake would enter, or against the wall inside the board. */
-function tagCentre(s: any, a: Action, box: Box, N: number): [number, number] | null {
+const gridOf = (s: any): number => s.grid ?? s.game?.size ?? 4;
+
+/**
+ * Where each priced option's tag sits (docs/snake.md, "The fun cuts"): on the
+ * cell the snake would enter, or against the wall inside the head's cell, then
+ * moved to the nearest free spot so no two tags overlap, and kept inside the board.
+ * The chosen option is placed first, so it keeps its preferred spot.
+ */
+export function tagRects(s: any, box: Box, z: Sizes): Array<Rect & { action: Action }> {
   const head = s.game?.snake?.[0];
-  const dir = s.open?.directions?.[a];
-  if (!head || !dir || !DELTA[dir]) return null;
-  const [dx, dy] = DELTA[dir];
+  if (!head || !s.open) return [];
+  const N = gridOf(s);
   const h = cellRect(head.x, head.y, N, box);
   const cx = h.x + h.w / 2, cy = h.y + h.h / 2;
-  const nx = head.x + dx, ny = head.y + dy;
-  const inside = nx >= 0 && ny >= 0 && nx < N && ny < N;
-  const reach = inside ? h.w : h.w * 0.42;
-  return [cx + dx * reach, cy + dy * reach];
+  const w = Math.max(measureText('00.0', z.tag, 700, 'mono'), 0) + z.tag * 1.1;
+  const th = z.tag * 1.7;
+  const chosen: Action | null = s.video?.chosen ?? null;
+  const order = [...ACTIONS].sort((a, b) => (a === chosen ? -1 : b === chosen ? 1 : 0));
+  const placed: Array<Rect & { action: Action }> = [];
+  for (const a of order) {
+    const price = s.open.quotes?.[a]?.m60?.price;
+    const dir = s.open.directions?.[a];
+    if (price === null || price === undefined || !Number.isFinite(price) || !dir || !DELTA[dir]) continue;
+    const [dx, dy] = DELTA[dir];
+    const nx = head.x + dx, ny = head.y + dy;
+    const inside = nx >= 0 && ny >= 0 && nx < N && ny < N;
+    const reachX = inside ? h.w : Math.max(0, h.w / 2 - w / 2 - EDGE);
+    const reachY = inside ? h.h : Math.max(0, h.h / 2 - th / 2 - EDGE);
+    const px = cx + dx * reachX, py = cy + dy * reachY;
+    // the preferred spot, then a widening search along the wall (perpendicular to the move) and back from it
+    const [ax, ay] = dx !== 0 ? [0, 1] : [1, 0];
+    let best: Rect | null = null;
+    for (let ring = 0; ring < 40 && !best; ring++) {
+      const offsets = ring === 0 ? [[0, 0]] : [[ring, 0], [-ring, 0], [ring, -ring], [-ring, -ring], [0, -ring]];
+      for (const [along, back] of offsets) {
+        const stepAlong = ax ? w + 6 : th + 6;
+        const stepBack = dx !== 0 ? w + 6 : th + 6;
+        const r = clampInto({
+          x: px + ax * along * stepAlong * 0.5 - dx * back * stepBack * 0.5 - w / 2,
+          y: py + ay * along * stepAlong * 0.5 - dy * back * stepBack * 0.5 - th / 2,
+          w, h: th,
+        }, box);
+        if (!placed.some(p => overlaps(p, r, 2))) { best = r; break; }
+      }
+    }
+    if (best) placed.push({ ...best, action: a });
+  }
+  return ACTIONS.flatMap(a => placed.filter(p => p.action === a));
 }
 
 /** The price a tag shows at frame `k`: during a beat it counts through its option's trades. */
@@ -105,65 +152,104 @@ function tagPrice(s: any, a: Action, shot: Shot, k: number): number | null {
   return value;
 }
 
-/** The market on the board: a price tag in front of the head for each option, and a beat's chips. */
-function market(ctx: SKRSContext2D, box: Box, s: any, shot: Shot, k: number, write: Write, z: Sizes, panelChip: [number, number]) {
-  if (!s.open || shot.card) return;
-  const N: number = s.grid ?? s.game?.size ?? 4;
-  const chosen: Action | null = s.video?.chosen ?? null;
-  const picking = (shot.bet ?? 0) > 0 && k >= (shot.bet ?? 0) * BEAT_PER_TRADE;
-  for (const a of ACTIONS) {
-    const c = tagCentre(s, a, box, N);
-    const price = tagPrice(s, a, shot, k);
-    if (!c || price === null || !Number.isFinite(price)) continue;
-    const label = one(price);
-    const w = measureText(label, z.tag, 700, 'mono') + z.tag * 1.1;
-    const h = z.tag * 1.7;
-    const lead = a === chosen;
-    ctx.save();
-    if (lead && picking) {
-      ctx.shadowColor = PALETTE.SNAKE;
-      ctx.shadowBlur = z.tag;
-    }
-    pill(ctx, c[0] - w / 2, c[1] - h / 2, w, h, lead ? PALETTE.SNAKE : 'rgba(16,16,19,0.88)', lead ? null : PALETTE.STRONG, lead ? 0 : 2);
-    ctx.restore();
-    write(label, c[0], c[1] + z.tag * 0.36, z.tag, lead ? PALETTE.BG : PALETTE.FG, 700, 'mono', 'center');
-  }
-
+/** The chips a beat shows at frame `k`: solid for half a second, then fading; above their option's
+ *  tag (or the head, when the option is not named), below it when there is no room, always inside the board. */
+export function chipRects(s: any, shot: Shot, k: number, box: Box, z: Sizes): Array<Rect & { handle: string; text: string; alpha: number; start: number }> {
   const bets: Bet[] = (s.video?.bets ?? []).slice(0, shot.bet ?? 0);
+  if (bets.length === 0) return [];
+  const head = s.game?.snake?.[0];
+  const N = gridOf(s);
+  const tags = tagRects(s, box, z);
+  const out: Array<Rect & { handle: string; text: string; alpha: number; start: number }> = [];
   bets.forEach((b, t) => {
     const start = t * BEAT_PER_TRADE;
     const age = k - start;
-    if (age < 0 || age > BEAT_PER_TRADE + 8) return;
-    const anchor = b.option ? tagCentre(s, b.option, box, N) : null;
-    const [ax, ay] = anchor ?? panelChip;
-    const rise = age * (z.chip / 8);
+    if (age < 0 || age > CHIP_SOLID + CHIP_FADE) return;
+    const alpha = age <= CHIP_SOLID ? 1 : Math.max(0, 1 - (age - CHIP_SOLID) / CHIP_FADE);
+    if (alpha <= 0) return;
+    const tag = b.option ? tags.find(r => r.action === b.option) : undefined;
+    let anchor: Rect;
+    if (tag) anchor = tag;
+    else if (head) { const c = cellRect(head.x, head.y, N, box); anchor = { x: c.x + c.w / 2 - 1, y: c.y + c.h * 0.2, w: 2, h: c.h * 0.6 }; }
+    else anchor = { x: box.x + box.px / 2, y: box.y + box.px / 2, w: 0, h: 0 };
     const text = `+${Math.round(b.credits).toLocaleString('en-US')} cr`;
-    const w = Math.max(measureText(text, z.chip, 700, 'sans'), measureText(b.handle, z.handle, 600, 'sans')) + z.chip;
-    const h = z.chip * 1.4 + z.handle * 1.3;
-    const top = ay - z.tag * 1.3 - h - rise;
+    const maxW = box.px - 2 * EDGE;
+    const w = Math.min(maxW, Math.max(measureText(text, z.chip, 700, 'sans'), measureText(b.handle, z.handle, 600, 'sans')) + z.chip);
+    const h = z.chip * 1.35 + z.handle * 1.25;
+    const rise = Math.min(age, CHIP_SOLID) * (z.chip / 12);
+    let y = anchor.y - 8 - h - rise;
+    if (y < box.y + EDGE) y = anchor.y + anchor.h + 8 + rise;
+    const r = clampInto({ x: anchor.x + anchor.w / 2 - w / 2, y, w, h }, box);
+    out.push({ ...r, handle: b.handle, text, alpha, start });
+  });
+  return out;
+}
+
+/** Where a crash's burst is drawn and how far its spikes reach: on the cell the head runs into,
+ *  or against the wall inside the head's cell, never past the board's edge. */
+export function burstAt(s: any, box: Box): { x: number; y: number; r: number } | null {
+  const head = s.game?.snake?.[0];
+  const dir = s.next?.direction;
+  if (!head || !dir || !DELTA[dir]) return null;
+  const N = gridOf(s);
+  const c = cellRect(head.x, head.y, N, box);
+  const [dx, dy] = DELTA[dir];
+  const r = c.w * 0.3;
+  const nx = head.x + dx, ny = head.y + dy;
+  const inside = nx >= 0 && ny >= 0 && nx < N && ny < N;
+  const reach = inside ? c.w : c.w / 2 - r - EDGE;
+  const x = Math.min(Math.max(c.x + c.w / 2 + dx * reach, box.x + r + EDGE), box.x + box.px - r - EDGE);
+  const y = Math.min(Math.max(c.y + c.h / 2 + dy * reach, box.y + r + EDGE), box.y + box.px - r - EDGE);
+  return { x, y, r };
+}
+
+/** The market on the board: the tags, a beat's chips, and `+N more`. */
+function market(ctx: SKRSContext2D, box: Box, s: any, shot: Shot, k: number, write: Write, z: Sizes) {
+  if (!s.open || shot.card) return;
+  const chosen: Action | null = s.video?.chosen ?? null;
+  const picking = (shot.bet ?? 0) > 0 && k >= (shot.bet ?? 0) * BEAT_PER_TRADE;
+  const tags = tagRects(s, box, z);
+  for (const r of tags) {
+    const lead = r.action === chosen;
     ctx.save();
-    ctx.globalAlpha = age > BEAT_PER_TRADE ? Math.max(0.15, 1 - (age - BEAT_PER_TRADE) / 8) : Math.min(1, 0.4 + age * 0.3);
+    if (lead && picking) {
+      ctx.shadowColor = PALETTE.SNAKE;
+      ctx.shadowBlur = z.tag * 1.2;
+    }
+    pill(ctx, r.x, r.y, r.w, r.h, lead ? PALETTE.SNAKE : 'rgba(16,16,19,0.92)', lead ? null : PALETTE.STRONG, lead ? 0 : 2);
+    ctx.restore();
+    write(one(tagPrice(s, r.action, shot, k)), r.x + r.w / 2, r.y + r.h / 2 + z.tag * 0.36, z.tag, lead ? PALETTE.BG : PALETTE.FG, 700, 'mono', 'center');
+  }
+
+  for (const c of chipRects(s, shot, k, box, z)) {
+    ctx.save();
+    ctx.globalAlpha = c.alpha;
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = z.chip * 0.4;
     ctx.beginPath();
-    ctx.roundRect(ax - w / 2, top, w, h, z.chip * 0.4);
+    ctx.roundRect(c.x, c.y, c.w, c.h, z.chip * 0.35);
     ctx.fillStyle = PALETTE.LEAD;
     ctx.fill();
-    write(text, ax, top + z.chip * 1.15, z.chip, PALETTE.BG, 700, 'sans', 'center');
-    write(clip(b.handle, z.handle, w - z.chip * 0.6, 600, 'sans'), ax, top + z.chip * 1.15 + z.handle * 1.2, z.handle, PALETTE.BG, 600, 'sans', 'center');
+    ctx.shadowBlur = 0;
+    const mid = c.x + c.w / 2;
+    write(c.text, mid, c.y + z.chip * 1.08, z.chip, PALETTE.BG, 700, 'sans', 'center');
+    write(clip(c.handle, z.handle, c.w - z.chip * 0.5, 600, 'sans'), mid, c.y + z.chip * 1.08 + z.handle * 1.12, z.handle, PALETTE.BG, 600, 'sans', 'center');
     ctx.restore();
-  });
+  }
+
   if ((shot.more ?? 0) > 0 && k >= Math.max(0, ((shot.bet ?? 1) - 1) * BEAT_PER_TRADE + 4)) {
-    const head = s.game?.snake?.[0];
-    if (head) {
-      const r = cellRect(head.x, head.y, N, box);
-      const y = r.y + r.h + z.more * 1.6 > box.y + box.px ? r.y - z.more * 0.6 : r.y + r.h + z.more * 1.4;
-      write(`+${shot.more} more`, r.x + r.w / 2, y, z.more, PALETTE.LEAD, 700, 'sans', 'center');
-    }
+    const label = `+${shot.more} more`;
+    const w = measureText(label, z.more, 700, 'sans') + z.more;
+    const h = z.more * 1.6;
+    const r = clampInto({ x: box.x + box.px / 2 - w / 2, y: box.y + box.px - h - z.counter * 3, w, h }, box);
+    pill(ctx, r.x, r.y, r.w, r.h, 'rgba(16,16,19,0.92)', PALETTE.LEAD, 2);
+    write(label, r.x + r.w / 2, r.y + r.h / 2 + z.more * 0.36, z.more, PALETTE.LEAD, 700, 'sans', 'center');
   }
 }
 
 /** The game felt on the board: the crash, the +1 and the head's pop, confetti and FILLED. */
 function feel(ctx: SKRSContext2D, box: Box, s: any, shot: Shot, k: number, write: Write, z: Sizes) {
-  const N: number = s.grid ?? s.game?.size ?? 4;
+  const N = gridOf(s);
   const head = s.game?.snake?.[0];
   if (shot.fx === 'death') {
     const alpha = 0.4 * Math.max(0, 1 - k / 10);
@@ -172,31 +258,31 @@ function feel(ctx: SKRSContext2D, box: Box, s: any, shot: Shot, k: number, write
       ctx.fillRect(box.x, box.y, box.px, box.px);
     }
     const dir = s.next?.direction;
-    if (head && dir && DELTA[dir]) {
+    const burst = burstAt(s, box);
+    if (head && dir && DELTA[dir] && burst) {
       const [dx, dy] = DELTA[dir];
-      const r = cellRect(head.x, head.y, N, box);
-      const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-      // the head lunges toward what it hits
-      const lunge = r.w * 0.35 * Math.min(1, k / 3);
+      const c = cellRect(head.x, head.y, N, box);
+      const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+      // the head lunges toward what it hits, never past the board's edge
+      const lunge = c.w * 0.3 * Math.min(1, k / 3);
+      const hr = c.w * 0.39;
+      const lx = Math.min(Math.max(cx + dx * lunge, box.x + hr), box.x + box.px - hr);
+      const ly = Math.min(Math.max(cy + dy * lunge, box.y + hr), box.y + box.px - hr);
       ctx.fillStyle = PALETTE.SNAKE;
       ctx.beginPath();
-      ctx.arc(cx + dx * lunge, cy + dy * lunge, r.w * 0.39, 0, Math.PI * 2);
+      ctx.arc(lx, ly, hr, 0, Math.PI * 2);
       ctx.fill();
-      const nx = head.x + dx, ny = head.y + dy;
-      const inside = nx >= 0 && ny >= 0 && nx < N && ny < N;
-      const bx = inside ? cx + dx * r.w : cx + dx * r.w * 0.5;
-      const by = inside ? cy + dy * r.h : cy + dy * r.h * 0.5;
       const fade = k < 14 ? 1 : Math.max(0, 1 - (k - 14) / 8);
       if (fade > 0) {
         ctx.save();
         ctx.globalAlpha = fade;
         ctx.fillStyle = PALETTE.FOOD;
-        const radius = r.w * (0.18 + 0.12 * Math.min(1, k / 4));
+        const grow = 0.75 + 0.25 * Math.min(1, k / 4);
         ctx.beginPath();
         for (let p = 0; p < 16; p++) {
           const ang = (p / 16) * Math.PI * 2;
-          const rr = p % 2 === 0 ? radius * 1.7 : radius;
-          const px = bx + Math.cos(ang) * rr, py = by + Math.sin(ang) * rr;
+          const rr = (p % 2 === 0 ? burst.r : burst.r / 1.7) * grow;
+          const px = burst.x + Math.cos(ang) * rr, py = burst.y + Math.sin(ang) * rr;
           if (p === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
@@ -215,7 +301,8 @@ function feel(ctx: SKRSContext2D, box: Box, s: any, shot: Shot, k: number, write
     ctx.beginPath();
     ctx.arc(r.x + r.w / 2, r.y + r.h / 2, (r.w / 2) * (0.9 + k * 0.05), 0, Math.PI * 2);
     ctx.stroke();
-    write('+1', r.x + r.w / 2, r.y - k * 3, Math.max(z.plus, Math.round(r.h * 0.4)), PALETTE.SNAKE, 700, 'sans', 'center');
+    const size = Math.max(z.plus, Math.round(r.h * 0.4));
+    write('+1', r.x + r.w / 2, Math.max(box.y + size, r.y - k * 3), size, PALETTE.SNAKE, 700, 'sans', 'center');
     ctx.restore();
   }
   if (shot.fx === 'fill') {
@@ -253,14 +340,15 @@ function shaken(src: Canvas, w: number, h: number, box: Box, dx: number, dy: num
 const deathsShown = (s: any, shot: Shot) => (s.game?.deaths ?? 0) + (shot.fx === 'death' ? 1 : 0);
 
 function drawFun(s: any, now: number, shot: Shot, k: number, texts: string[]): Canvas {
-  const base = drawFrame(s, now, texts);
+  // the tags replace the next-move chevron (docs/snake.md, "The fun cuts")
+  const base = drawFrame({ ...s, video: { ...(s.video ?? {}), hideChevron: true } }, now, texts);
   const [dx, dy] = shakeOffset(shot, k);
   const canvas = dx || dy ? shaken(base, WIDTH, HEIGHT, MAIN_BOX, dx, dy) : base;
   const ctx = canvas.getContext('2d');
   const box = { ...MAIN_BOX, x: MAIN_BOX.x + dx, y: MAIN_BOX.y + dy };
   const write = writer(ctx, t => texts.push(t));
   const z = SIZES.full;
-  market(ctx, box, s, shot, k, write, z, [996, 470]);
+  if (shot.fx !== 'death') market(ctx, box, s, shot, k, write, z);
   feel(ctx, box, s, shot, k, write, z);
   // the death counter, bottom left on the board
   const counter = `DEATHS ${deathsShown(s, shot)}`;
@@ -310,7 +398,7 @@ function drawShort(s: any, now: number, shot: Shot, k: number, rec: Array<{ text
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, SHORT_W, SHORT_H);
   const g = s.game ?? {};
-  const N: number = s.grid ?? g.size ?? 4;
+  const N = gridOf(s);
   const W = SHORT_W - 48;
 
   if (shot.card === 'end') {
@@ -327,9 +415,9 @@ function drawShort(s: any, now: number, shot: Shot, k: number, rec: Array<{ text
 
   const [dx, dy] = shakeOffset(shot, k);
   const box = { ...SHORT_BOX, x: SHORT_BOX.x + dx, y: SHORT_BOX.y + dy };
-  const next = s.next && shot.card !== 'hook' ? { direction: s.next.direction, decided: true } : null;
-  drawBoard(ctx, g, N, next, box);
-  market(ctx, box, s, shot, k, write, z, [SHORT_W / 2, 1700]);
+  // the tags replace the next-move chevron (docs/snake.md, "The fun cuts")
+  drawBoard(ctx, g, N, null, box);
+  if (shot.fx !== 'death') market(ctx, box, s, shot, k, write, z);
   feel(ctx, box, s, shot, k, write, z);
 
   if (shot.card === 'hook') {

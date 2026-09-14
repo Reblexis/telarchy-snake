@@ -705,21 +705,27 @@ move into carries a **tag** with that option's price as recorded at the
 decision, so the three choices and their prices sit in front of the snake's
 head (a cell past the wall puts its tag against the wall, inside the board).
 The chosen option's tag is green, the others quiet. An option with no
-recorded price has no tag.
+recorded price has no tag. **Tags never collide**: two tags that would overlap
+(at a wall or a corner, where more than one option runs into it) are spread
+apart along the wall, and every tag stays inside the board. The tags replace the
+next-move chevron, which the fun cuts do not draw.
 
 **Trades land before the snake moves.** A move with trades, shown at normal
 pace, first plays its **bet beat** on the position before the move: its
-trades in the order they were made, at most three, each popping a chip on its
-option's tag (`+<credits> cr` over the trader's handle) with a coin sound
+trades in the order they were made, at most three, each popping a chip above
+its option's tag (`+<credits> cr` over the trader's handle) with a coin sound
 while the tag's price counts from the trade's call before to its call after.
-A trade whose option is not named pops its chip at the panel instead. More
+A trade whose option is not named pops its chip above the snake's head. A chip
+is solid and large (in the Short at least 52 px), stays fully visible for half a
+second before it fades, and stays inside the board. More
 than three trades add `+N more` after the third. Each shown trade takes a
 third of a second, then the chosen tag flashes for a quarter second and the
 snake moves. Sped-up stretches play no beat; their tags stand still.
 
 **A death is seen as a crash.** A move that kills the snake is drawn from the
 position before it: the head lunges toward the wall or the body it hits, a
-red burst marks the spot, the board flashes red and shakes, a low buzz plays,
+red burst marks the spot (inside the board, however close the wall), the board
+flashes red and shakes, a low buzz plays,
 and the death counter counts it. The respawn follows. On a move that eats,
 the head pops and a `+1` rises from the eaten cell, with a short rising blip.
 When the grid fills, confetti bursts over the board, `FILLED` is drawn large,
