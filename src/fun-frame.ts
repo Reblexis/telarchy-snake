@@ -328,9 +328,19 @@ function feel(ctx: SKRSContext2D, box: Box, s: any, shot: Shot, k: number, write
   }
 }
 
+/** One canvas per size, reused frame after frame: fresh native canvases pile up memory
+ *  the garbage collector never sees (docs/snake.md, "The level videos", Encoding). The
+ *  pixels handed to ffmpeg are still copied into a new buffer each frame. */
+const canvases = new Map<string, Canvas>();
+function reusable(name: string, w: number, h: number): Canvas {
+  let c = canvases.get(name);
+  if (!c) { c = createCanvas(w, h); canvases.set(name, c); }
+  return c;
+}
+
 /** A board-sized copy of `src` shifted by the shake, the rest of the frame left where it is. */
 function shaken(src: Canvas, w: number, h: number, box: Box, dx: number, dy: number): Canvas {
-  const c = createCanvas(w, h);
+  const c = reusable('shake', w, h);
   const ctx = c.getContext('2d');
   ctx.drawImage(src, 0, 0);
   const pad = 12;
@@ -411,7 +421,7 @@ export function shortPillRects(s: any): Array<{ x: number; y: number; w: number;
 
 function drawShort(s: any, now: number, shot: Shot, k: number, rec: Array<{ text: string; size: number }>): Canvas {
   void now;
-  const canvas = createCanvas(SHORT_W, SHORT_H);
+  const canvas = reusable('short', SHORT_W, SHORT_H);
   const ctx = canvas.getContext('2d');
   const write = writer(ctx, (text, size) => rec.push({ text, size }));
   const { BG, FG, FG2, MUTE, SNAKE, STRONG, FOOD, BONE } = PALETTE;

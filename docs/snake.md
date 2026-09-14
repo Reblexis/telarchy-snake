@@ -562,7 +562,8 @@ stream is off on purpose: nothing starts it again until it is enabled.
 game is not drawn: the last good frame stays on screen and the read is
 logged. A frame that throws is skipped, not fatal. A stream that exits
 takes a restart delay and comes back into the same payload, so a held frame
-is the only behaviour that recovers on its own.
+is the only behaviour that recovers on its own. It holds a bounded amount of
+memory however long it runs.
 
 **The frame is Telarchy's floor in its dark theme**, so a viewer who opens
 the link lands on a page that looks like what they watched. The ground is
@@ -672,6 +673,8 @@ facts, `<moves> moves · <deaths> deaths · <trades> trades · <span>`. No move
 follows it, so it draws no trades panel.
 
 **Encoding.** 24 frames a second, H.264, yuv420p, AAC audio, `+faststart`.
+A render holds a bounded amount of memory however long the level, so it fits
+beside everything else on the machine.
 How long each entry is held is each cut's pace ("The fun cuts").
 
 **The sidecar** `snake-level-<game>.json` is `{ game, size, title,
