@@ -70,12 +70,13 @@ violet, turn right magenta). Green belongs to the snake, red to death, gold to r
   1 is a thin sliver, never a round stub. The price is printed after the lane in large
   tabular figures and counts as it moves, with the credits traded on the option under it
   in small type.
-- Each trade of at least one credit is a chip, `+<credits>` over the trader's handle,
-  that flies from the lane's start to the bar's tip in a quarter second, eased out; the
-  bar then grows with a small overshoot. A trade whose option cannot be named lands in a
-  small pot above the bars instead. Chips never overlap: a chip waits until the one
-  before it has landed, and `+N more` sits next to the pot. At most three chips fly per decision; the rest roll into
-  `+N more`.
+- The chips are the decision's **three largest trades**, shown in the order they were
+  made; every smaller trade rolls into `+N more`. A chip, `+<credits>` over the trader's
+  handle, travels inside its own lane, from the lane's start to the bar's tip in a quarter
+  second, eased out, and never covers another lane; the bar then grows with a small
+  overshoot. A trade whose option cannot be named lands in a small pot above the bars
+  instead. Chips never overlap: a chip waits until the one before it has landed.
+  `+N more` and the pot share one line above the bars.
 - At speed the race bars are hidden; the board and the counters stay, with a progress bar
   of the best length so far against the full grid in their place.
 - The leading lane is fully saturated, the others at 60 percent. At the lock the losing
