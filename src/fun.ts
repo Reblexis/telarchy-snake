@@ -221,26 +221,26 @@ function voice(kind: Sound, t: number): number {
   if (kind === 'eat') {
     // a rising blip, 660 to 1320 Hz
     const phase = TAU * (660 * t + (330 * t * t) / d);
-    return 0.75 * env * (0.6 * Math.sin(phase) + 0.4 * Math.sign(Math.sin(phase)));
+    return 0.375 * env * (0.6 * Math.sin(phase) + 0.4 * Math.sign(Math.sin(phase)));
   }
   if (kind === 'death') {
     // a falling saw buzz, 220 to 70 Hz
     const phase = 220 * t - (75 * t * t) / d;
-    return 0.85 * env ** 1.5 * (2 * (phase - Math.floor(phase)) - 1);
+    return 0.425 * env ** 1.5 * (2 * (phase - Math.floor(phase)) - 1);
   }
   if (kind === 'trade') {
     // a coin: B5 then E6
     const f = t < 0.05 ? 987.77 : 1318.51;
     const local = t < 0.05 ? t : t - 0.05;
     const e = t < 0.05 ? 1 : 1 - local / (d - 0.05);
-    return 0.7 * e * Math.sign(Math.sin(TAU * f * local));
+    return 0.35 * e * Math.sign(Math.sin(TAU * f * local));
   }
   // the fanfare: C E G C, the last one held
   const notes = [523.25, 659.25, 783.99, 1046.5];
   const idx = Math.min(3, Math.floor(t / 0.11));
   const local = t - idx * 0.11;
   const noteEnv = idx < 3 ? 1 - local / 0.11 : 1 - local / (d - 0.33);
-  return 0.65 * Math.max(0, noteEnv) * Math.sign(Math.sin(TAU * notes[idx] * local)) * (1 - 0.2 * (t / d));
+  return 0.325 * Math.max(0, noteEnv) * Math.sign(Math.sin(TAU * notes[idx] * local)) * (1 - 0.2 * (t / d));
 }
 
 /** The effects track: 16-bit mono 44.1 kHz WAV, `seconds` long, soft-limited so it never clips. */
@@ -275,8 +275,8 @@ export function mixArgs(o: { video: string; sfx: string; music: string | null; o
   const head = ['-hide_banner', '-loglevel', 'error', '-y', '-i', o.video, '-i', o.sfx];
   const tail = ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-t', String(o.seconds), '-movflags', '+faststart', o.out];
   // YouTube plays at -14 LUFS; normalizing to it keeps every video level whatever the track
-  // a limiter after it (0.84 is -1.5 dBFS) holds the peak once the audio is encoded
-  const loud = 'loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.84:level=disabled';
+  // a limiter after it (0.7 is -3 dBFS) leaves room for the encoder's overshoot, so the file peaks under 0 dBFS
+  const loud = 'loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.7:level=disabled';
   if (!o.music) return [...head, '-filter_complex', `[1:a]${loud}[a]`, '-map', '0:v', '-map', '[a]', ...tail];
   const fadeOut = Math.max(0, o.seconds - 2);
   const filter = `[2:a]volume=0.25,afade=t=in:st=0:d=1,afade=t=out:st=${fadeOut}:d=2[m];[1:a][m]amix=inputs=2:duration=first:normalize=0,${loud}[a]`;

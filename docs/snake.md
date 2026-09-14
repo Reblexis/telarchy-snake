@@ -749,11 +749,12 @@ the video owns every sound in it except the music.
 license allows it in YouTube videos without a Content ID claim (the
 `level-video` skill picks it and keeps its license beside the video). It is
 looped to the cut's length when shorter, faded in over the first second and
-out over the last two, and mixed well under the effects: the effects are the
-loudest thing in the video, and the music plays at a quarter of its level. The
+out over the last two, and mixed under the effects at a quarter of its level. The
+effects are kept moderate: each peaks at about 40 percent of full scale, so a blip
+or a coin is heard over the music without jumping out. The
 finished mix is normalized to YouTube's loudness, -14 LUFS integrated with the
-true peak at -1.5 dBTP, with a limiter after it so the peak still holds once
-the audio is encoded, so every video plays at the same level whatever the
+true peak at -1.5 dBTP, with a limiter after it set low enough that the finished
+file's peak stays under 0 dBFS once the audio is encoded, so every video plays at the same level whatever the
 track. Without `--music` the cuts carry the sound effects alone and the
 command says so. `--credit "<line>"` gives the track's credit, and each
 sidecar's description then ends with that line; a track whose license asks
