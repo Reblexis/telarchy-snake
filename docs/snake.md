@@ -615,7 +615,7 @@ A complete game draws "The snake filled the grid." and the next grid in
 place of the pills. Text is set in Inter, Fraunces and JetBrains Mono,
 bundled in the repo under `fonts/` with their OFL licences and registered
 at render time, and the logo is bundled under `assets/`; the frame never
-depends on a system font or a network read. Every line is readable at
+depends on a system font or a network read. A font that does not load stops the renderer rather than falling back to a system face. Every line is readable at
 720p.
 
 ## The level videos

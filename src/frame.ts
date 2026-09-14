@@ -4,7 +4,7 @@
 // registered here; the logo is bundled under assets/. Nothing is read from the
 // system or the network.
 import { type Canvas, createCanvas, GlobalFonts, Image, type SKRSContext2D } from '@napi-rs/canvas';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { GRID } from './engine.js';
 import { decide, priceOf, ACTIONS, type Quotes } from './decide.js';
@@ -16,16 +16,23 @@ export const FONT = 'Inter';
 /** Every face the frame sets, by role. */
 export const FONTS = { sans: 'Inter', serif: 'Fraunces', mono: 'JetBrains Mono' } as const;
 type Face = keyof typeof FONTS;
-for (const [file, family] of [
+const FONT_FILES = [
   ['Inter-Regular.ttf', FONTS.sans],
   ['Inter-SemiBold.ttf', FONTS.sans],
   ['Fraunces-Medium.ttf', FONTS.serif],
   ['Fraunces-Bold.ttf', FONTS.serif],
   ['JetBrainsMono-Medium.ttf', FONTS.mono],
   ['JetBrainsMono-SemiBold.ttf', FONTS.mono],
-] as const) {
-  GlobalFonts.registerFromPath(fileURLToPath(new URL(`../fonts/${file}`, import.meta.url)), family);
+] as const;
+/** Registers the bundled fonts from `dir`; a font that does not load stops the renderer,
+ *  since the canvas would otherwise fall back to a system face without a word. */
+export function registerFonts(dir: string): void {
+  for (const [file, family] of FONT_FILES) {
+    const path = `${dir.replace(/\/+$/, '')}/${file}`;
+    if (!existsSync(path) || !GlobalFonts.registerFromPath(path, family)) throw new Error(`font ${file} did not load from ${dir}`);
+  }
 }
+registerFonts(fileURLToPath(new URL('../fonts', import.meta.url)));
 
 /** The Telarchy lockup for dark grounds, drawn small at its own aspect ratio. */
 const logo = new Image();
