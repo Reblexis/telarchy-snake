@@ -661,7 +661,8 @@ instead of `/state`:
 
 The last frame is the full grid: the complete game's line, "The snake
 filled the grid.", in place of the pills, and a second line with the level's
-facts, `<moves> moves · <deaths> deaths · <trades> trades · <span>`.
+facts, `<moves> moves · <deaths> deaths · <trades> trades · <span>`. No move
+follows it, so it draws no trades panel.
 
 **Encoding.** 24 frames a second, H.264, yuv420p, AAC audio, `+faststart`.
 How long each entry is held is each cut's pace ("The fun cuts").
