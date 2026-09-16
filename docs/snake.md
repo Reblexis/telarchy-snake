@@ -187,21 +187,22 @@ attempt to reach if the snake takes that option). Then:
 - ties (prices within a billionth of each other) go to the current
   heading, then to the option whose direction comes first in up, right,
   down, left;
-- if Telarchy answered but no option has a price, the snake continues in its
-  current heading and the proposal is **declined with refund**
+- **if the market did not price the step, the snake pauses.** When
+  Telarchy answered but no option has a price (no book on the cell, no
+  options on the proposal, no consensus), when the decision's read gets no
+  answer and nothing was read during the minute, or when the approval
+  fails, the market did not decide and neither does the operator: the
+  proposal is **declined with refund**
   (`POST /api/proposals/:id/decline { refund: true }`), which voids all
-  three books; the step is logged as undecided, and the record says why
-  (`undecidedReason` on the decision, shown on `/state`): which option
-  had no price and what was missing (no book on the cell, no options on
-  the proposal, no consensus, no answer from Telarchy), or the error the
-  approval returned. When the approval itself fails the operator declines
-  with refund the same way, so nothing stays pending past the deadline;
-- **if Telarchy cannot be reached, the snake waits.** When the decision's
-  read gets no answer and nothing was read during the minute, or the
-  approval fails, the market did not decide and neither does the operator:
-  the proposal is declined with refund as above, the step is logged
-  undecided and `held`, the snake does not move that minute, and the next
-  minute posts the same move again. A reading is still posted.
+  three books; the step is logged undecided and `held`, the record says
+  why (`undecidedReason` on the decision, shown on `/state`: which option
+  had no price and what was missing, or the error the approval returned);
+  the snake does not move that minute, and the next minute posts the same
+  move again. A reading is still posted. Nothing stays pending past the
+  deadline. The snake never walks on without a market behind the step
+  (owner decision 2026-09-16, the telarchy umbrella's
+  `notes/snake-through-publishes-2026-09-16.md`: the games pause when
+  they cannot reach the server or trades are not working).
 - **the snake moves only on a step it posted.** A minute whose proposal
   could not be posted (the operator could not reach Telarchy) leaves the
   snake where it is; the next minute tries to post the move again. Before
@@ -265,8 +266,10 @@ row, exactly these five elements, in this order, and nothing else:
    current leader, the option with the highest live price (forward when
    no price is readable, per the rule), in the accent colour; once decided the clock goes and the line reads as decided,
    in the snake's green, held until the move at the top of the minute.
-   Source: `next` on `/state` (`action`, `direction`, `decided`,
-   `seconds`).
+   While `paused` is set the line reads `Paused` with the reason in the
+   clock's place, in the muted colour, until the market prices a step
+   again. Source: `next` and `paused` on `/state` (`action`,
+   `direction`, `decided`, `seconds`).
 3. **Three choice tiles**, Continue, Left, Right, each showing only its
    compass arrow, its name, its live price (`7.4`, the length the market
    expects if the snake takes it) as a large tabular number, and on the
@@ -381,6 +384,16 @@ says which moment it is: `open` while the step is trading,
 `decided` from its ruling until the next step replaces it, `idle` only
 when there is no step at all (a complete game's cooldown).
 
+**`paused` says when the market is not moving the snake.** It is null
+while the game is being played, and `{ since, reason, held }` once a step
+was held: `since` the instant of the first held ruling in the run,
+`reason` that ruling's `undecidedReason` in words a visitor reads
+("Telarchy unreachable", "forward: no book on the cell"), `held` the
+number of consecutive held steps. It clears on the first step the market
+prices and the snake moves on. A visitor or a bot reads it as "the snake
+is standing still because the market cannot price it", never as a
+decision of the operator.
+
 `/state` is the whole of the board's data and a bot's feed: the game
 state, the workspace and metric ids, the open step with its one proposal
 (`open.proposal: { id, number, url }`), and for each action its option's
@@ -440,6 +453,8 @@ workspace endpoints, never from the operator's own books:
 
 - `next`: `{ action, direction, decided, seconds }`, the next move as
   defined above.
+- `paused`: null, or `{ since, reason, held }` while the market is not
+  moving the snake (above, "The feed never blanks between steps").
 - `commentary`: the one-line commentary.
 - `bestLength`: the longest the snake has been in this game.
 - `traders`: the positions in the open step's three books, each
@@ -877,9 +892,9 @@ to production.
   starts and when a step's decision would fall on or after its cell's
   minute, never in between; the step's proposal is priced on the current
   cell, so no step is decided on a closed book.
-- The snake never moves on a minute Telarchy did not run: no posted
-  proposal, no answer at the decision, or a failed approval, and it waits
-  instead.
+- The snake never moves on a step the market did not price: no posted
+  proposal, no answer at the decision, no price on any option, or a failed
+  approval, and it waits instead and says why.
 - The operator never trades.
 - The board never shows a price the workspace did not report.
 - A level video shows a whole complete level and nothing the record does

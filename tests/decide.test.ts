@@ -91,11 +91,12 @@ describe('THE OPTION WITH THE HIGHEST PRICE IS THE ONE CHOSEN (docs/snake.md, "T
     expect(decide({ forward: q(5), left: q(12), right: q(12) }, 'down').approved).toBe('left');
   });
 
-  it('with no price readable at all the step is undecided and the snake continues forward', () => {
+  it('with no price readable at all the step is undecided and held: the snake does not move (owner decision 2026-09-16)', () => {
     const d = decide({ forward: q(null), left: q(null), right: q(null) }, 'left');
     expect(d.approved).toBe(null);
     expect(d.direction).toBe('left');
     expect(d.undecided).toBe(true);
+    expect(d.hold).toBe(true);
   });
 
   it('a non-finite price is unreadable', () => {

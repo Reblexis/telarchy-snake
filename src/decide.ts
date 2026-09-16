@@ -94,23 +94,25 @@ export interface Decision {
   /** The compass direction the snake moves: the chosen action from the heading, or straight on. */
   direction: Direction;
   undecided: boolean;
-  /** Telarchy could not be reached (no answer and nothing polled, or the
-   *  approval failed): the snake waits this minute instead of moving
-   *  (docs/snake.md, "The step"). Absent on every other decision. */
+  /** The market did not price the step (no price on any option, no answer
+   *  and nothing polled, or the approval failed): the snake waits this
+   *  minute instead of moving (docs/snake.md, "The step"; owner decision
+   *  2026-09-16, the games pause when trades are not working). Absent on
+   *  every priced decision. */
   hold?: boolean;
 }
 
 /** docs/snake.md "The step": the option with the highest price is chosen;
  *  ties go to the current heading (forward), then to the option whose
  *  direction comes first in up, right, down, left; no price at all is
- *  undecided and the snake continues forward. */
+ *  undecided and held: the snake pauses. */
 export function decide(quotes: Quotes, heading: Direction): Decision {
   let bestPrice = -Infinity;
   for (const a of ACTIONS) {
     const p = priceOf(quotes[a]);
     if (p !== null && p > bestPrice) bestPrice = p;
   }
-  if (bestPrice === -Infinity) return { approved: null, direction: heading, undecided: true };
+  if (bestPrice === -Infinity) return { approved: null, direction: heading, undecided: true, hold: true };
   const tied = ACTIONS.filter(a => { const p = priceOf(quotes[a]); return p !== null && bestPrice - p <= TIE; });
   let best: Action;
   if (tied.includes('forward')) best = 'forward';

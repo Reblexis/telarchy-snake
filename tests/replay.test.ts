@@ -124,11 +124,12 @@ describe('the replay record (docs/snake.md, "The replay" and "The feed")', () =>
     expect(r.moves[0]).not.toHaveProperty('food');
   });
 
-  it('an undecided step is recorded as forward and undecided, its prices null', async () => {
+  it('a step the market did not price is no move of the replay: the snake stands (owner decision 2026-09-16)', async () => {
     const { client } = fakeClient(none);
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     await playSteps(op, 1);
-    expect(op.replay()!.moves[0]).toMatchObject({ step: 1, action: 'forward', direction: 'right', undecided: true, prices: { forward: null, left: null, right: null } });
+    expect(op.replay()!.moves).toHaveLength(0);
+    expect(op.game.step).toBe(0);
   });
 
   it('the food is recorded only when the move changed it, and a death is marked with the new food', async () => {

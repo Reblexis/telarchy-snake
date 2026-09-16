@@ -79,6 +79,13 @@ describe('the board page (docs/snake.md, "The board")', () => {
     expect(foot).toContain('href="/state"');
   });
 
+  it('while /state says paused, the next line reads Paused with the reason in the clock\'s place (docs/snake.md, "The board")', () => {
+    const live = html.slice(html.indexOf('function render('), html.indexOf('// 4. the status line'));
+    expect(live).toMatch(/s\.paused/);
+    expect(live).toMatch(/<b>Paused<\/b>/);
+    expect(live).toMatch(/s\.paused\.reason/);
+  });
+
   it('prices one horizon: no 1-move or 5-move column, no near-horizon label, and the status line carries the record', () => {
     expect(html).not.toMatch(/1 move|5 moves|m1|m5\b/);
     expect(html).toMatch(/Record \$\{s\.bestLength/);
