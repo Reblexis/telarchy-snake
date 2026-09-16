@@ -51,6 +51,8 @@ function cellAt(openedAt: Date, minutes: number): string {
 export const ATTEMPT_DATE = 'until-settled';
 /** What the floor reads for that date, after the metric: "reached length this attempt". */
 export const ATTEMPT_TITLE = 'this attempt';
+/** The instant Telarchy gives a clockless book (`resolvesOn`), the only way an agent key can tell it apart. */
+export const ATTEMPT_RESOLVES_ON = '9999-12-31T00:00:00Z';
 
 export function minuteCells(openedAt: Date): Record<Horizon, string> {
   return { m60: cellAt(openedAt, 60) };
@@ -161,8 +163,12 @@ export class HttpTelarchyClient implements TelarchyClient {
       for (const h of Object.keys(cells) as Horizon[]) {
         const cell = cells[h];
         // By target date when the row names one, else by the settlement
-        // instant, which is the end of the cell (one minute after it).
-        const end = Date.parse(`${cell}:00Z`) + 60_000;
+        // instant: the app strips `targetDate` from every answer to an agent
+        // key (telarchy-app `app.ts`), so in production the row is found by
+        // `resolvesOn`, which is the clockless instant for the attempt's date
+        // (docs/snake.md, "The workspace") and the end of a minute cell
+        // (one minute after it) otherwise.
+        const end = cell === ATTEMPT_DATE ? Date.parse(ATTEMPT_RESOLVES_ON) : Date.parse(`${cell}:00Z`) + 60_000;
         const row =
           markets.find(x => x.targetDate === cell) ??
           markets.find(x => !x.targetDate && typeof x.resolvesOn === 'string' && Date.parse(x.resolvesOn) === end);
