@@ -171,18 +171,24 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(calls.filter(c => c.name === 'postProposal').length).toBe(2);
   });
 
-  it('with no price readable the snake continues forward, the proposal is declined with refund once, nothing stays pending', async () => {
+  it('THE SNAKE NEVER MOVES ON A STEP THE MARKET DID NOT PRICE: with no price readable the snake pauses, the proposal is declined with refund once, nothing stays pending, and the next minute asks the same move again', async () => {
     const { client, calls } = fakeClient(none);
     const op = new Operator(client, newGame(rng, 12, 1), rng);
     await op.openStep(new Date('2026-09-11T10:00:00Z'));
+    const head = { ...op.game.snake[0] };
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
+    expect(d.hold).toBe(true);
     expect(calls.filter(c => c.name === 'declineProposal').map(c => c.args)).toEqual([['p1']]);
     expect(calls.filter(c => c.name === 'approveOption').length).toBe(0);
     expect(op.decisions[0].prices).toEqual({ forward: null, left: null, right: null });
+    expect(op.decisions[0].held).toBe(true);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
-    expect(op.game.heading).toBe('right');
-    expect(op.game.snake[0]).toEqual({ x: 7, y: 6 });
+    expect(op.game.step).toBe(0);
+    expect(op.game.snake[0]).toEqual(head);
+    const posts = calls.filter(c => c.name === 'postProposal');
+    expect(posts).toHaveLength(2);
+    expect(posts[1].args[0]).toBe(posts[0].args[0]);
   });
 
   it('a failing approval falls back to a decline with refund and logs the step as undecided', async () => {
@@ -481,6 +487,69 @@ describe('the operator loop (docs/snake.md, "The step" and "What must hold")', (
     expect(s.deathsToday).toBe(0);
     expect(s.workspaceId).toBe('ws-1');
     expect(s.metricId).toBe('m-1');
+  });
+});
+
+describe('paused on /state (docs/snake.md, "The feed never blanks between steps")', () => {
+  const fresh = () => ({ ...newGame(rng, 12, 1), food: { x: 0, y: 0 } });
+
+  it('is null while the game is being played, before and after a priced step', async () => {
+    const { client } = fakeClient(upWins);
+    const op = new Operator(client, fresh(), rng);
+    expect(op.publicState(T0).paused).toBe(null);
+    await op.openStep(T0);
+    expect(op.publicState(new Date('2026-09-11T10:00:10Z')).paused).toBe(null);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:01:10Z')).paused).toBe(null);
+  });
+
+  it('after a held step it carries since (the first held ruling), the reason in words, and the count of consecutive held steps', async () => {
+    const { client } = fakeClient(none);
+    const op = new Operator(client, fresh(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    const p1 = op.publicState(new Date('2026-09-11T10:01:10Z')).paused;
+    expect(p1).toEqual({ since: '2026-09-11T10:00:58.000Z', reason: expect.stringMatching(/forward/), held: 1 });
+    await op.closeStep(new Date('2026-09-11T10:01:58Z'));
+    await op.tick(new Date('2026-09-11T10:02:00Z'));
+    const p2 = op.publicState(new Date('2026-09-11T10:02:10Z')).paused;
+    expect(p2?.since).toBe('2026-09-11T10:00:58.000Z');
+    expect(p2?.held).toBe(2);
+  });
+
+  it('an unreachable platform reads as unreachable, not as a missing book', async () => {
+    const { client } = fakeClient(upWins);
+    const stuck: TelarchyClient = { ...client, async readQuotes() { return never(); } };
+    const op = new Operator(stuck, fresh(), rng, { decideReadTimeoutMs: 20 });
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:01:10Z')).paused?.reason).toMatch(/unreachable/i);
+  });
+
+  it('clears on the first step the market prices and the snake moves on', async () => {
+    let step = 0;
+    const { client } = fakeClient(() => (step++ < 1 ? none() : upWins()));
+    const op = new Operator(client, fresh(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:01:10Z')).paused).not.toBe(null);
+    await op.closeStep(new Date('2026-09-11T10:01:58Z'));
+    await op.tick(new Date('2026-09-11T10:02:00Z'));
+    expect(op.publicState(new Date('2026-09-11T10:02:10Z')).paused).toBe(null);
+  });
+
+  it('survives a restart', async () => {
+    const { client } = fakeClient(none);
+    const op = new Operator(client, fresh(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    const back = Operator.fromJSON(client, JSON.parse(JSON.stringify(op.toJSON())), rng, {}, new Date('2026-09-11T10:01:30Z'));
+    expect(back.publicState(new Date('2026-09-11T10:01:30Z')).paused?.held).toBe(1);
   });
 });
 
@@ -1377,16 +1446,31 @@ describe('THE SNAKE NEVER MOVES BLIND (docs/snake.md, "The step" and "What must 
     expect(op.game.snake[0]).toEqual(head);
   });
 
-  it('the rule is unchanged where the market answered: no price on any option still continues forward, and nothing is held', async () => {
+  it('no price on any option is a hold like an unreachable platform (owner decision 2026-09-16): nothing moves, the record says which option lacked what', async () => {
     const { client } = fakeClient(none);
     const op = new Operator(client, fresh(), rng);
     await op.openStep(T0);
     const d = await op.closeStep(new Date('2026-09-11T10:00:58Z'));
     expect(d.undecided).toBe(true);
-    expect(d.hold).toBeFalsy();
+    expect(d.hold).toBe(true);
     await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.game.step).toBe(0);
+    expect(op.decisions[0].held).toBe(true);
+    expect(op.decisions[0].undecidedReason).toMatch(/forward: .*no price|forward: .*not polled/);
+  });
+
+  it('a step the market prices after a hold moves the snake again', async () => {
+    let step = 0;
+    const { client } = fakeClient(() => (step++ < 1 ? none() : upWins()));
+    const op = new Operator(client, fresh(), rng);
+    await op.openStep(T0);
+    await op.closeStep(new Date('2026-09-11T10:00:58Z'));
+    await op.tick(new Date('2026-09-11T10:01:00Z'));
+    expect(op.game.step).toBe(0);
+    await op.closeStep(new Date('2026-09-11T10:01:58Z'));
+    await op.tick(new Date('2026-09-11T10:02:00Z'));
     expect(op.game.step).toBe(1);
-    expect(op.decisions[0].held).toBeFalsy();
+    expect(op.game.heading).toBe('up');
   });
 
   it('a decision on prices polled earlier is not a hold, even when the decision\'s own read does not answer', async () => {

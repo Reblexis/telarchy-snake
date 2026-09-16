@@ -222,6 +222,9 @@ function render(s){
   if (s.next) {
     nx.className = 'next' + (s.next.decided ? ' decided' : '');
     nx.innerHTML = `<b>${arrows[s.next.direction] || ''} ${esc(nextLabel[s.next.action] || '?')}</b><span class="clock" id="clock">${s.next.decided ? 'decided' : clockText(s.next.seconds)}</span>`;
+    // The market is not moving the snake: say so and why, in place of the
+    // clock (docs/snake.md, "The board": Paused).
+    if (s.paused) { nx.className = 'next idle paused'; nx.innerHTML = `<b>Paused</b><span class="clock" id="clock">${esc(s.paused.reason)}</span>`; }
   } else { nx.className = 'next idle'; nx.innerHTML = `<b>${s.complete ? 'Complete' : 'Waiting'}</b><span class="clock" id="clock"></span>`; }
   // 3. the tiles
   const tiles = document.getElementById('tiles');

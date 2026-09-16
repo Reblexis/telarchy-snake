@@ -442,8 +442,9 @@ export class Operator {
     let decision = decide(quotes, this.game.heading);
     // The market did not decide, and neither does the operator: the snake
     // waits rather than walking forward blind (docs/snake.md, "The step").
+    // decide() already holds on no price; unreachable names the reason.
     if (unreachable) decision = { approved: null, direction: this.game.heading, undecided: true, hold: true };
-    let undecidedReason: string | null = decision.undecided ? noPriceReason(quotes) : null;
+    let undecidedReason: string | null = decision.undecided ? (unreachable ? `Telarchy unreachable: ${noPriceReason(quotes)}` : noPriceReason(quotes)) : null;
     // Choose: approve naming the option; Telarchy voids and refunds the
     // other two. If that fails the step is undecided and the snake keeps its
     // heading; the proposal is then declined with refund so nothing is left
@@ -718,6 +719,20 @@ export class Operator {
     };
   }
 
+  /** docs/snake.md "The feed never blanks between steps", `paused`: null
+   *  while the last ruling moved the snake; otherwise the run of held
+   *  rulings that ends the record, oldest first. A ruling counts once it
+   *  has been applied (the minute after it), so an open step's own ruling
+   *  does not pause the feed before its move would have fallen. */
+  paused(): { since: string; reason: string; held: number } | null {
+    const applied = this.decisions.filter(d => d.lengthAfter !== null);
+    let n = 0;
+    for (let i = applied.length - 1; i >= 0 && applied[i].held; i--) n++;
+    if (n === 0) return null;
+    const first = applied[applied.length - n];
+    return { since: first.at, reason: first.undecidedReason ?? 'not recorded', held: n };
+  }
+
   recentDecisions(): DecisionRecord[] {
     return this.decisions.slice(-10).reverse();
   }
@@ -777,6 +792,10 @@ export class Operator {
         : null,
       secondsToDecision: open ? Math.max(0, Math.round((Date.parse(open.decideAt) - now.getTime()) / 1000)) : null,
       recentDecisions: this.recentDecisions(),
+      // The market is not moving the snake: since the first held ruling of
+      // the run, why, and for how many steps (docs/snake.md, "The feed
+      // never blanks between steps").
+      paused: this.paused(),
       deathsToday: this.deathsToday(now),
       stepsTotal: this.game.step,
       complete: this.game.complete,

@@ -93,12 +93,13 @@ describe('the game log (docs/snake.md, "The feed": /games and /history)', () => 
     expect(r.steps[1].snake[0]).toEqual({ x: 6, y: 5 });
   });
 
-  it('an undecided step records forward, undecided true and null prices', async () => {
+  it('a step the market did not price leaves no move in the history: the snake stands (owner decision 2026-09-16)', async () => {
     const log = new GameLog(tmp());
     const op = new Operator(fakeClient(none), newGame(rng, 12, 1), rng, { log });
     await playSteps(op, 1);
     const r = (await log.history(1))!;
-    expect(r.steps[1]).toMatchObject({ step: 1, action: 'forward', direction: 'right', undecided: true, prices: { forward: null, left: null, right: null } });
+    expect(r.steps).toHaveLength(1);
+    expect(r.steps[0]).toMatchObject({ step: 0 });
   });
 
   it('a death step records length 2 and the new deaths count', async () => {
