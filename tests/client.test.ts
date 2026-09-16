@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HttpTelarchyClient, minuteCells } from '../src/client.js';
+import { HttpTelarchyClient, minuteCells, ATTEMPT_DATE } from '../src/client.js';
 import { proposalOptions, OPTION_LABEL } from '../src/decide.js';
 
 type Req = { url: string; method: string; headers: Record<string, string>; body: any };
@@ -96,6 +96,21 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     const q = await c.readQuotes(REF, '2026-09-11T11:00');
     expect(q.forward.m60.price).toBe(4);
     expect(q.left.m60).toEqual({ price: null, lead: null, reason: 'no option left on 2026-09-11T11:00' });
+  });
+
+  it('finds the attempt\'s book by its clockless settlement instant when the row carries no target date: an agent key never reads targetDate (production shape, 2026-09-16)', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ json: { markets: [
+      { resolvesOn: '9999-12-31T00:00:00Z', options: row({ forward: 52.94, left: 52.94, right: 53.5 }) },
+    ] } }));
+    const c = new HttpTelarchyClient(opts, fetchImpl as any);
+    const q = await c.readQuotes(REF, ATTEMPT_DATE);
+    expect(q.right.m60).toEqual({ price: 53.5, lead: expect.any(Number), marketId: 'm-right' });
+    expect(q.forward.m60.price).toBe(52.94);
+    const dated = new HttpTelarchyClient(opts, fakeFetch(() => ({ json: { markets: [
+      { resolvesOn: '2026-09-16T20:34:00Z', options: row({ forward: 9, left: 9, right: 9 }) },
+    ] } })).fetchImpl as any);
+    const q2 = await dated.readQuotes(REF, ATTEMPT_DATE);
+    expect(q2.forward.m60).toEqual({ price: null, lead: null, reason: 'no book on until-settled' });
   });
 
   it('matches a minute cell by its settlement instant when the row carries no target date (production shape)', async () => {

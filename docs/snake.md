@@ -85,7 +85,10 @@ attempt. The operator writes that horizon at its first step and whenever
 the metric does not carry it (a refusal is retried at the next step), never
 per attempt and never on the clock, and refreshes the workspace's markets
 at every step, which opens the attempt's baseline book. No other horizon and
-no calendar horizon is priced.
+no calendar horizon is priced. The operator reads with an agent key, and
+Telarchy strips `targetDate` from every answer to one, so the operator
+tells the attempt's book apart by its settlement instant, `resolvesOn`
+`9999-12-31T00:00:00Z`, the instant the app gives every clockless book.
 
 **When the attempt ends the answer is known.** Right after the move that
 kills the snake (or fills the grid), before it posts the new attempt's
