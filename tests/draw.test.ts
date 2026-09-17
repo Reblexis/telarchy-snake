@@ -548,6 +548,12 @@ describe('the ladder says what happened in plain words', () => {
     expect(texts(160)).toContain('Market says straight · 8.0 ahead');
     expect(texts(45).some(t => /^Market says/.test(t))).toBe(false);
   });
+  it('a tie is called a tie, never "0.0 ahead"', () => {
+    const tied = entries.map(e => ({ ...e, prices: { forward: 2, left: 2, right: 2 } }));
+    const t = drawFull(buildScene(game, [game], tied, entries.map(() => [])), info(250)).texts.map(x => x.text);
+    expect(t).toContain('Market is tied · straight played');
+    expect(t.some(x => /0\.0 ahead/.test(x))).toBe(false);
+  });
   it('with no recorded price the verdict says so', () => {
     const blank = entries.map(e => ({ ...e, prices: { forward: null, left: null, right: null } })) as unknown as LogStep[];
     expect(drawFull(buildScene(game, [game], blank, entries.map(() => [])), info(250)).texts.map(t => t.text)).toContain('Market has no price');

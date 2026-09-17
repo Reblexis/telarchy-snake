@@ -613,7 +613,7 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
     if (chosen && known.includes(chosen)) {
       const rest = known.filter(o => o !== chosen).map(o => prices[o] as number);
       const lead = rest.length ? (prices[chosen] as number) - Math.max(...rest) : 0;
-      verdict = `Market says ${WAY[chosen]} · ${lead.toFixed(1)} ahead`;
+      verdict = lead < 0.05 ? `Market is tied · ${WAY[chosen]} played` : `Market says ${WAY[chosen]} · ${lead.toFixed(1)} ahead`;
     }
     p.text(verdict, x0, top + 3 * rowH + 40, 26, FG, 700);
   }

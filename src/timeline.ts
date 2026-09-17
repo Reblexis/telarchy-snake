@@ -159,7 +159,8 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const base = new Map<number, string | undefined>();
   for (let m = finaleFrom; m <= last; m++) base.set(m, undefined);
   let firstTraded = 0;
-  for (let m = 1; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0) { firstTraded = m; break; }
+  const priced = (m: number) => (['forward', 'left', 'right'] as const).every(o => typeof entries[m].prices?.[o] === 'number');
+  for (let m = 1; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0 && priced(m)) { firstTraded = m; break; }
   if (firstTraded) base.set(firstTraded, RULES_CAPTION);
 
   // big deaths are beats before any other moment; if they alone outgrow half the story, the furthest-reaching stay

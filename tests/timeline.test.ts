@@ -233,6 +233,18 @@ describe('the full cut timeline', () => {
   });
 });
 
+describe('the rules beat teaches on real prices', () => {
+  it('it skips traded moves whose prices were not recorded and takes the first one that has all three', () => {
+    const entries = plainLevel('m'.repeat(60) + 'me'.repeat(34), 6).map((e, i) => (i < 20 ? { ...e, prices: { forward: null, left: null, right: null } } : e)) as unknown as LogStep[];
+    const byMove = entries.map(() => [] as TradeRow[]);
+    byMove[4] = [whale(5, 50)];
+    byMove[24] = [whale(25, 50)];
+    const tl = fullTimeline(entries, 6, byMove, momentsOf(entries, 6, byMove));
+    const rules = tl.find(s => s.kind === 'beat' && s.caption === RULES_CAPTION) as { move: number };
+    expect(rules.move).toBe(25);
+  });
+});
+
 describe('the full cut is short', () => {
   it('two and a half minutes at most, whatever the level', () => {
     expect(FULL_MAX).toBe(150 * TL_FPS);

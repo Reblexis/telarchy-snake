@@ -43,7 +43,8 @@ link while the game plays.
    bet (`One way out.` alone when nobody traded it). Then the picture freezes for 75
    frames under `Nobody is playing this. A market is.`, and cuts hard to move 1. No logo
    and no title card.
-2. **The rules by doing.** The first traded decision plays in full once, with one caption,
+2. **The rules by doing.** The first traded decision whose three prices were recorded plays
+   in full once, with one caption,
    `Traders price each direction. The highest price moves.`
 3. **The struggle.** The level runs at speed with the death counter on screen, dropping
    into slow motion on moments (below), never twice within three seconds. Each new record
@@ -84,7 +85,8 @@ credits) and the board sits in its left cell, clear of every rule even at full p
    lock dims the losing rows. Outside a beat it shows the settled figures of the move on
    screen, with no chips. Once a move is locked its played row carries the tag `PLAYED`, and
    under the rows a verdict line reads `Market says <way> · <lead> ahead`, the lead being
-   the played price less the next highest (`Market has no price` when none was recorded).
+   the played price less the next highest (`Market has no price` when none was recorded,
+   `Market is tied · <way> played` when the lead is under 0.05).
    A move whose prices were not recorded shows a dash for its price
    and its change and no depth bar, never a zero.
 3. **The price chart**, `FORECASTS · LAST 40 MOVES`: the three options' prices as three lines
@@ -183,7 +185,7 @@ here are the contract the renderer and the tests share.
   plays at normal speed.
 - **Choosing beats.** The cold open uses the level's strongest near miss that was
   traded, from before the finale's last 8 moves, so the opening never gives away the
-  fill. The first traded decision of the level is always a beat, carrying the caption
+  fill. The first traded decision of the level whose three prices were recorded is always a beat, carrying the caption
   `Traders price each direction. The highest price moves.`. Then the strongest moments (by weight) get
   beats, strongest first, as long as beats take at most half of the story's time and the
   full cut stays within two and a half minutes with the runs at the slowest ladder speed that fits.
