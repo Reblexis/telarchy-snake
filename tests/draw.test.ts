@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildScene, snakeAt, headingAt, drawFull, drawShort, FULL_SIZE, SHORT_SIZE } from '../src/draw.js';
+import { buildScene, snakeAt, headingAt, drawFull, drawShort, FULL_SIZE, SHORT_SIZE, GAME } from '../src/draw.js';
 import { frameAt, frameCountOf } from '../src/frames.js';
 import type { Segment } from '../src/timeline.js';
 import type { GameEntry, LogStep } from '../src/gamelog.js';
@@ -89,15 +89,114 @@ describe('the head faces the way it is going', () => {
     const f = [...Array(8).keys()].find(k => { const p = frameAt(tl, turn, k).position; return p > 1.3 && p < 1.7; })!;
     const d = drawFull(sc(), frameAt(tl, turn, f));
     const { x, y } = d.rects.head;
-    // the board's ground shows through the eyes: find the dark pixels inside the head disc
+    // the pupils are the only dark pixels inside the head block
     let above = 0, below = 0;
-    for (let dy = -40; dy <= 40; dy++) for (let dx = -40; dx <= 40; dx++) {
+    for (let dy = -60; dy <= 60; dy++) for (let dx = -60; dx <= 60; dx++) {
       const k = (Math.round(y + dy) * 1920 + Math.round(x + dx)) * 3;
       const dark = d.buffer[k + 1] < 60;
-      const inDisc = dx * dx + dy * dy < 30 * 30;
+      const inDisc = dx * dx + dy * dy < 55 * 55;
       if (dark && inDisc) { if (dy < 0) above++; else if (dy > 0) below++; }
     }
     expect(below, `eyes above ${above}, below ${below}`).toBeGreaterThan(above);
+  });
+});
+
+describe('the game looks like a game', () => {
+  // a hold shows one entry exactly, with no push-in: the full cut's board is 960 px at (60, 60), a cell 160 px
+  const still = (entry: number) => drawFull(scene(), frameAt([{ kind: 'hold', fx: 'hitstop', entry, frames: 4 }, { kind: 'credits', frames: 10 }], entries, 0));
+  const CELL = 160;
+  const px = (d: { buffer: Buffer }, x: number, y: number) => { const k = (Math.round(y) * 1920 + Math.round(x)) * 3; return '#' + [0, 1, 2].map(j => d.buffer[k + j].toString(16).padStart(2, '0')).join(''); };
+  const centre = (c: Cell) => [60 + c.x * CELL + CELL / 2, 60 + c.y * CELL + CELL / 2] as const;
+  const e = entries[8]; // length 3 on row 0 and 1, far from the bottom rows
+  const free = (c: Cell) => !e.snake.some(s => s.x === c.x && s.y === c.y) && !(e.food.x === c.x && e.food.y === c.y);
+
+  it('the board is a checkerboard: cells that share an edge differ, diagonal cells match', () => {
+    const d = still(8);
+    const a = { x: 0, y: 4 }, right = { x: 1, y: 4 }, below = { x: 0, y: 5 }, diagonal = { x: 1, y: 5 };
+    for (const c of [a, right, below, diagonal]) expect(free(c)).toBe(true);
+    const at = (c: Cell) => px(d, ...centre(c));
+    expect([GAME.boardA, GAME.boardB]).toContain(at(a));
+    expect(at(right)).not.toBe(at(a));
+    expect(at(below)).not.toBe(at(a));
+    expect(at(diagonal)).toBe(at(a));
+  });
+  it('the board has no grid lines: the edge between two cells is one of the two tones', () => {
+    const d = still(8);
+    expect([GAME.boardA, GAME.boardB]).toContain(px(d, 60 + CELL, 60 + 4 * CELL + CELL / 2));
+    expect([GAME.boardA, GAME.boardB]).toContain(px(d, 60 + CELL / 2, 60 + 5 * CELL));
+  });
+  it('the body is blocks joined by a narrow link: board shows at both sides of the link, and the shades alternate', () => {
+    const d = still(8);
+    const [s1, s2] = [e.snake[1], e.snake[2]];
+    const [x1, y1] = centre(s1), [x2, y2] = centre(s2);
+    expect([GAME.bodyA, GAME.bodyB]).toContain(px(d, x1, y1));
+    expect([GAME.bodyA, GAME.bodyB]).toContain(px(d, x2, y2));
+    expect(px(d, x1, y1)).not.toBe(px(d, x2, y2));
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    expect(px(d, mx, my)).toBe(GAME.link);
+    // across the link: the segments sit side by side along one axis, so the other axis is "beside"
+    const [ox, oy] = x1 === x2 ? [CELL * 0.38, 0] : [0, CELL * 0.38];
+    expect([GAME.boardA, GAME.boardB]).toContain(px(d, mx + ox, my + oy));
+    expect([GAME.boardA, GAME.boardB]).toContain(px(d, mx - ox, my - oy));
+  });
+  it('cells that touch without being neighbours along the body are not linked', () => {
+    // a snake folded back on itself: row 0 rightwards, then row 1 leftwards
+    const s: Cell[] = [{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 0 }];
+    const fold: LogStep[] = [{ step: 0, at: at(0), snake: s, food: { x: 5, y: 5 }, heading: 'left', action: null, direction: 'left', undecided: false, prices: PRICES, length: 6, deaths: 0 }];
+    const g: GameEntry = { number: 1, size, startedAt: at(0), endedAt: at(1), steps: 0, bestLength: 6, deaths: 0 };
+    const d = drawFull(buildScene(g, [g], fold, []), frameAt([{ kind: 'hold', fx: 'hitstop', entry: 0, frames: 4 }, { kind: 'credits', frames: 10 }], fold, 0));
+    let checked = 0;
+    for (let a = 0; a < s.length; a++) for (let b = a + 2; b < s.length; b++) {
+      if (Math.abs(s[a].x - s[b].x) + Math.abs(s[a].y - s[b].y) !== 1) continue;
+      const [ax, ay] = centre(s[a]), [bx, by] = centre(s[b]);
+      expect([GAME.boardA, GAME.boardB]).toContain(px(d, (ax + bx) / 2, (ay + by) / 2));
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+  it('a segment is a square: its corner region is filled, where a round band would show board', () => {
+    const d = still(8);
+    const [x, y] = centre(e.snake[1]);
+    expect([GAME.bodyA, GAME.bodyB]).toContain(px(d, x - CELL * 0.36, y - CELL * 0.36));
+  });
+  it('the head is a darker block with white eyes and dark pupils', () => {
+    const d = still(8);
+    const [x, y] = centre(e.snake[0]);
+    const seen = new Set<string>();
+    for (let dy = -70; dy <= 70; dy += 2) for (let dx = -70; dx <= 70; dx += 2) seen.add(px(d, x + dx, y + dy));
+    expect(seen.has(GAME.head)).toBe(true);
+    expect(seen.has(GAME.eye)).toBe(true);
+    expect(seen.has(GAME.pupil)).toBe(true);
+  });
+  it('the food is an apple: a red fruit with a stem and a leaf above it', () => {
+    const d = still(8);
+    const [x, y] = centre(e.food);
+    expect(px(d, x, y + CELL * 0.08)).toBe(GAME.apple);
+    const top = new Set<string>();
+    for (let dy = -CELL * 0.45; dy < -CELL * 0.1; dy += 1) for (let dx = -CELL * 0.3; dx <= CELL * 0.3; dx += 1) top.add(px(d, x + dx, y + dy));
+    expect(top.has(GAME.stem)).toBe(true);
+    expect(top.has(GAME.leaf)).toBe(true);
+  });
+  it('the tail leaves as the head arrives: on a glide that does not eat the tail\'s cell is half vacated halfway', () => {
+    // entries 8 -> 9 does not eat (lengths change on multiples of 5)
+    expect(entries[9].length).toBe(entries[8].length);
+    const tl: Segment[] = [{ kind: 'run', from: 8, to: 9, speed: 4, frames: 8, easeIn: false, easeOut: false }, { kind: 'credits', frames: 10 }];
+    const f = [...Array(8).keys()].find(k => { const p = frameAt(tl, entries, k).position; return p > 8.4 && p < 8.6; })!;
+    const d = drawFull(scene(), frameAt(tl, entries, f));
+    const tail = e.snake[e.snake.length - 1], before = e.snake[e.snake.length - 2];
+    const [tx, ty] = centre(tail);
+    // the far side of the tail's cell (away from the body) is board again
+    const away = { x: tx - (before.x - tail.x) * CELL * 0.3, y: ty - (before.y - tail.y) * CELL * 0.3 };
+    expect([GAME.boardA, GAME.boardB]).toContain(px(d, away.x, away.y));
+  });
+  it('on a move that eats the tail stays whole', () => {
+    expect(entries[10].length).toBe(entries[9].length + 1);
+    const tl: Segment[] = [{ kind: 'run', from: 9, to: 10, speed: 4, frames: 8, easeIn: false, easeOut: false }, { kind: 'credits', frames: 10 }];
+    const f = [...Array(8).keys()].find(k => { const p = frameAt(tl, entries, k).position; return p > 9.4 && p < 9.6; })!;
+    const d = drawFull(scene(), frameAt(tl, entries, f));
+    const s9 = entries[9].snake, tail = s9[s9.length - 1], before = s9[s9.length - 2];
+    const [tx, ty] = centre(tail);
+    expect([GAME.bodyA, GAME.bodyB]).toContain(px(d, tx - (before.x - tail.x) * CELL * 0.3, ty - (before.y - tail.y) * CELL * 0.3));
   });
 });
 
@@ -170,6 +269,33 @@ describe('the full cut frame', () => {
       const { board, caption, head } = d.rects;
       expect(board.x >= 0 && board.y >= 0 && board.x + board.w <= 1920 && board.y + board.h <= 1080).toBe(true);
       if (caption) expect(head.x > caption.x && head.x < caption.x + caption.w && head.y > caption.y && head.y < caption.y + caption.h, String(f)).toBe(false);
+    }
+  });
+
+  it('the push-in never crops the board: the drawn board stays inside its margin, in both cuts, wherever the head is', () => {
+    // heads in a corner, on an edge and in the middle, each mid-beat at full push-in
+    for (const head of [{ x: 0, y: 0 }, { x: 5, y: 5 }, { x: 0, y: 3 }, { x: 3, y: 3 }]) {
+      const steps: LogStep[] = [0, 1].map(i => ({ step: i, at: at(i), snake: [head], food: { x: 2, y: 1 }, heading: 'right', action: i ? 'forward' : null, direction: 'right', undecided: false, prices: PRICES, length: 1, deaths: 0 }));
+      const g: GameEntry = { number: 1, size, startedAt: at(0), endedAt: at(1), steps: 1, bestLength: 1, deaths: 0 };
+      const sc = buildScene(g, [g], steps, [[]]);
+      const tl: Segment[] = [{ kind: 'beat', move: 1, chips: 0, frames: 36 }];
+      const i = frameAt(tl, steps, 12);
+      expect(i.zoom).toBeGreaterThan(1.05);
+      for (const [draw, margin, w] of [[drawFull, 50, 1920], [drawShort, 10, 1080]] as const) {
+        const d = draw(sc, i);
+        const { board, drawnBoard } = d.rects;
+        const tag = `${JSON.stringify(head)} ${w}`;
+        expect(drawnBoard.x, tag).toBeGreaterThanOrEqual(board.x - margin - 0.01);
+        expect(drawnBoard.y, tag).toBeGreaterThanOrEqual(board.y - margin - 0.01);
+        expect(drawnBoard.x + drawnBoard.w, tag).toBeLessThanOrEqual(board.x + board.w + margin + 0.01);
+        expect(drawnBoard.y + drawnBoard.h, tag).toBeLessThanOrEqual(board.y + board.h + margin + 0.01);
+        // and it is really painted there: just inside each drawn corner is a board tone, not the frame's ground
+        for (const [cx, cy] of [[drawnBoard.x + 3, drawnBoard.y + 3], [drawnBoard.x + drawnBoard.w - 4, drawnBoard.y + drawnBoard.h - 4]]) {
+          const k = (Math.round(cy) * w + Math.round(cx)) * 3;
+          const hex = '#' + [0, 1, 2].map(j => d.buffer[k + j].toString(16).padStart(2, '0')).join('');
+          expect([GAME.boardA, GAME.boardB], tag).toContain(hex);
+        }
+      }
     }
   });
 

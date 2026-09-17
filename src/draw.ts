@@ -4,7 +4,7 @@
 // It draws only what a frame's description (frames.ts) says, and reports the texts and
 // layout boxes it drew so the rules can be checked.
 import { createCanvas, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
-import { drawBoard, cellRect, measureText, FONTS, logoImage, LOGO_NATURAL, type Box } from './frame.js';
+import { cellRect, measureText, FONTS, logoImage, LOGO_NATURAL, type Box } from './frame.js';
 import type { GameEntry, LogStep } from './gamelog.js';
 import { betRows, tradesByMove as _unused, type BetRow, type TradeRow } from './level.js';
 import { directionsFrom, type Action } from './decide.js';
@@ -33,6 +33,8 @@ export interface Drawn {
   texts: DrawnText[];
   rects: {
     board: Rect;
+    /** Where the board was really painted, after the push-in. */
+    drawnBoard: Rect;
     head: { x: number; y: number };
     caption: Rect | null;
     lanes: Record<Action, Rect> | null;
@@ -154,9 +156,79 @@ function rgb(canvas: Canvas, w: number, h: number): Buffer {
 // ---------------------------------------------------------------------------------------------
 // the board
 
+/** The game's own colours, docs/level-video.md "The game looks like a game". */
+export const GAME = {
+  boardA: '#1b2030', boardB: '#232a3d',
+  bodyA: '#4ade80', bodyB: '#34c46c', link: '#2aa35a', head: '#16a34a',
+  eye: '#ffffff', pupil: '#0f1117',
+  apple: '#ef4444', shine: '#fca5a5', stem: '#8b5a2b', leaf: '#84cc16',
+} as const;
+
+/** An ordinary snake game inside the box: a checkerboard, a body of blocks, a head with eyes, an apple.
+ *  `snake` is snakeAt's (a fractional head first while it glides); `slide` is how far the tail has
+ *  slid into the segment before it, from 0 to 1. */
+function gameBoard(c: SKRSContext2D, snake: Cell[], heading: string, food: Cell | null, slide: number, N: number, box: Box) {
+  const cell = Math.floor(box.px / N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    c.fillStyle = (x + y) % 2 === 0 ? GAME.boardA : GAME.boardB;
+    c.fillRect(box.x + x * cell, box.y + y * cell, cell, cell);
+  }
+  const inset = cell * 0.06, side = cell - 2 * inset, r = cell * 0.12;
+  const block = (at: Cell, fill: string) => {
+    c.beginPath();
+    c.roundRect(box.x + at.x * cell + inset, box.y + at.y * cell + inset, side, side, r);
+    c.fillStyle = fill;
+    c.fill();
+  };
+  if (food) {
+    const fx = box.x + food.x * cell + cell / 2, fy = box.y + food.y * cell + cell / 2 + cell * 0.05;
+    const ar = cell * 0.3;
+    c.strokeStyle = GAME.stem;
+    c.lineWidth = Math.max(3, cell * 0.05);
+    c.lineCap = 'butt';
+    c.beginPath(); c.moveTo(fx, fy - ar * 0.8); c.lineTo(fx, fy - ar - cell * 0.1); c.stroke();
+    c.fillStyle = GAME.leaf;
+    c.beginPath(); c.ellipse(fx + cell * 0.1, fy - ar - cell * 0.03, cell * 0.1, cell * 0.05, -0.5, 0, Math.PI * 2); c.fill();
+    c.fillStyle = GAME.apple;
+    c.beginPath(); c.arc(fx, fy, ar, 0, Math.PI * 2); c.fill();
+    c.fillStyle = GAME.shine;
+    c.beginPath(); c.ellipse(fx - ar * 0.4, fy - ar * 0.45, ar * 0.2, ar * 0.13, -0.6, 0, Math.PI * 2); c.fill();
+  }
+  // the links under the blocks, so the path reads when the grid is nearly full
+  const tailAt = (k: number): Cell => {
+    if (k !== snake.length - 1 || k < 2 || slide <= 0) return snake[k];
+    const b = snake[k - 1];
+    return { x: snake[k].x + (b.x - snake[k].x) * slide, y: snake[k].y + (b.y - snake[k].y) * slide };
+  };
+  const lw = side * 0.5;
+  c.fillStyle = GAME.link;
+  for (let k = 1; k < snake.length; k++) {
+    const a = snake[k - 1], b = tailAt(k);
+    const ax = box.x + a.x * cell + cell / 2, ay = box.y + a.y * cell + cell / 2;
+    const bx = box.x + b.x * cell + cell / 2, by = box.y + b.y * cell + cell / 2;
+    c.fillRect(Math.min(ax, bx) - (ay === by ? 0 : lw / 2), Math.min(ay, by) - (ax === bx ? 0 : lw / 2), Math.abs(bx - ax) + (ay === by ? 0 : lw), Math.abs(by - ay) + (ax === bx ? 0 : lw));
+  }
+  // tail first, so it slides under the segment before it; the head last, over its neck
+  for (let k = snake.length - 1; k >= 1; k--) {
+    block(tailAt(k), k % 2 === 1 ? GAME.bodyA : GAME.bodyB);
+  }
+  if (!snake[0]) return;
+  block(snake[0], GAME.head);
+  const cx = box.x + snake[0].x * cell + cell / 2, cy = box.y + snake[0].y * cell + cell / 2;
+  const [dx, dy] = DELTA[heading] ?? DELTA.right;
+  const off = cell * 0.14, apart = cell * 0.19, er = cell * 0.11, pr = cell * 0.06;
+  for (const sgn of [-1, 1]) {
+    const ex = cx + dx * off - dy * apart * sgn, ey = cy + dy * off + dx * apart * sgn;
+    c.fillStyle = GAME.eye;
+    c.beginPath(); c.arc(ex, ey, er, 0, Math.PI * 2); c.fill();
+    c.fillStyle = GAME.pupil;
+    c.beginPath(); c.arc(ex + dx * cell * 0.04, ey + dy * cell * 0.04, pr, 0, Math.PI * 2); c.fill();
+  }
+}
+
 /** The board with the gliding snake, arrows during a beat, the crash burst and the fill's confetti.
  *  Returns the head's centre on screen. The push-in never lets the board leave its box. */
-function board(p: Painter, scene: Scene, info: FrameInfo, box: Box): { x: number; y: number } {
+function board(p: Painter, scene: Scene, info: FrameInfo, box: Box, margin: number): { head: { x: number; y: number }; drawn: Rect } {
   const c = p.ctx;
   const N = scene.size;
   const pos = info.position;
@@ -167,19 +239,26 @@ function board(p: Painter, scene: Scene, info: FrameInfo, box: Box): { x: number
   const hc = cellRect(Math.floor(headCell.x), Math.floor(headCell.y), N, box);
   const cell = hc.w;
   const head = { x: box.x + headCell.x * cell + cell / 2, y: box.y + headCell.y * cell + cell / 2 };
+  const px = cell * N;
+  let drawn: Rect = { x: box.x, y: box.y, w: px, h: px };
   c.save();
   c.beginPath();
-  c.rect(box.x, box.y, box.px, box.px);
+  c.rect(box.x - margin, box.y - margin, px + 2 * margin, px + 2 * margin);
   c.clip();
   if (info.zoom > 1) {
-    // scale about the head, but no further than keeps every edge within 2 percent of the box
-    const worst = Math.max(head.x - box.x, box.x + box.px - head.x, head.y - box.y, box.y + box.px - head.y);
-    const z = Math.min(info.zoom, 1 + (box.px * 0.02) / Math.max(1, worst));
+    // scale about the head, cut short where the board would outgrow the margin around its box
+    const worst = Math.max(head.x - box.x, box.x + px - head.x, head.y - box.y, box.y + px - head.y);
+    const z = Math.min(info.zoom, 1 + margin / Math.max(1, worst));
     c.translate(head.x, head.y);
     c.scale(z, z);
     c.translate(-head.x, -head.y);
+    drawn = { x: head.x + (box.x - head.x) * z, y: head.y + (box.y - head.y) * z, w: px * z, h: px * z };
   }
-  drawBoard(c, { snake: snake.map(s => ({ x: s.x, y: s.y })), heading: headingAt(scene, pos), food: e.food }, N, null, box);
+  // the tail leaves as the head arrives, unless the move eats
+  const gliding = snake.length > e.snake.length;
+  const next = scene.entries[i + 1];
+  const slide = gliding && next && next.length <= e.length ? pos - i : 0;
+  gameBoard(c, snake, headingAt(scene, pos), e.food, slide, N, box);
   if (info.beat) {
     const decided = scene.entries[info.beat.move];
     const before = scene.entries[info.beat.move - 1];
@@ -227,7 +306,7 @@ function board(p: Painter, scene: Scene, info: FrameInfo, box: Box): { x: number
     }
   }
   c.restore();
-  return head;
+  return { head, drawn };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -407,12 +486,12 @@ export function drawFull(scene: Scene, info: FrameInfo): Drawn {
   ctx.fillRect(0, 0, w, h);
   const p = new Painter(ctx);
   const box: Box = { x: 60, y: 60, px: 960 };
-  const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null };
+  const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, drawnBoard: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null };
   if (info.credits !== null) {
     credits(p, scene, 160, 240, 1600, 72, false);
     return { buffer: rgb(canvas, w, h), texts: p.texts, rects };
   }
-  rects.head = board(p, scene, info, box);
+  { const b = board(p, scene, info, box, 50); rects.head = b.head; rects.drawnBoard = b.drawn; }
   counters(p, scene, info, 1110, 180, 76);
   if (info.beat) {
     const r = raceBars(p, scene, info, 1110, 620, 760, 84, 60);
@@ -451,12 +530,12 @@ export function drawShort(scene: Scene, info: FrameInfo): Drawn {
   const p = new Painter(ctx, 40);
   // text stays inside 60 px at the sides, 180 at the top and 390 at the bottom, where YouTube draws over a Short
   const box: Box = { x: 95, y: 310, px: 890 };
-  const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null };
+  const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, drawnBoard: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null };
   if (info.credits !== null) {
     credits(p, scene, 60, 260, 960, 72, true);
     return { buffer: rgb(canvas, w, h), texts: p.texts, rects };
   }
-  rects.head = board(p, scene, info, box);
+  { const b = board(p, scene, info, box, 10); rects.head = b.head; rects.drawnBoard = b.drawn; }
   // the counters sit above the board; the hook's caption takes their place
   if (info.caption) rects.caption = caption(p, info.caption, 60, 200, 52, 960);
   else counters(p, scene, info, 60, 290, 96);

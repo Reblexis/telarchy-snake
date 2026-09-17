@@ -58,6 +58,25 @@ text sits inside 60 px at the sides, 180 px at the top and 390 px at the bottom,
 YouTube draws over the Short: the counters sit above the board (the hook's caption takes
 their place), and the race bars, or the best-so-far bar at speed, sit under it.
 
+## The game looks like a game
+
+The production is around the game, never on it. Inside the board's box the video shows an
+ordinary snake game, the kind anyone has played, and the produced look (type, race bars,
+cards, captions) stops at the box's edge.
+
+- **The board is a checkerboard** of two tones; two cells that share an edge differ, and
+  there are no grid lines.
+- **The body is blocks**, one square segment a cell, their shade alternating along the body so the
+  snake reads as striped. A segment and the next are joined by a link half a segment wide,
+  with board showing at both sides of it, so the snake's path can be followed even when
+  the grid is nearly full.
+- **The head is a block** in a darker green with two white eyes and dark pupils, on the
+  side it faces.
+- **The food is an apple**: a red fruit with a stem and a leaf.
+- **The tail leaves as the head arrives.** On a glide that does not eat, the last segment
+  slides into the one before it by the same fraction the head has travelled, so the snake
+  keeps its length in every frame; on a move that eats it stays.
+
 ## The trades: race bars
 
 The market is three horizontal **race bars**, one lane per option in a fixed order (turn
@@ -140,7 +159,9 @@ what sits over it. The renderer draws only what the description says.
   1 across them; the lock is the next 18 frames (36 at half speed); the move is the rest.
 - **The push-in.** The zoom is 1 outside beats. During a beat it eases up to 1.08 over
   its first 8 frames, holds, and eases back to 1 over its last 8; the renderer keeps the
-  whole board in frame.
+  whole board in frame: the board may grow into the empty margin around its box (50 px in
+  the full cut, 10 px in the Short), the push-in is cut short where it would grow further,
+  and no edge of the board is ever cropped.
 - **The speed badge** reads `x<speed / 4>` in a run faster than 4 moves a second, and is
   absent everywhere else.
 - **Captions.** A beat that carries a caption shows it for the whole beat; no other
