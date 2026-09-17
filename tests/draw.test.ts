@@ -421,14 +421,14 @@ describe('the full cut frame', () => {
     }
   });
 
-  it('a trade whose option cannot be named has its chip on the pot\'s line, never over the board or a lane, in both cuts', () => {
+  it('a trade whose option cannot be named has its chip on the pot\'s line, never over the board or a lane', () => {
     const unnamed: TradeRow = { id: 'u1', at: at(19, 9), kind: 'trade', actor: { id: 'zed', handle: 'zed' }, detail: { side: 'buy', direction: 'higher', shares: 1, cost: 700, callBefore: 70, callAfter: 77, marketId: 'm-unknown' } };
     const moves: TradeRow[][] = entries.map(() => []);
     moves[19] = [unnamed];
     const sc = buildScene(game, [game], entries, moves);
     const tl: Segment[] = [{ kind: 'beat', move: 20, chips: 1, frames: 56 }];
     const hit = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-    for (const draw of [drawFull, drawShort]) {
+    for (const draw of [drawFull]) {
       const d = draw(sc, frameAt(tl, entries, 10));
       const pot = d.rects.chips.filter(c => c.option === null);
       expect(pot.length).toBe(1);
@@ -648,6 +648,56 @@ describe('a long caption', () => {
   it('a caption that fits stays on one line', () => {
     const tl: Segment[] = [{ kind: 'beat', move: 20, chips: 0, frames: 72, slow: true, caption: 'One way out.' }];
     expect(drawShort(scene(), frameAt(tl, entries, 10)).texts.map(t => t.text)).toContain('One way out.');
+  });
+});
+
+describe('the Short shows the market and the bets', () => {
+  it('the ladder is under the board in every frame of the game, at speed too, with no best-so-far bar', () => {
+    const sc = scene();
+    for (const f of gameplayFrames) {
+      const d = drawShort(sc, info(f));
+      expect(d.rects.lanes, `frame ${f}`).not.toBeNull();
+      for (const lane of Object.values(d.rects.lanes!)) expect(lane.y).toBeGreaterThanOrEqual(d.rects.board.y + d.rects.board.h);
+      expect(d.texts.map(t => t.text)).not.toContain('BEST SO FAR');
+    }
+  });
+  it('a row says the option, its price and the credits traded on it', () => {
+    const t = drawShort(scene(), info(160)).texts.map(x => x.text);
+    expect(t.some(x => /STRAIGHT$/.test(x))).toBe(true);
+    expect(t).toContain('20.0');
+    expect(t).toContain('950 cr');
+  });
+  it('the tape holds the two most recent trades, newest first, and never one of a move not yet shown', () => {
+    const sc = scene();
+    const tape = (f: number) => drawShort(sc, info(f)).tape.map(r => r.handle);
+    expect(tape(10)).toEqual([]);
+    expect(tape(30)).toEqual(['vi0']);
+    expect(tape(70)).toEqual(['bob', 'vi0']);
+    expect(tape(160)).toEqual(['dee', 'cy']);
+    const t = drawShort(sc, info(160)).texts.map(x => x.text);
+    expect(t).toContain('−300');
+    expect(t).toContain('+20');
+  });
+  it('a frame looks the same if the record stopped at the move it shows', () => {
+    const sc = scene();
+    for (const f of [0, 29, 75, 160, 230]) {
+      const i = info(f);
+      const upTo = Math.max(Math.floor(i.position) + 1, i.beat?.move ?? 0);
+      const cut = entries.slice(0, upTo + 1);
+      const stopped = buildScene({ ...game, endedAt: cut[cut.length - 1].at, steps: cut.length - 1 }, [game], cut, byMove.slice(0, cut.length));
+      expect(drawShort(stopped, i).buffer.equals(drawShort(sc, i).buffer), `frame ${f}`).toBe(true);
+    }
+  });
+  it('a trade whose option cannot be named has no chip in the Short; it is on the tape with a dash', () => {
+    const unnamed: TradeRow = { id: 'u1', at: at(19, 9), kind: 'trade', actor: { id: 'zed', handle: 'zed' }, detail: { side: 'buy', direction: 'higher', shares: 1, cost: 700, callBefore: 70, callAfter: 77, marketId: 'm-unknown' } };
+    const moves: TradeRow[][] = entries.map(() => []);
+    moves[19] = [unnamed];
+    const sc = buildScene(game, [game], entries, moves);
+    const tl: Segment[] = [{ kind: 'beat', move: 20, chips: 1, frames: 56 }];
+    const d = drawShort(sc, frameAt(tl, entries, 10));
+    expect(d.rects.chips).toEqual([]);
+    expect(d.tape.map(r => [r.handle, r.option])).toEqual([['zed', null]]);
+    expect(d.texts.some(t => /^POT /.test(t.text))).toBe(false);
   });
 });
 

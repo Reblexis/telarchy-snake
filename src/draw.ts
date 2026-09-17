@@ -304,108 +304,6 @@ function shownBets(scene: Scene, move: number) {
   return { bets, largest };
 }
 
-/** The race bars. In a beat they follow its phases; outside one (`info.beat` null) they show the settled
- *  prices of the move on screen, with no chips. */
-function raceBars(p: Painter, scene: Scene, info: FrameInfo, x0: number, cy: number, w: number, lane: number, big: number): { lanes: Record<Action, Rect>; chips: ChipRect[]; chosen: Action | null } {
-  const last = scene.entries.length - 1;
-  const idle = !info.beat;
-  const move = info.beat ? info.beat.move : Math.max(Math.min(1, last), Math.min(last, Math.floor(info.position)));
-  const beat = info.beat ?? { move, phase: 'lock' as const, chip: 0, progress: 1 };
-  const decided = scene.entries[move];
-  const before = scene.entries[Math.max(0, move - 1)];
-  const prices: Partial<Record<Action, number | null>> = decided.prices ?? {};
-  const { bets, largest } = shownBets(scene, move);
-  const chosen = !decided.undecided ? decided.action : null;
-  const locked = beat.phase !== 'chips';
-  const dirs = directionsFrom(before.heading);
-  const cells = scene.size * scene.size;
-  const counting = locked ? 1 : Math.min(1, (beat.chip + beat.progress) / Math.max(1, largest.length));
-  const credits: Record<Action, number> = { left: 0, forward: 0, right: 0 };
-  let pot = 0;
-  for (const b of bets) { if (b.option) credits[b.option] += b.credits; else pot += b.credits; }
-  const creditSize = Math.max(p.minSize, big * 0.32);
-  const creditText = (opt: Action) => (credits[opt] > 0 ? `${Math.round(credits[opt]).toLocaleString('en-US')} cr` : '');
-  const glyphW = big * 1.1;
-  const gap = lane * 0.55, top = cy - (3 * lane + 2 * gap) / 2;
-  const numberW = measureText('88.8', big, 800, 'sans');
-  const creditW = Math.max(...ORDER.map(o => measureText(creditText(o), creditSize, 700, 'mono')));
-  // the credits line goes under the price when a lane is tall enough for both, beside it otherwise
-  const stacked = lane + gap >= big * 1.2 + creditSize * 1.05;
-  const priceW = big * 0.35 + (stacked ? Math.max(numberW, creditW) : numberW + big * 0.3 + creditW);
-  const barX = x0 + glyphW, barW = w - glyphW - priceW;
-  const lead = ORDER.reduce((a, b) => ((prices[b] ?? 0) > (prices[a] ?? 0) ? b : a), 'left' as Action);
-  const lanes = {} as Record<Action, Rect>;
-  const tips = {} as Record<Action, number>;
-  ORDER.forEach((opt, k) => {
-    const ly = top + k * (lane + gap);
-    lanes[opt] = { x: barX, y: ly, w: barW, h: lane };
-    const price = (prices[opt] ?? 0) * (0.35 + 0.65 * counting);
-    const a = locked ? (opt === chosen ? 1 : 0.28) : opt === lead ? 1 : 0.6;
-    p.text(GLYPH[dirs[opt]], x0, ly + lane * 0.76, big, rgba(HUE[opt], a), 800);
-    p.round(barX, ly, barW, lane, lane / 2, 'rgba(255,255,255,0.045)');
-    const len = price < 1 ? 6 : Math.max(lane, (price / cells) * barW);
-    tips[opt] = barX + Math.min(len, barW);
-    if (locked && !idle && opt === chosen) {
-      p.ctx.save();
-      p.ctx.shadowColor = HUE[opt];
-      p.ctx.shadowBlur = lane * 0.8;
-      p.round(barX, ly, Math.min(len, barW), lane, lane / 2, HUE[opt]);
-      p.ctx.restore();
-    } else {
-      p.round(barX, ly, Math.min(len, barW), lane, lane / 2, rgba(HUE[opt], a));
-    }
-    const priceBase = ly + lane * 0.62;
-    p.text((prices[opt] ?? 0) === null ? '-' : price.toFixed(1), x0 + w, priceBase, big, rgba(FG, locked && opt !== chosen ? 0.35 : 1), 800, 'sans', 'right');
-    // stacked, the credits line's cap height clears the price's descent; beside, it shares the price's baseline
-    if (stacked) p.text(creditText(opt), x0 + w, priceBase + big * 0.2 + creditSize * 0.85, creditSize, rgba(CHIP, a), 700, 'mono', 'right');
-    else p.text(creditText(opt), x0 + w - numberW - big * 0.3, priceBase, creditSize, rgba(CHIP, a), 700, 'mono', 'right');
-  });
-  const lineY = top - big * 0.45;
-  const smaller = bets.length - largest.length;
-  if (pot > 0) p.text(`POT ${Math.round(pot).toLocaleString('en-US')} cr`, x0, lineY, big * 0.36, MUTE, 700, 'mono');
-  if (smaller > 0) p.text(`+${smaller} smaller trade${smaller === 1 ? '' : 's'}`, x0 + w, lineY, big * 0.36, CHIP, 700, 'sans', 'right');
-
-  const chips: ChipRect[] = [];
-  if (!locked && beat.chip < largest.length) {
-    const b = largest[beat.chip];
-    // a trade that lowered its option's price is a bet against it
-    const against = Number.isFinite(b.from) && Number.isFinite(b.to) && b.to < b.from;
-    const label = `${against ? '−' : '+'}${Math.round(b.credits).toLocaleString('en-US')}`;
-    const fill = against ? AGAINST : CHIP;
-    const h = lane * 0.86;
-    const size = Math.max(p.minSize, h * 0.46);
-    const handleSize = Math.max(p.minSize, size * 0.62);
-    const cw = measureText(label, size, 800, 'sans') + measureText(b.handle, handleSize, 700, 'mono') + h * 0.9;
-    if (b.option) {
-      const ly = lanes[b.option].y;
-      // the chip travels inside its lane, from the lane's start to the bar's tip
-      const eased = 1 - (1 - beat.progress) ** 3;
-      const cx = Math.min(barX + (tips[b.option] - barX) * eased, barX + barW - cw);
-      const cy2 = ly + (lane - h) / 2;
-      p.ctx.save();
-      p.ctx.shadowColor = 'rgba(0,0,0,0.6)';
-      p.ctx.shadowBlur = 14;
-      p.round(cx, cy2, cw, h, h / 2, fill);
-      p.ctx.restore();
-      p.text(label, cx + h * 0.4, cy2 + h * 0.66, size, BG, 800);
-      p.text(b.handle, cx + h * 0.5 + measureText(label, size, 800, 'sans'), cy2 + h * 0.63, handleSize, rgba(BG, 0.8), 700, 'mono');
-      chips.push({ text: label, option: b.option, x: cx, y: cy2, w: cw, h });
-    } else {
-      // on the pot's line, beside its total
-      const ph = Math.max(p.minSize * 1.2, big * 0.62);
-      const ps = Math.max(p.minSize, ph * 0.6);
-      const potText = `POT ${Math.round(pot).toLocaleString('en-US')} cr`;
-      const px0 = x0 + measureText(potText, Math.max(p.minSize, big * 0.36), 700, 'mono') + big * 0.4;
-      const pw = measureText(label, ps, 800, 'sans') + ph * 0.8;
-      const py = lineY - ph * 0.8;
-      p.round(px0, py, pw, ph, ph / 2, fill);
-      p.text(label, px0 + ph * 0.4, py + ph * 0.5 + ps * 0.36, ps, BG, 800);
-      chips.push({ text: label, option: null, x: px0, y: py, w: pw, h: ph });
-    }
-  }
-  return { lanes, chips, chosen };
-}
-
 function counters(p: Painter, scene: Scene, info: FrameInfo, x: number, y: number, size: number) {
   const e = scene.entries[Math.max(0, Math.min(scene.entries.length - 1, Math.floor(info.position)))];
   const length = String(e.length), deaths = String(e.deaths);
@@ -441,16 +339,6 @@ function caption(p: Painter, text: string, x: number, y: number, want: number, w
   if (lines.length === 1) p.text(text, x + size * 0.6, top + h * 0.5 + size * 0.36, size, FG, 800);
   else lines.forEach((l, k) => p.text(l, x + size * 0.6, top + want * 0.25 + size * (1.0 + k * 1.2), size, FG, 800));
   return { x, y: top, w, h };
-}
-
-function bestSoFar(p: Painter, scene: Scene, info: FrameInfo, x: number, y: number, w: number, big: number) {
-  const i = Math.max(0, Math.min(scene.entries.length - 1, Math.floor(info.position)));
-  const best = scene.best[i], cells = scene.size * scene.size;
-  p.text('BEST SO FAR', x, y, big * 0.5, MUTE, 700, 'mono');
-  p.round(x, y + big * 0.5, w, big * 0.66, big * 0.33, 'rgba(255,255,255,0.06)');
-  p.round(x, y + big * 0.5, Math.max(big * 0.66, (best / cells) * w), big * 0.66, big * 0.33, GOLD);
-  p.text(`${best} of ${cells}`, x, y + big * 2.3, big * 0.93, FG, 800);
-  p.text(`attempt ${scene.entries[i].deaths + 1}`, x, y + big * 3.4, big * 0.56, MUTE, 700, 'mono');
 }
 
 function lowerThird(p: Painter, text: string, x: number, y: number, size: number) {
@@ -527,7 +415,7 @@ function tapeAt(scene: Scene, info: FrameInfo, rows = 9): TapeRow[] {
 }
 
 /** The price ladder: the full cut's race bars. Returns the rows as lanes, the flying chip, and the prices shown. */
-function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: number, w: number): { lanes: Record<Action, Rect>; chips: ChipRect[]; chosen: Action | null; move: number; shown: Record<Action, number>; locked: boolean } {
+function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: number, w: number, compact = false): { lanes: Record<Action, Rect>; chips: ChipRect[]; chosen: Action | null; move: number; shown: Record<Action, number>; locked: boolean } {
   const c = p.ctx;
   const last = scene.entries.length - 1;
   const idle = !info.beat;
@@ -553,20 +441,26 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
     if (Number.isNaN(st.first) && Number.isFinite(b.from)) st.first = b.from;
     if (Number.isFinite(b.to)) st.lastTo = b.to;
   }
-  label(p, 'WHERE SHOULD THE SNAKE GO?', x0, y0 + 34);
-  const smaller = bets.length - largest.length;
+  if (!compact) label(p, 'WHERE SHOULD THE SNAKE GO?', x0, y0 + 34);
+  const smaller = compact ? 0 : bets.length - largest.length;
   let rx = x0 + w;
   if (smaller > 0) { const t = `+${smaller} smaller trade${smaller === 1 ? '' : 's'}`; p.text(t, rx, y0 + 34, 15, CHIP, 500, 'mono', 'right'); rx -= measureText(t, 15, 500, 'mono') + 28; }
-  const potText = pot > 0 ? `POT ${Math.round(pot).toLocaleString('en-US')} cr` : '';
+  const potText = pot > 0 && !compact ? `POT ${Math.round(pot).toLocaleString('en-US')} cr` : '';
   if (potText) p.text(potText, rx, y0 + 34, 15, MUTE, 500, 'mono', 'right');
-  const col = { price: x0 + 470, delta: x0 + 590, credits: x0 + 740, trades: x0 + w - 14 };
-  const hy = y0 + 72;
-  label(p, 'OPTION', x0 + 30, hy, 13);
-  label(p, 'FORECAST LENGTH', col.price, hy, 13, 'right');
-  label(p, 'Δ', col.delta, hy, 13, 'right');
-  label(p, 'CREDITS', col.credits, hy, 13, 'right');
-  label(p, 'TRADES', col.trades, hy, 13, 'right');
-  const rowH = 68, top = y0 + 88;
+  // the Short's compact form: three rows of name, price and credits in its larger type, nothing else
+  const col = compact ? { price: x0 + 540, delta: 0, credits: x0 + w - 12, trades: 0 } : { price: x0 + 470, delta: x0 + 590, credits: x0 + 740, trades: x0 + w - 14 };
+  const type = compact ? { name: 40, price: 56, small: 40, nameX: 20 } : { name: 22, price: 40, small: 20, nameX: 30 };
+  if (!compact) {
+    const hy = y0 + 72;
+    label(p, 'OPTION', x0 + 30, hy, 13);
+    label(p, 'FORECAST LENGTH', col.price, hy, 13, 'right');
+    label(p, 'Δ', col.delta, hy, 13, 'right');
+    label(p, 'CREDITS', col.credits, hy, 13, 'right');
+    label(p, 'TRADES', col.trades, hy, 13, 'right');
+  }
+  const rowH = compact ? 64 : 68, top = compact ? y0 : y0 + 88;
+  // in the Short a chip lands where its row's credits are, so those wait until it has landed
+  const flying = !locked && beat.chip < largest.length ? largest[beat.chip].option : null;
   const lead = ORDER.reduce((a, b) => ((prices[b] ?? 0) > (prices[a] ?? 0) ? b : a), 'left' as Action);
   const lanes = {} as Record<Action, Rect>;
   const tips = {} as Record<Action, number>;
@@ -586,10 +480,10 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
     c.fillRect(x0, ly + 4, len, rowH - 8);
     c.fillStyle = rgba(HUE[opt], a);
     if (recorded) c.fillRect(x0 + len - 2, ly + 4, 2, rowH - 8);
-    const base = ly + rowH / 2 + 9;
+    const base = ly + rowH / 2 + (compact ? 14 : 9);
     const name = `${GLYPH[dirs[opt]]} ${NAME[opt]}`;
-    p.text(name, x0 + 30, base, 22, rgba(HUE[opt], a), 600, 'mono');
-    if (locked && opt === chosen) {
+    p.text(name, x0 + type.nameX, base, type.name, rgba(HUE[opt], a), 600, 'mono');
+    if (locked && opt === chosen && !compact) {
       const tx = x0 + 30 + measureText(name, 22, 600, 'mono') + 16;
       c.fillStyle = HUE[opt];
       c.fillRect(tx, base - 19, 78, 26);
@@ -597,17 +491,17 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
       p.text('PLAYED', tx + 8, base, 14, BG, 600, 'mono');
       c.letterSpacing = '0px';
     }
-    p.text(recorded ? price.toFixed(1) : '–', col.price, base + 5, 40, rgba(recorded ? FG : MUTE, a), 800, 'sans', 'right');
+    p.text(recorded ? price.toFixed(1) : '–', col.price, base + 5, type.price, rgba(recorded ? FG : MUTE, a), 800, 'sans', 'right');
     const st = stat[opt];
     const delta = st.trades && Number.isFinite(st.first) && Number.isFinite(st.lastTo) ? st.lastTo - st.first : 0;
-    p.text(!recorded ? '–' : Math.abs(delta) < 0.05 ? '0.0' : signed(delta), col.delta, base, 20, rgba(Math.abs(delta) < 0.05 ? MUTE : delta > 0 ? UP : RED, a), 600, 'mono', 'right');
-    p.text(st.credits > 0 ? `${Math.round(st.credits).toLocaleString('en-US')} cr` : '-', col.credits, base, 20, rgba(st.credits > 0 ? CHIP : MUTE, a), 600, 'mono', 'right');
-    p.text(String(st.trades), col.trades, base, 20, rgba(FG, a * 0.8), 600, 'mono', 'right');
+    if (!compact) p.text(!recorded ? '–' : Math.abs(delta) < 0.05 ? '0.0' : signed(delta), col.delta, base, 20, rgba(Math.abs(delta) < 0.05 ? MUTE : delta > 0 ? UP : RED, a), 600, 'mono', 'right');
+    if (!(compact && flying === opt)) p.text(st.credits > 0 ? `${Math.round(st.credits).toLocaleString('en-US')} cr` : '-', col.credits, base, type.small, rgba(st.credits > 0 ? CHIP : MUTE, a), 600, 'mono', 'right');
+    if (!compact) p.text(String(st.trades), col.trades, base, 20, rgba(FG, a * 0.8), 600, 'mono', 'right');
   });
   c.fillStyle = EDGE;
   c.fillRect(x0, top + 3 * rowH, w, 1);
   // the verdict, once the move is locked: the way played and its lead over the next highest price
-  if (locked) {
+  if (locked && !compact) {
     const known = ORDER.filter(o => typeof prices[o] === 'number');
     let verdict = 'Market has no price';
     if (chosen && known.includes(chosen)) {
@@ -624,21 +518,25 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
     const against = Number.isFinite(b.from) && Number.isFinite(b.to) && b.to < b.from;
     const text = `${against ? '−' : '+'}${Math.round(b.credits).toLocaleString('en-US')}`;
     const fill = against ? AGAINST : CHIP;
-    const h = 40, size = 22, handleSize = 15;
-    const cw = measureText(text, size, 800, 'sans') + measureText(b.handle, handleSize, 600, 'mono') + 34;
+    const h = compact ? 54 : 40, size = compact ? 40 : 22, handleSize = compact ? 40 : 15;
+    let chipHandle = b.handle;
+    while (compact && chipHandle.length > 3 && measureText(text, size, 800, 'sans') + measureText(chipHandle, handleSize, 600, 'mono') + 34 > 400) chipHandle = `${chipHandle.slice(0, -2)}…`;
+    const cw = measureText(text, size, 800, 'sans') + measureText(chipHandle, handleSize, 600, 'mono') + 34;
     const eased = 1 - (1 - beat.progress) ** 3;
     if (b.option) {
       const lane = lanes[b.option];
       // along its row, from the row's start to the depth bar's tip, never over the name or the figures
-      const from = x0 + 200, to = Math.max(from, Math.min(tips[b.option], col.price - 110 - cw));
+      // in the Short the chip slides onto its row's credits, inside the safe area all the way
+      const to = compact ? x0 + w - cw : Math.max(x0 + 200, Math.min(tips[b.option], col.price - 110 - cw));
+      const from = compact ? Math.max(col.price + 8, to - 90) : x0 + 200;
       const cx = from + (to - from) * eased, cy2 = lane.y + (lane.h - h) / 2;
       c.save(); c.shadowColor = 'rgba(0,0,0,0.6)'; c.shadowBlur = 12;
       p.round(cx, cy2, cw, h, 6, fill);
       c.restore();
-      p.text(text, cx + 12, cy2 + 28, size, BG, 800);
-      p.text(b.handle, cx + 20 + measureText(text, size, 800, 'sans'), cy2 + 26, handleSize, rgba(BG, 0.8), 600, 'mono');
+      p.text(text, cx + 12, cy2 + h * 0.7, size, BG, 800);
+      p.text(chipHandle, cx + 20 + measureText(text, size, 800, 'sans'), cy2 + h * 0.68, handleSize, rgba(BG, 0.8), 600, 'mono');
       chips.push({ text, option: b.option, x: cx, y: cy2, w: cw, h });
-    } else {
+    } else if (!compact) {
       // an unnamed trade's chip sits on the pot's line, beside its total
       const ph = 26, pw = measureText(text, 15, 800, 'sans') + 20;
       const px0 = rx - (potText ? measureText(potText, 15, 500, 'mono') : 0) - 14 - pw, py = y0 + 34 - 19;
@@ -887,7 +785,7 @@ export function drawShort(scene: Scene, info: FrameInfo): Drawn {
   const p = new Painter(ctx, 40);
   // text stays inside 60 px at the sides, 180 at the top and 390 at the bottom, where YouTube draws over a Short
   const box: Box = { x: 95, y: 310, px: 890 };
-  const tape: TapeRow[] = [];
+  let tape: TapeRow[] = [];
   const narrator = '';
   const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, drawnBoard: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null, panels: [], chart: null, playhead: null };
   if (info.credits !== null) {
@@ -898,16 +796,23 @@ export function drawShort(scene: Scene, info: FrameInfo): Drawn {
   // the counters sit above the board; the hook's caption takes their place
   if (info.caption) rects.caption = caption(p, info.caption, 60, 200, 52, 960);
   else counters(p, scene, info, 60, 290, 96);
-  if (info.beat) {
-    const r = raceBars(p, scene, info, 60, 1398, 960, 56, 60);
-    rects.lanes = r.lanes;
-    rects.chips = r.chips;
-    rects.chosen = r.chosen;
-  } else if (info.hold?.fx === 'filled') {
-    p.text('FILLED', box.x + box.px / 2, box.y + box.px / 2 + 50, 150, FG, 800, 'sans', 'center');
-  } else {
-    bestSoFar(p, scene, info, 60, 1290, 960, 64);
-  }
+  // the market and the bets, under the board in every frame: the compact ladder, then the two latest trades
+  const r = ladder(p, scene, info, 60, 1214, 960, true);
+  rects.lanes = r.lanes;
+  rects.chips = r.chips;
+  rects.chosen = r.chosen;
+  tape = tapeAt(scene, info, 2);
+  tape.forEach((t, k) => {
+    const y = 1458 + k * 52, a = k === 0 ? 1 : 0.7;
+    let handle = t.handle;
+    while (handle.length > 3 && measureText(handle, 40, 500, 'mono') > 380) handle = `${handle.slice(0, -2)}…`;
+    p.text(handle, 60, y, 40, rgba(FG, a), 500, 'mono');
+    const heading = scene.entries[Math.max(0, t.move - 1)].heading;
+    if (t.option) p.text(GLYPH[directionsFrom(heading)[t.option]], 500, y + 2, 44, rgba(HUE[t.option], a), 800);
+    else p.text('-', 506, y, 40, rgba(MUTE, a), 500, 'mono');
+    p.text(`${t.against ? '−' : '+'}${Math.round(t.credits).toLocaleString('en-US')}`, 1020, y, 40, rgba(t.against ? AGAINST : CHIP, a), 600, 'mono', 'right');
+  });
+  if (info.hold?.fx === 'filled') p.text('FILLED', box.x + box.px / 2, box.y + box.px / 2 + 50, 150, FG, 800, 'sans', 'center');
   if (info.badge) {
     p.round(w - 60 - 170, 222, 170, 76, 38, 'rgba(255,255,255,0.08)');
     p.text(info.badge, w - 60 - 85, 275, 44, FG, 800, 'sans', 'center');

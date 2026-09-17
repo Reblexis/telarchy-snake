@@ -64,7 +64,14 @@ record crashes at speed (to 20 s), the winning attempt with two or three decisio
 (to 40 s), the fill (to 45 s), and a last frame that matches the first so it loops. All
 text sits inside 60 px at the sides, 180 px at the top and 390 px at the bottom, where
 YouTube draws over the Short: the counters sit above the board (the hook's caption takes
-their place), and the race bars, or the best-so-far bar at speed, sit under it.
+their place), and under the board, in every frame of the game, sit **the market and the
+bets**: the price ladder in a compact form (one row per option: its arrow and name in its
+hue, its price in large figures, the credits traded on it, over its depth bar; no column
+heads, no tag, no verdict), and under it a tape of the two most recent trades (handle,
+arrow, `+<credits>` or `−<credits>`). Both follow the full cut's rules: chips fly along a
+row in a beat, the lock dims the losing rows, the tape never shows a trade of a move not
+yet shown, and nothing reaches past the move on screen. In the Short a trade whose option
+cannot be named has no chip and no pot line; it shows on the tape with a dash.
 
 ## The terminal (full cut)
 
@@ -163,9 +170,8 @@ violet, turn right magenta). Green belongs to the snake, red to death, gold to r
   instead: its chip sits on the pot's line, beside the pot's total, never over the board or a lane. Chips never overlap: a chip waits until the one before it has landed.
   `+N more` and the pot share one line above the bars, clear of the counters. Every
   price, credit line and chip stays inside the frame's safe area.
-- In the Short the race bars are hidden at speed; the board and the counters stay, with a
-  progress bar of the best length so far against the full grid in their place. In the full
-  cut they take the form of the price ladder (the terminal, above).
+- In both cuts the race bars take the form of the price ladder and stay on screen at every
+  speed (the terminal, above; the Short's compact form, Structure).
 - The leading lane is fully saturated, the others at 60 percent. At the lock the losing
   lanes dim to 30 percent, the winner flashes once, and the snake moves.
 
