@@ -166,7 +166,9 @@ frame) and eases back after it, and shakes only on a crash.
 The snake glides between cells at normal and slow speed: at a fractional position
 `i + t` its head is drawn the fraction `t` of the way from entry `i`'s head to entry
 `i + 1`'s, its body follows entry `i`'s cells, and at a whole position it is exactly that
-entry. Above eight moves a second it jumps cell to cell with a short fading trail on the
+entry. The head faces the way it is going: while it glides from entry `i` to entry `i + 1`
+its eyes are entry `i + 1`'s heading, and at a whole position that entry's own; a respawn
+is not a glide, so the snake keeps entry `i`'s heading until it jumps. Above eight moves a second it jumps cell to cell with a short fading trail on the
 head. Entrances ease out, moves ease in and out, durations are 150, 300 or
 600 ms. Type is Inter at 600 to 800 weight with tabular figures; handles in JetBrains
 Mono. Counters are at least 48 px in the full cut and 96 px in the Short, and nothing in

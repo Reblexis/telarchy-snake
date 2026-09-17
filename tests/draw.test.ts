@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildScene, snakeAt, drawFull, drawShort, FULL_SIZE, SHORT_SIZE } from '../src/draw.js';
+import { buildScene, snakeAt, headingAt, drawFull, drawShort, FULL_SIZE, SHORT_SIZE } from '../src/draw.js';
 import { frameAt, frameCountOf } from '../src/frames.js';
 import type { Segment } from '../src/timeline.js';
 import type { GameEntry, LogStep } from '../src/gamelog.js';
@@ -58,6 +58,46 @@ describe('the gliding snake', () => {
     const h = snakeAt(sc, 19.5)[0], a = entries[19].snake[0], b = entries[20].snake[0];
     expect(h.x).toBeCloseTo((a.x + b.x) / 2, 9);
     expect(h.y).toBeCloseTo((a.y + b.y) / 2, 9);
+  });
+});
+
+describe('the head faces the way it is going', () => {
+  // right along row 0, a turn down at move 2, a crash at move 3 and a respawn heading up
+  const turn: LogStep[] = [
+    { x: 1, y: 0, heading: 'right', deaths: 0 },
+    { x: 2, y: 0, heading: 'right', deaths: 0 },
+    { x: 2, y: 1, heading: 'down', deaths: 0 },
+    { x: 3, y: 3, heading: 'up', deaths: 1 },
+  ].map((c, i) => ({ step: i, at: at(i), snake: [{ x: c.x, y: c.y }, { x: c.x - 1, y: c.y }], food: { x: 5, y: 5 }, heading: c.heading as LogStep['heading'], action: i ? 'forward' : null, direction: c.heading as LogStep['direction'], undecided: false, prices: PRICES, length: 2, deaths: c.deaths }));
+  const g: GameEntry = { number: 1, size, startedAt: at(0), endedAt: at(3), steps: 3, bestLength: 2, deaths: 1 };
+  const sc = () => buildScene(g, [g], turn, [[], [], []]);
+  it('at a whole position the head has that entry\'s heading', () => {
+    expect(headingAt(sc(), 1)).toBe('right');
+    expect(headingAt(sc(), 2)).toBe('down');
+  });
+  it('gliding into a turn the eyes already face the new way', () => {
+    expect(headingAt(sc(), 1.05)).toBe('down');
+    expect(headingAt(sc(), 1.5)).toBe('down');
+    expect(headingAt(sc(), 1.95)).toBe('down');
+  });
+  it('before a respawn the snake keeps its heading until it jumps', () => {
+    expect(headingAt(sc(), 2.5)).toBe('down');
+    expect(headingAt(sc(), 3)).toBe('up');
+  });
+  it('the drawn eyes follow it: mid-turn the eyes sit below the head\'s centre', () => {
+    const tl: Segment[] = [{ kind: 'run', from: 1, to: 2, speed: 4, frames: 8, easeIn: false, easeOut: false }, { kind: 'credits', frames: 10 }];
+    const f = [...Array(8).keys()].find(k => { const p = frameAt(tl, turn, k).position; return p > 1.3 && p < 1.7; })!;
+    const d = drawFull(sc(), frameAt(tl, turn, f));
+    const { x, y } = d.rects.head;
+    // the board's ground shows through the eyes: find the dark pixels inside the head disc
+    let above = 0, below = 0;
+    for (let dy = -40; dy <= 40; dy++) for (let dx = -40; dx <= 40; dx++) {
+      const k = (Math.round(y + dy) * 1920 + Math.round(x + dx)) * 3;
+      const dark = d.buffer[k + 1] < 60;
+      const inDisc = dx * dx + dy * dy < 30 * 30;
+      if (dark && inDisc) { if (dy < 0) above++; else if (dy > 0) below++; }
+    }
+    expect(below, `eyes above ${above}, below ${below}`).toBeGreaterThan(above);
   });
 });
 
