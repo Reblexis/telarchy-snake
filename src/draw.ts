@@ -96,6 +96,17 @@ export function snakeAt(scene: Scene, position: number): Cell[] {
   return [head, ...scene.entries[i].snake];
 }
 
+/** The way the head faces at a fractional position: gliding from entry i to entry i + 1 the eyes
+ *  already have entry i + 1's heading; a respawn is not a glide, so entry i's holds until the jump. */
+export function headingAt(scene: Scene, position: number): LogStep['heading'] {
+  const last = scene.entries.length - 1;
+  const i = Math.max(0, Math.min(last, Math.floor(position)));
+  const t = position - i;
+  if (t <= 1e-9 || i >= last) return scene.entries[i].heading;
+  if (scene.entries[i + 1].deaths > scene.entries[i].deaths) return scene.entries[i].heading;
+  return scene.entries[i + 1].heading;
+}
+
 // ---------------------------------------------------------------------------------------------
 // primitives
 
@@ -168,7 +179,7 @@ function board(p: Painter, scene: Scene, info: FrameInfo, box: Box): { x: number
     c.scale(z, z);
     c.translate(-head.x, -head.y);
   }
-  drawBoard(c, { snake: snake.map(s => ({ x: s.x, y: s.y })), heading: e.heading, food: e.food }, N, null, box);
+  drawBoard(c, { snake: snake.map(s => ({ x: s.x, y: s.y })), heading: headingAt(scene, pos), food: e.food }, N, null, box);
   if (info.beat) {
     const decided = scene.entries[info.beat.move];
     const before = scene.entries[info.beat.move - 1];
