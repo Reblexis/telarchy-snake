@@ -333,6 +333,17 @@ describe('the full cut frame', () => {
     const idle = drawFull(scene(), info(250)).texts.map(t => t.text);
     expect(idle.filter(t => t === '0.0').length).toBe(3);
   });
+  it('it shows always 0.0: a move whose prices were not recorded shows a dash for price and Δ, never 0.0', () => {
+    const blank = entries.map(e => ({ ...e, prices: { forward: null, left: null, right: null } })) as unknown as LogStep[];
+    const texts = drawFull(buildScene(game, [game], blank, entries.map(() => [])), info(250)).texts.map(t => t.text);
+    expect(texts).not.toContain('0.0');
+    expect(texts.filter(t => t === '–').length).toBeGreaterThanOrEqual(6);
+  });
+  it('a recorded price of zero is still a figure', () => {
+    const zero = entries.map(e => ({ ...e, prices: { forward: 0, left: 3, right: 3 } }));
+    const texts = drawFull(buildScene(game, [game], zero, entries.map(() => [])), info(250)).texts.map(t => t.text);
+    expect(texts).toContain('0.0');
+  });
   it('a Δ below zero is red and reads with a minus', () => {
     const moves: TradeRow[][] = entries.map(() => []);
     moves[19] = [trade(20, 300, 'dee', 'left', 0, true)];

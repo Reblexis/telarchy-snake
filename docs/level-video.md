@@ -78,7 +78,8 @@ credits) and the board sits in its left cell, clear of every rule even at full p
    length is the price on the axis from 0 to the full grid. The ladder is the full cut's
    form of the race bars (below): chips fly along a row to its depth bar's tip, and the
    lock dims the losing rows. Outside a beat it shows the settled figures of the move on
-   screen, with no chips.
+   screen, with no chips. A move whose prices were not recorded shows a dash for its price
+   and its change and no depth bar, never a zero.
 3. **The price chart**, `PRICES · LAST 40 MOVES`: the three options' prices as three lines
    in their hues over the forty moves up to the one on screen, on an axis fitted to them
    and labelled at the right, each line ending in a dot at its latest price (while a beat's trades are still arriving

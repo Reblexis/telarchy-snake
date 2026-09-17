@@ -584,21 +584,22 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
     lanes[opt] = { x: x0, y: ly + 4, w, h: rowH - 8 };
     c.fillStyle = EDGE;
     c.fillRect(x0, ly, w, 1);
+    const recorded = typeof prices[opt] === 'number';
     const price = (prices[opt] ?? 0) * (0.35 + 0.65 * counting);
     shown[opt] = price;
     const a = locked ? (opt === chosen ? 1 : idle ? 0.55 : 0.3) : opt === lead ? 1 : 0.7;
-    const len = Math.max(3, Math.min(w, (price / cells) * w));
+    const len = recorded ? Math.max(3, Math.min(w, (price / cells) * w)) : 0;
     tips[opt] = x0 + len;
     c.fillStyle = rgba(HUE[opt], locked ? (opt === chosen ? (idle ? 0.3 : 0.55) : 0.08) : 0.16);
     c.fillRect(x0, ly + 4, len, rowH - 8);
     c.fillStyle = rgba(HUE[opt], a);
-    c.fillRect(x0 + len - 2, ly + 4, 2, rowH - 8);
+    if (recorded) c.fillRect(x0 + len - 2, ly + 4, 2, rowH - 8);
     const base = ly + rowH / 2 + 9;
     p.text(`${GLYPH[dirs[opt]]} ${NAME[opt]}`, x0 + 30, base, 22, rgba(HUE[opt], a), 600, 'mono');
-    p.text(price.toFixed(1), col.price, base + 5, 40, rgba(FG, a), 800, 'sans', 'right');
+    p.text(recorded ? price.toFixed(1) : '–', col.price, base + 5, 40, rgba(recorded ? FG : MUTE, a), 800, 'sans', 'right');
     const st = stat[opt];
     const delta = st.trades && Number.isFinite(st.first) && Number.isFinite(st.lastTo) ? st.lastTo - st.first : 0;
-    p.text(Math.abs(delta) < 0.05 ? '0.0' : signed(delta), col.delta, base, 20, rgba(Math.abs(delta) < 0.05 ? MUTE : delta > 0 ? UP : RED, a), 600, 'mono', 'right');
+    p.text(!recorded ? '–' : Math.abs(delta) < 0.05 ? '0.0' : signed(delta), col.delta, base, 20, rgba(Math.abs(delta) < 0.05 ? MUTE : delta > 0 ? UP : RED, a), 600, 'mono', 'right');
     p.text(st.credits > 0 ? `${Math.round(st.credits).toLocaleString('en-US')} cr` : '-', col.credits, base, 20, rgba(st.credits > 0 ? CHIP : MUTE, a), 600, 'mono', 'right');
     p.text(String(st.trades), col.trades, base, 20, rgba(FG, a * 0.8), 600, 'mono', 'right');
   });
@@ -657,7 +658,7 @@ function priceChart(p: Painter, scene: Scene, upTo: number, x0: number, y0: numb
     const v = lo + ((hi - lo) * g) / 4, y = Math.round(Y(v)) + 0.5;
     c.strokeStyle = GRIDLINE; c.lineWidth = 1;
     c.beginPath(); c.moveTo(plot.x, y); c.lineTo(plot.x + plot.w, y); c.stroke();
-    p.text(v.toFixed(v >= 100 ? 0 : 1), x0 + w, y + 5, 14, MUTE, 500, 'mono', 'right');
+    if (all.length) p.text(v.toFixed(v >= 100 ? 0 : 1), x0 + w, y + 5, 14, MUTE, 500, 'mono', 'right');
   }
   for (const o of ORDER) {
     const pts = series[o];
