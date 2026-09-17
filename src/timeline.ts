@@ -13,12 +13,10 @@ export const SPEED_LADDER = [4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128] as const;
 export const FREEZE_CAPTION = 'Nobody is playing this. A market is.';
 export const FREEZE_FRAMES = 75;
 export const RULES_CAPTION = 'Traders price each direction. The highest price moves.';
-const WAY = { left: 'left', forward: 'straight', right: 'right' } as const;
-/** The hook's caption: how many credits backed the way that was played; the short sentence alone when nobody traded. */
-export function hookCaption(entries: LogStep[], byMove: TradeRow[][], move: number): string {
+/** The hook's caption: the credits traded on the move, whichever way they were bet; the short sentence alone when nobody traded. */
+export function hookCaption(_entries: LogStep[], byMove: TradeRow[][], move: number): string {
   const credits = Math.round((byMove[move - 1] ?? []).reduce((a, r) => a + Math.abs(Number(r.detail?.cost) || 0), 0));
-  const action = entries[move]?.action;
-  return credits >= 1 && action ? `One way out. ${credits.toLocaleString('en-US')} credits say ${WAY[action]}.` : 'One way out.';
+  return credits >= 1 ? `One way out. ${credits.toLocaleString('en-US')} credits on this move.` : 'One way out.';
 }
 const GAP_F = 90, EASE_F = 12, MIN_SPEED = 4;
 const FINALE_BEATS = 8, SHORT_FILL_BY = 1200, SHORT_CRASH_MOVES = 6, SHORT_CRASH_SPEED = 16;

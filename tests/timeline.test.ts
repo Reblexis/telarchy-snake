@@ -241,11 +241,12 @@ describe('the full cut is short', () => {
 
 describe("the hook's caption", () => {
   const entries = plainLevel('mmmm', 6);
-  it('says how many credits backed the way that was played', () => {
+  it('says how many credits were traded on the move, whichever way they were bet', () => {
     const byMove = entries.map(() => [] as TradeRow[]);
     byMove[2] = [whale(3, 9000), whale(3, 989.4)];
-    expect(hookCaption(entries, byMove, 3)).toBe('One way out. 9,989 credits say straight.');
-    expect(hookCaption(entries.map((e, i) => (i === 3 ? { ...e, action: 'left' as const } : e)), byMove, 3)).toBe('One way out. 9,989 credits say left.');
+    expect(hookCaption(entries, byMove, 3)).toBe('One way out. 9,989 credits on this move.');
+    // it never claims the credits backed the way played: most may have been bet against it
+    expect(hookCaption(entries, byMove, 3)).not.toMatch(/say/);
   });
   it('is the short sentence alone when nobody traded the move, or under one credit', () => {
     const byMove = entries.map(() => [] as TradeRow[]);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildScene, snakeAt, headingAt, drawFull, drawShort, FULL_SIZE, SHORT_SIZE, FULL_BOX, GAME } from '../src/draw.js';
+import { buildScene, snakeAt, headingAt, drawFull, drawShort, FULL_SIZE, SHORT_SIZE, FULL_BOX, FULL_MARGIN, GAME } from '../src/draw.js';
 import { frameAt, frameCountOf } from '../src/frames.js';
 import type { Segment } from '../src/timeline.js';
 import type { GameEntry, LogStep } from '../src/gamelog.js';
@@ -243,7 +243,7 @@ describe('the full cut frame', () => {
 
   it('the terminal: every cell is labelled in every frame of the game, and none shows in the credits', () => {
     const sc = scene();
-    const labels = ['SNAKE/L2', 'LEN', 'BEST', 'DEATHS', 'ATTEMPT', 'MOVE', 'NEXT MOVE · PRICE LADDER', 'OPTION', 'PRICE', 'Δ', 'CREDITS', 'PRICES · LAST 40 MOVES', 'TAPE'];
+    const labels = ['SNAKE/L2', 'LEN', 'BEST', 'DEATHS', 'ATTEMPT', 'MOVE', 'WHERE SHOULD THE SNAKE GO?', 'OPTION', 'FORECAST LENGTH', 'Δ', 'CREDITS', 'FORECASTS · LAST 40 MOVES', 'TAPE'];
     for (const f of gameplayFrames) {
       const texts = drawFull(sc, info(f)).texts.map(t => t.text);
       for (const l of labels) expect(texts, `frame ${f}`).toContain(l);
@@ -273,7 +273,7 @@ describe('the full cut frame', () => {
       const d = drawFull(sc, info(f));
       const ps = d.rects.panels;
       expect(ps.length, `frame ${f}`).toBe(4);
-      const grown = { x: FULL_BOX.x - 44, y: FULL_BOX.y - 44, w: FULL_BOX.px + 88, h: FULL_BOX.px + 88 };
+      const grown = { x: FULL_BOX.x - FULL_MARGIN, y: FULL_BOX.y - FULL_MARGIN, w: FULL_BOX.px + 2 * FULL_MARGIN, h: FULL_BOX.px + 2 * FULL_MARGIN };
       for (const r of ps) {
         expect(r.x >= 0 && r.y >= 0 && r.x + r.w <= 1920 && r.y + r.h <= 1080, JSON.stringify(r)).toBe(true);
         expect(r.x < grown.x + grown.w && grown.x < r.x + r.w && r.y < grown.y + grown.h && grown.y < r.y + r.h, `cell over the board: ${JSON.stringify(r)}`).toBe(false);
@@ -370,7 +370,7 @@ describe('the full cut frame', () => {
     const d = drawFull(scene(), info(250));
     expect(d.rects.chart).not.toBeNull();
     const c = d.rects.chart!;
-    expect(c.x).toBeGreaterThanOrEqual(FULL_BOX.x + FULL_BOX.px + 44);
+    expect(c.x).toBeGreaterThanOrEqual(FULL_BOX.x + FULL_BOX.px + FULL_MARGIN);
     expect(c.x + c.w).toBeLessThanOrEqual(1920);
   });
 
@@ -447,7 +447,7 @@ describe('the full cut frame', () => {
       const tl: Segment[] = [{ kind: 'beat', move: 1, chips: 0, frames: 36 }];
       const i = frameAt(tl, steps, 12);
       expect(i.zoom).toBeGreaterThan(1.05);
-      for (const [draw, margin, w] of [[drawFull, 44, 1920], [drawShort, 10, 1080]] as const) {
+      for (const [draw, margin, w] of [[drawFull, FULL_MARGIN, 1920], [drawShort, 10, 1080]] as const) {
         const d = draw(sc, i);
         const { board, drawnBoard } = d.rects;
         const tag = `${JSON.stringify(head)} ${w}`;
@@ -533,6 +533,64 @@ describe('the Short frame', () => {
       if (d.rects.caption) expect(d.rects.caption.y + d.rects.caption.h).toBeLessThanOrEqual(d.rects.board.y);
       if (d.rects.caption) expect(d.texts.map(t => t.text)).not.toContain('LENGTH');
     }
+  });
+});
+
+describe('the ladder says what happened in plain words', () => {
+  const texts = (f: number, sc = scene()) => drawFull(sc, info(f)).texts.map(t => t.text);
+  it('the played row is tagged PLAYED once the move is locked, and never while its trades are still arriving', () => {
+    expect(texts(45)).not.toContain('PLAYED');
+    expect(texts(160).filter(t => t === 'PLAYED').length).toBe(1);
+    expect(texts(250).filter(t => t === 'PLAYED').length).toBe(1);
+  });
+  it('the verdict line names the way and the lead over the next highest price', () => {
+    // prices forward 20, left 12, right 5: straight leads by 8.0
+    expect(texts(160)).toContain('Market says straight · 8.0 ahead');
+    expect(texts(45).some(t => /^Market says/.test(t))).toBe(false);
+  });
+  it('with no recorded price the verdict says so', () => {
+    const blank = entries.map(e => ({ ...e, prices: { forward: null, left: null, right: null } })) as unknown as LogStep[];
+    expect(drawFull(buildScene(game, [game], blank, entries.map(() => [])), info(250)).texts.map(t => t.text)).toContain('Market has no price');
+  });
+});
+
+describe('the narrator line', () => {
+  const lineOf = (sc: ReturnType<typeof scene>, i: ReturnType<typeof info>) => drawFull(sc, i).narrator;
+  const hold = (entry: number): Segment[] => [{ kind: 'hold', fx: 'hitstop', entry, frames: 4 }, { kind: 'credits', frames: 10 }];
+  it('in a run faster than 16 moves a second it is the attempt and the best so far', () => {
+    const sc = scene(), i = info(10), k = Math.floor(i.position);
+    expect(i.badge).toBe('x6');
+    expect(lineOf(sc, i)).toBe(`Attempt ${entries[k].deaths + 1} · best so far ${sc.best[k]} of 36`);
+  });
+  it('while a beat\'s trades are still arriving it says traders are pricing the move', () => {
+    expect(lineOf(scene(), info(45))).toBe('Traders are pricing the next move');
+  });
+  it('a trade of at least 300 credits is named: the largest one, its credits and its way', () => {
+    expect(lineOf(scene(), info(160))).toBe('vi0 put 900 on straight');
+  });
+  it('otherwise it is the attempt and the length', () => {
+    const i = info(250), e = entries[Math.floor(i.position)];
+    expect(lineOf(scene(), i)).toBe(`Attempt ${e.deaths + 1} · ${e.length} long`);
+  });
+  it('when the two highest prices are within 0.5 it says traders are split, and by how much', () => {
+    const close = entries.map(e => ({ ...e, prices: { forward: 20, left: 19.7, right: 5 } }));
+    const sc = buildScene(game, [game], close, entries.map(() => []));
+    expect(drawFull(sc, frameAt(hold(8), close, 0)).narrator).toBe('Traders split: straight leads by 0.3');
+  });
+  it('when only one way would not kill the snake it says which', () => {
+    // head at the top-right corner heading right, body behind it: straight and left are wall, right (down) is free
+    const corner: LogStep[] = [0, 1].map(i => ({ step: i, at: at(i), snake: i === 0 ? [{ x: 5, y: 0 }, { x: 4, y: 0 }, { x: 3, y: 0 }] : [{ x: 5, y: 1 }, { x: 5, y: 0 }, { x: 4, y: 0 }], food: { x: 0, y: 5 }, heading: i === 0 ? 'right' : 'down', action: i ? 'right' : null, direction: i === 0 ? 'right' : 'down', undecided: false, prices: PRICES, length: 3, deaths: 0 }));
+    const g: GameEntry = { number: 1, size, startedAt: at(0), endedAt: at(1), steps: 1, bestLength: 3, deaths: 0 };
+    const sc = buildScene(g, [g], corner, [[]]);
+    const tl: Segment[] = [{ kind: 'beat', move: 1, chips: 0, frames: 36 }];
+    expect(drawFull(sc, frameAt(tl, corner, 5)).narrator).toBe('One way out: right');
+  });
+  it('sits under the board, clear of the margin the push-in may grow into, and is absent from the credits', () => {
+    const d = drawFull(scene(), info(160));
+    const t = d.texts.find(x => x.text === d.narrator)!;
+    expect(t.y).toBeGreaterThanOrEqual(FULL_BOX.y + FULL_BOX.px + FULL_MARGIN);
+    expect(t.y + t.h).toBeLessThanOrEqual(1080);
+    expect(drawFull(scene(), info(creditsFrame)).narrator).toBe('');
   });
 });
 

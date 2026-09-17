@@ -8,6 +8,7 @@ import { cellRect, measureText, FONTS, logoImage, LOGO_NATURAL, type Box } from 
 import type { GameEntry, LogStep } from './gamelog.js';
 import { betRows, tradesByMove as _unused, type BetRow, type TradeRow } from './level.js';
 import { directionsFrom, type Action } from './decide.js';
+import { survivableOptions } from './moments.js';
 import { span } from './frame.js';
 import type { FrameInfo } from './frames.js';
 void _unused;
@@ -34,6 +35,8 @@ export interface Drawn {
   texts: DrawnText[];
   /** The trades on the tape, newest first (the full cut's dashboard). */
   tape: TapeRow[];
+  /** The narrator line under the full cut's board; empty where there is none. */
+  narrator: string;
   rects: {
     board: Rect;
     /** Where the board was really painted, after the push-in. */
@@ -490,8 +493,9 @@ function credits(p: Painter, scene: Scene, x: number, y: number, w: number, big:
 // ---------------------------------------------------------------------------------------------
 // the terminal (full cut), docs/level-video.md "The terminal"
 
-export const FULL_BOX: Box = { x: 64, y: 120, px: 912 };
-const FULL_MARGIN = 44;
+export const FULL_BOX: Box = { x: 80, y: 104, px: 880 };
+export const FULL_MARGIN = 30;
+const WAY: Record<Action, string> = { left: 'left', forward: 'straight', right: 'right' };
 const EDGE = '#2a2a32', GRIDLINE = '#1c1c22', UP = '#4ade80';
 const NAME: Record<Action, string> = { left: 'LEFT', forward: 'STRAIGHT', right: 'RIGHT' };
 
@@ -549,7 +553,7 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
     if (Number.isNaN(st.first) && Number.isFinite(b.from)) st.first = b.from;
     if (Number.isFinite(b.to)) st.lastTo = b.to;
   }
-  label(p, 'NEXT MOVE · PRICE LADDER', x0, y0 + 34);
+  label(p, 'WHERE SHOULD THE SNAKE GO?', x0, y0 + 34);
   const smaller = bets.length - largest.length;
   let rx = x0 + w;
   if (smaller > 0) { const t = `+${smaller} smaller trade${smaller === 1 ? '' : 's'}`; p.text(t, rx, y0 + 34, 15, CHIP, 500, 'mono', 'right'); rx -= measureText(t, 15, 500, 'mono') + 28; }
@@ -558,7 +562,7 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
   const col = { price: x0 + 470, delta: x0 + 590, credits: x0 + 740, trades: x0 + w - 14 };
   const hy = y0 + 72;
   label(p, 'OPTION', x0 + 30, hy, 13);
-  label(p, 'PRICE', col.price, hy, 13, 'right');
+  label(p, 'FORECAST LENGTH', col.price, hy, 13, 'right');
   label(p, 'Δ', col.delta, hy, 13, 'right');
   label(p, 'CREDITS', col.credits, hy, 13, 'right');
   label(p, 'TRADES', col.trades, hy, 13, 'right');
@@ -583,7 +587,16 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
     c.fillStyle = rgba(HUE[opt], a);
     if (recorded) c.fillRect(x0 + len - 2, ly + 4, 2, rowH - 8);
     const base = ly + rowH / 2 + 9;
-    p.text(`${GLYPH[dirs[opt]]} ${NAME[opt]}`, x0 + 30, base, 22, rgba(HUE[opt], a), 600, 'mono');
+    const name = `${GLYPH[dirs[opt]]} ${NAME[opt]}`;
+    p.text(name, x0 + 30, base, 22, rgba(HUE[opt], a), 600, 'mono');
+    if (locked && opt === chosen) {
+      const tx = x0 + 30 + measureText(name, 22, 600, 'mono') + 16;
+      c.fillStyle = HUE[opt];
+      c.fillRect(tx, base - 19, 78, 26);
+      c.letterSpacing = '1.5px';
+      p.text('PLAYED', tx + 8, base, 14, BG, 600, 'mono');
+      c.letterSpacing = '0px';
+    }
     p.text(recorded ? price.toFixed(1) : '–', col.price, base + 5, 40, rgba(recorded ? FG : MUTE, a), 800, 'sans', 'right');
     const st = stat[opt];
     const delta = st.trades && Number.isFinite(st.first) && Number.isFinite(st.lastTo) ? st.lastTo - st.first : 0;
@@ -593,6 +606,17 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
   });
   c.fillStyle = EDGE;
   c.fillRect(x0, top + 3 * rowH, w, 1);
+  // the verdict, once the move is locked: the way played and its lead over the next highest price
+  if (locked) {
+    const known = ORDER.filter(o => typeof prices[o] === 'number');
+    let verdict = 'Market has no price';
+    if (chosen && known.includes(chosen)) {
+      const rest = known.filter(o => o !== chosen).map(o => prices[o] as number);
+      const lead = rest.length ? (prices[chosen] as number) - Math.max(...rest) : 0;
+      verdict = `Market says ${WAY[chosen]} · ${lead.toFixed(1)} ahead`;
+    }
+    p.text(verdict, x0, top + 3 * rowH + 40, 26, FG, 700);
+  }
 
   const chips: ChipRect[] = [];
   if (!locked && beat.chip < largest.length) {
@@ -629,7 +653,7 @@ function ladder(p: Painter, scene: Scene, info: FrameInfo, x0: number, y0: numbe
 /** The three options' prices over the forty moves up to `upTo`. */
 function priceChart(p: Painter, scene: Scene, upTo: number, x0: number, y0: number, w: number, h: number): Rect {
   const c = p.ctx;
-  label(p, 'PRICES · LAST 40 MOVES', x0, y0 + 34);
+  label(p, 'FORECASTS · LAST 40 MOVES', x0, y0 + 34);
   const plot: Rect = { x: x0, y: y0 + 54, w: w - 52, h: h - 54 - 22 };
   // while a move's trades are still arriving the lines stop at the move before it
   const move = Math.max(1, upTo);
@@ -670,14 +694,37 @@ function priceChart(p: Painter, scene: Scene, upTo: number, x0: number, y0: numb
   return plot;
 }
 
+/** The narrator line: one plain sentence about the move on screen (docs/level-video.md, "The terminal", 5). */
+function narratorLine(scene: Scene, info: FrameInfo): string {
+  const last = scene.entries.length - 1;
+  const i = Math.max(0, Math.min(last, Math.floor(info.position)));
+  const e = scene.entries[i];
+  const cells = scene.size * scene.size;
+  const speed = info.badge ? Number(info.badge.slice(1)) * 4 : 4;
+  if (!info.beat && speed > 16) return `Attempt ${e.deaths + 1} · best so far ${scene.best[i]} of ${cells}`;
+  if (info.beat?.phase === 'chips') return 'Traders are pricing the next move';
+  const move = info.beat ? info.beat.move : Math.max(Math.min(1, last), i);
+  const decided = scene.entries[move], before = scene.entries[Math.max(0, move - 1)];
+  const died = decided.deaths > before.deaths;
+  if (move >= 1 && !died && decided.action && survivableOptions(before, scene.size) === 1) return `One way out: ${WAY[decided.action]}`;
+  const whale = shownBets(scene, move).bets.filter(b => b.option && b.credits >= 300).sort((a, b) => b.credits - a.credits)[0];
+  if (whale?.option) return `${whale.handle} put ${Math.round(whale.credits).toLocaleString('en-US')} on ${WAY[whale.option]}`;
+  const ranked = ORDER.filter(o => typeof decided.prices?.[o] === 'number').sort((a, b) => (decided.prices[b] as number) - (decided.prices[a] as number));
+  if (ranked.length >= 2) {
+    const lead = (decided.prices[ranked[0]] as number) - (decided.prices[ranked[1]] as number);
+    if (lead <= 0.5) return `Traders split: ${WAY[ranked[0]]} leads by ${lead.toFixed(1)}`;
+  }
+  return `Attempt ${e.deaths + 1} · ${e.length} long`;
+}
+
 function terminal(p: Painter, scene: Scene, info: FrameInfo, rects: Drawn['rects']): TapeRow[] {
   const c = p.ctx;
   const i = Math.max(0, Math.min(scene.entries.length - 1, Math.floor(info.position)));
   const e = scene.entries[i];
   const cells = scene.size * scene.size;
   const TOP = 72, SPLIT = 1040, X = SPLIT + 28, W = 1920 - X - 28;
-  const topBar: Rect = { x: 0, y: 0, w: 1920, h: TOP }, ladderCell: Rect = { x: SPLIT, y: TOP, w: 1920 - SPLIT, h: 308 };
-  const chartCell: Rect = { x: SPLIT, y: TOP + 308, w: 1920 - SPLIT, h: 290 }, tapeCell: Rect = { x: SPLIT, y: TOP + 598, w: 1920 - SPLIT, h: 1080 - TOP - 598 };
+  const topBar: Rect = { x: 0, y: 0, w: 1920, h: TOP }, ladderCell: Rect = { x: SPLIT, y: TOP, w: 1920 - SPLIT, h: 352 };
+  const chartCell: Rect = { x: SPLIT, y: TOP + 352, w: 1920 - SPLIT, h: 264 }, tapeCell: Rect = { x: SPLIT, y: TOP + 616, w: 1920 - SPLIT, h: 1080 - TOP - 616 };
   rects.panels = [topBar, ladderCell, chartCell, tapeCell];
   c.fillStyle = EDGE;
   c.fillRect(0, TOP, 1920, 1);
@@ -719,7 +766,7 @@ function terminal(p: Painter, scene: Scene, info: FrameInfo, rects: Drawn['rects
   label(p, 'TAPE', X, tapeCell.y + 34);
   const tape = tapeAt(scene, info);
   tape.forEach((t, k) => {
-    const y = tapeCell.y + 76 + k * 36, a = k === 0 ? 1 : 0.7;
+    const y = tapeCell.y + 74 + k * 34, a = k === 0 ? 1 : 0.7;
     const clock = Number.isFinite(Date.parse(t.at)) ? new Date(t.at).toISOString().slice(11, 19) : '';
     p.text(clock, X, y, 19, rgba(MUTE, a), 500, 'mono');
     let handle = t.handle;
@@ -747,11 +794,16 @@ export function drawFull(scene: Scene, info: FrameInfo): Drawn {
   const box = FULL_BOX;
   const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, drawnBoard: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null, panels: [], chart: null, playhead: null };
   let tape: TapeRow[] = [];
+  let narrator = '';
   if (info.credits !== null) {
     credits(p, scene, 160, 240, 1600, 72, false);
-    return { buffer: rgb(canvas, w, h), texts: p.texts, tape, rects };
+    return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };
   }
   tape = terminal(p, scene, info, rects);
+  narrator = narratorLine(scene, info);
+  p.ctx.fillStyle = CHIP;
+  p.ctx.fillRect(box.x, 1041, 10, 10);
+  p.text(narrator, box.x + 24, 1054, 24, FG, 600, 'mono');
   { const b = board(p, scene, info, box, FULL_MARGIN); rects.head = b.head; rects.drawnBoard = b.drawn; }
   if (info.hold?.fx === 'filled') {
     p.ctx.save();
@@ -771,7 +823,7 @@ export function drawFull(scene: Scene, info: FrameInfo): Drawn {
     const top = info.caption ? !low : low;
     lowerThird(p, info.lowerThird.text, box.x + 24, top ? box.y + 24 : box.y + box.px - 24 - 50 * 1.9, 50);
   }
-  return { buffer: rgb(canvas, w, h), texts: p.texts, tape, rects };
+  return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };
 }
 
 export function drawShort(scene: Scene, info: FrameInfo): Drawn {
@@ -784,10 +836,11 @@ export function drawShort(scene: Scene, info: FrameInfo): Drawn {
   // text stays inside 60 px at the sides, 180 at the top and 390 at the bottom, where YouTube draws over a Short
   const box: Box = { x: 95, y: 310, px: 890 };
   const tape: TapeRow[] = [];
+  const narrator = '';
   const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, drawnBoard: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null, panels: [], chart: null, playhead: null };
   if (info.credits !== null) {
     credits(p, scene, 60, 260, 960, 72, true);
-    return { buffer: rgb(canvas, w, h), texts: p.texts, tape, rects };
+    return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };
   }
   { const b = board(p, scene, info, box, 10); rects.head = b.head; rects.drawnBoard = b.drawn; }
   // the counters sit above the board; the hook's caption takes their place
@@ -808,5 +861,5 @@ export function drawShort(scene: Scene, info: FrameInfo): Drawn {
     p.text(info.badge, w - 60 - 85, 275, 44, FG, 800, 'sans', 'center');
   }
   if (info.lowerThird) lowerThird(p, info.lowerThird.text, 60, box.y + box.px - 24 - 56 * 1.9, 56);
-  return { buffer: rgb(canvas, w, h), texts: p.texts, tape, rects };
+  return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };
 }

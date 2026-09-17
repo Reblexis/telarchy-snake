@@ -35,17 +35,20 @@ moves away.
 Both cuts are 1920 by 1080 (the Short 1080 by 1920) at 30 frames a second, and carry no
 link while the game plays.
 
-**The full cut, at most five minutes:**
+**The full cut, at most two and a half minutes:**
 
-1. **Cold open, about 6 seconds.** The level's strongest near miss with trades plays as
-   a decision beat in slow motion (below), freezes on the lock for three frames, and cuts
-   hard to move 1. No logo and no title card.
-2. **The rules by doing, until 0:30.** The first traded decision plays in full once, with
-   one caption, `Traders bet. The highest price moves.` Nothing is explained again.
+1. **The hook, about 8 seconds.** The level's strongest near miss with trades plays as a
+   decision beat in slow motion (below) under the caption `One way out. <credits> credits
+   on this move.`, the credits being everything traded on the move whichever way it was
+   bet (`One way out.` alone when nobody traded it). Then the picture freezes for 75
+   frames under `Nobody is playing this. A market is.`, and cuts hard to move 1. No logo
+   and no title card.
+2. **The rules by doing.** The first traded decision plays in full once, with one caption,
+   `Traders price each direction. The highest price moves.`
 3. **The struggle.** The level runs at speed with the death counter on screen, dropping
    into slow motion on moments (below), never twice within three seconds. Each new record
    brings a lower third, `RECORD <length> · attempt <n>`.
-4. **The winning attempt, its last 45 to 60 seconds.** Playback slows as the grid fills;
+4. **The winning attempt.** Playback slows as the grid fills;
    the last eight moves each get a full decision beat; the fill plays at normal speed with
    a hit stop and `FILLED`.
 5. **Credits, 15 to 20 seconds.** A stats card (moves, deaths, trades, traders, real
@@ -70,17 +73,21 @@ credits) and the board sits in its left cell, clear of every rule even at full p
    into the level of the move on screen), and at the right `LEN`, `BEST` (as `<best>` with
    `/<cells>` in grey), `DEATHS` (red), `ATTEMPT`, `MOVE` (the number of the move on
    screen, alone) and the speed badge.
-2. **The price ladder**, `NEXT MOVE · PRICE LADDER`: one row per option in the fixed order,
-   under the column heads `OPTION`, `PRICE`, `Δ`, `CREDITS`, `TRADES`. A row is the option's
+2. **The price ladder**, `WHERE SHOULD THE SNAKE GO?`: one row per option in the fixed order,
+   under the column heads `OPTION`, `FORECAST LENGTH`, `Δ`, `CREDITS`, `TRADES` (a price is
+   the market's forecast of how long the snake gets if it goes that way, and the head says so). A row is the option's
    arrow and name in its hue, its price in large figures, the change the move's trades
    made to it (green up, red down, grey when none), the credits traded on it as
    `<credits> cr`, and the count of its trades, over a depth bar in the option's hue whose
    length is the price on the axis from 0 to the full grid. The ladder is the full cut's
    form of the race bars (below): chips fly along a row to its depth bar's tip, and the
    lock dims the losing rows. Outside a beat it shows the settled figures of the move on
-   screen, with no chips. A move whose prices were not recorded shows a dash for its price
+   screen, with no chips. Once a move is locked its played row carries the tag `PLAYED`, and
+   under the rows a verdict line reads `Market says <way> · <lead> ahead`, the lead being
+   the played price less the next highest (`Market has no price` when none was recorded).
+   A move whose prices were not recorded shows a dash for its price
    and its change and no depth bar, never a zero.
-3. **The price chart**, `PRICES · LAST 40 MOVES`: the three options' prices as three lines
+3. **The price chart**, `FORECASTS · LAST 40 MOVES`: the three options' prices as three lines
    in their hues over the forty moves up to the one on screen, on an axis fitted to them
    and labelled at the right, each line ending in a dot at its latest price (while a beat's trades are still arriving
    the lines stop at the move before), with a gold
@@ -90,6 +97,17 @@ credits) and the board sits in its left cell, clear of every rule even at full p
    arrow in its hue (a dash when it cannot be named), `+<credits>` in gold or `−<credits>`
    in grey, and the price it moved `<from> → <to>`. Within a beat a trade shown as a chip
    enters the tape when its chip starts, and the move's smaller trades enter at the lock.
+
+5. **The narrator line**, under the board, one plain sentence about the move on screen, the
+   first of these that applies:
+   - in a run faster than 16 moves a second, `Attempt <n> · best so far <best> of <cells>`;
+   - while a beat's trades are still arriving, `Traders are pricing the next move`;
+   - when only one of the three ways would not kill the snake, `One way out: <way>`;
+   - when one trade of at least 300 credits was made on the move, `<handle> put <credits>
+     on <way>` (the largest such trade);
+   - when the two highest prices are within 0.5 of each other, `Traders split: <way> leads
+     by <lead>`;
+   - otherwise `Attempt <n> · <length> long`.
 
 **Nothing on screen gives away how the level goes on or when it ends**: no progress
 through the level, no count of its moves, no chart or list reaching past the move on
@@ -166,9 +184,9 @@ here are the contract the renderer and the tests share.
 - **Choosing beats.** The cold open uses the level's strongest near miss that was
   traded, from before the finale's last 8 moves, so the opening never gives away the
   fill. The first traded decision of the level is always a beat, carrying the caption
-  `Traders bet. The highest price moves.`. Then the strongest moments (by weight) get
+  `Traders price each direction. The highest price moves.`. Then the strongest moments (by weight) get
   beats, strongest first, as long as beats take at most half of the story's time and the
-  full cut stays within five minutes with the runs at the slowest ladder speed that fits.
+  full cut stays within two and a half minutes with the runs at the slowest ladder speed that fits.
   Outside the finale, between two beats there are always at least 90 frames of run, so
   two beats are at least 13 moves apart.
 - **Big deaths.** A death is **big** when the snake had reached at least 40 percent of the
@@ -187,7 +205,7 @@ here are the contract the renderer and the tests share.
 - **Credits** last 540 frames (18 seconds).
 - **The Short** is at most 1,500 frames (50 seconds): the hook is a beat on the winning
   attempt's last near miss before its final 8 moves, with the caption
-  `A market picks every move.`; then the last
+  the hook's caption (Structure, above); then the last
   6 moves before each of the latest four record crashes, each a crash run at 16 moves a
   second; then the
   winning attempt as a run ending by frame 1,200 with beats on its two strongest moments;
@@ -201,7 +219,7 @@ what sits over it. The renderer draws only what the description says.
 - **Where the snake is.** In a run, the entry the run has reached at that frame (a
   fraction between two entries while the snake glides). In a beat, the entry before the
   decided move through the chips and the lock, then gliding into the move over its move
-  phase, arriving on its final frame. In a hold, the level's last entry.
+  phase, arriving on its final frame. In a hold, the entry it holds.
 - **A beat's phases.** With `c` the chip length (20 frames, 40 in a half-speed beat), chip `k`
   (from 0) plays during frames `ck` to `ck + c - 1` of the beat, with its progress from 0 to
   1 across them; the lock is the next 18 frames (36 at half speed); the move is the rest.
@@ -212,8 +230,8 @@ what sits over it. The renderer draws only what the description says.
   and no edge of the board is ever cropped.
 - **The speed badge** reads `x<speed / 4>` in a run faster than 4 moves a second, and is
   absent everywhere else.
-- **Captions.** A beat that carries a caption shows it for the whole beat; no other
-  frame has one.
+- **Captions.** A beat that carries a caption shows it for the whole beat, and the hook's
+  freeze shows its own; no other frame has one.
 - **Record cards.** When a run or a beat reaches the crash that ends a record attempt, a
   lower third `RECORD <length> · attempt <n>` shows for 60 frames; a later card replaces
   an earlier one.
@@ -241,7 +259,8 @@ is not a glide, so the snake keeps entry `i`'s heading until it jumps. Above eig
 head. Entrances ease out, moves ease in and out, durations are 150, 300 or
 600 ms. Type is Inter at 600 to 800 weight with tabular figures; handles in JetBrains
 Mono. Counters are at least 36 px in the full cut and 96 px in the Short, and nothing in
-the Short is under 40 px. A caption never covers the snake's head; in the Short the hook's
+the Short is under 40 px. A caption too long for its band at the frame's smallest type size breaks into two lines
+at the space nearest its middle. A caption never covers the snake's head; in the Short the hook's
 caption sits above the board, in place of the counters. Text is left-aligned; only a single-line title or a lone number
 is centred.
 
