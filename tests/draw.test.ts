@@ -272,6 +272,23 @@ describe('the full cut frame', () => {
     }
   });
 
+  it('a trade whose option cannot be named has its chip on the pot\'s line, never over the board or a lane, in both cuts', () => {
+    const unnamed: TradeRow = { id: 'u1', at: at(19, 9), kind: 'trade', actor: { id: 'zed', handle: 'zed' }, detail: { side: 'buy', direction: 'higher', shares: 1, cost: 700, callBefore: 70, callAfter: 77, marketId: 'm-unknown' } };
+    const moves: TradeRow[][] = entries.map(() => []);
+    moves[19] = [unnamed];
+    const sc = buildScene(game, [game], entries, moves);
+    const tl: Segment[] = [{ kind: 'beat', move: 20, chips: 1, frames: 56 }];
+    const hit = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    for (const draw of [drawFull, drawShort]) {
+      const d = draw(sc, frameAt(tl, entries, 10));
+      const pot = d.rects.chips.filter(c => c.option === null);
+      expect(pot.length).toBe(1);
+      expect(hit(pot[0], d.rects.drawnBoard)).toBe(false);
+      for (const lane of Object.values(d.rects.lanes!)) expect(hit(pot[0], lane)).toBe(false);
+      expect(d.texts.some(t => /^POT /.test(t.text))).toBe(true);
+    }
+  });
+
   it('the push-in never crops the board: the drawn board stays inside its margin, in both cuts, wherever the head is', () => {
     // heads in a corner, on an edge and in the middle, each mid-beat at full push-in
     for (const head of [{ x: 0, y: 0 }, { x: 5, y: 5 }, { x: 0, y: 3 }, { x: 3, y: 3 }]) {

@@ -97,7 +97,7 @@ violet, turn right magenta). Green belongs to the snake, red to death, gold to r
   `−<credits>` on a grey chip when it lowered it (a bet against the option). A chip travels inside its own lane, from the lane's start to the bar's tip in a quarter
   second, eased out, and never covers another lane; the bar then grows with a small
   overshoot. A trade whose option cannot be named lands in a small pot above the bars
-  instead. Chips never overlap: a chip waits until the one before it has landed.
+  instead: its chip sits on the pot's line, beside the pot's total, never over the board or a lane. Chips never overlap: a chip waits until the one before it has landed.
   `+N more` and the pot share one line above the bars, clear of the counters. Every
   price, credit line and chip stays inside the frame's safe area.
 - At speed the race bars are hidden; the board and the counters stay, with a progress bar

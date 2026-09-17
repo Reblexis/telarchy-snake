@@ -396,9 +396,16 @@ function raceBars(p: Painter, scene: Scene, info: FrameInfo, x0: number, cy: num
       p.text(b.handle, cx + h * 0.5 + measureText(label, size, 800, 'sans'), cy2 + h * 0.63, handleSize, rgba(BG, 0.8), 700, 'mono');
       chips.push({ text: label, option: b.option, x: cx, y: cy2, w: cw, h });
     } else {
-      const cy2 = lineY - h - big * 0.2;
-      p.round(x0 + w * 0.3, cy2, cw, h, h / 2, fill);
-      p.text(label, x0 + w * 0.3 + h * 0.4, cy2 + h * 0.66, size, BG, 800);
+      // on the pot's line, beside its total
+      const ph = Math.max(p.minSize * 1.2, big * 0.62);
+      const ps = Math.max(p.minSize, ph * 0.6);
+      const potText = `POT ${Math.round(pot).toLocaleString('en-US')} cr`;
+      const px0 = x0 + measureText(potText, Math.max(p.minSize, big * 0.36), 700, 'mono') + big * 0.4;
+      const pw = measureText(label, ps, 800, 'sans') + ph * 0.8;
+      const py = lineY - ph * 0.8;
+      p.round(px0, py, pw, ph, ph / 2, fill);
+      p.text(label, px0 + ph * 0.4, py + ph * 0.5 + ps * 0.36, ps, BG, 800);
+      chips.push({ text: label, option: null, x: px0, y: py, w: pw, h: ph });
     }
   }
   return { lanes, chips, chosen };
@@ -540,7 +547,7 @@ export function drawShort(scene: Scene, info: FrameInfo): Drawn {
   if (info.caption) rects.caption = caption(p, info.caption, 60, 200, 52, 960);
   else counters(p, scene, info, 60, 290, 96);
   if (info.beat) {
-    const r = raceBars(p, scene, info, 60, 1383, 960, 56, 60);
+    const r = raceBars(p, scene, info, 60, 1398, 960, 56, 60);
     rects.lanes = r.lanes;
     rects.chips = r.chips;
     rects.chosen = r.chosen;
