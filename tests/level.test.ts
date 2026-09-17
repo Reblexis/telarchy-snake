@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  refuseUnlessWhole, tradesByMove, optionOfBook, sidecar, readLevel,
+  refuseUnlessWhole, tradesByMove, optionOfBook, sidecar, readLevel, betRows,
+  proposalIdOf, optionFromProposal, nameTradesByProposal, fillPricesFromTrades,
   type TradeRow,
 } from '../src/level.js';
 import type { GameEntry, LogStep } from '../src/gamelog.js';
@@ -162,5 +163,69 @@ describe('reading a level from public reads only', () => {
       ? { ok: true, status: 200, json: async () => ({ games: [game] }) }
       : { ok: false, status: 502, json: async () => ({}) }) as Response;
     await expect(readLevel(2, { feedUrl: 'https://feed.test', telarchyUrl: 'https://t.test', fetchFn })).rejects.toThrow(/502/);
+  });
+});
+
+describe('which way a trade was bet, from its proposal', () => {
+  const withOptions = { title: 'Game 3, attempt 40, move 4', options: [{ id: 'forward' }], conditionalMarketIds: ['a', 'b', 'c'], markets: [{ options: [{ id: 'forward', marketId: 'a' }, { id: 'left', marketId: 'b' }, { id: 'right', marketId: 'c' }] }] };
+  const single = (ending: string) => ({ title: `Game 1, attempt 5, move 7: ${ending}`, options: null, conditionalMarketIds: ['yes', 'no'], markets: [] });
+  it('a trade row links its proposal', () => {
+    expect(proposalIdOf({ href: '/snake#proposal=ba1ef62f-ce5e-414a-806a-8dfe6f0fecc9&trade=4875' } as any)).toBe('ba1ef62f-ce5e-414a-806a-8dfe6f0fecc9');
+    expect(proposalIdOf({ href: '/snake' } as any)).toBeNull();
+    expect(proposalIdOf({} as any)).toBeNull();
+  });
+  it('a proposal with options names the book by its market id', () => {
+    expect(optionFromProposal(withOptions, 'b')).toBe('left');
+    expect(optionFromProposal(withOptions, 'c')).toBe('right');
+    expect(optionFromProposal(withOptions, 'zzz')).toBeNull();
+  });
+  it('an older proposal is one option, named by its title; only its approved book is a bet on that way', () => {
+    expect(optionFromProposal(single('Turn left'), 'yes')).toBe('left');
+    expect(optionFromProposal(single('Continue forward'), 'yes')).toBe('forward');
+    expect(optionFromProposal(single('Turn right'), 'yes')).toBe('right');
+    expect(optionFromProposal(single('Turn left'), 'no')).toBeNull();
+    expect(optionFromProposal(single('Something else'), 'yes')).toBeNull();
+    expect(optionFromProposal(null, 'yes')).toBeNull();
+  });
+  const linked = (id: string, when: string, proposal: string, marketId: string, callAfter = 9) => ({ ...trade(id, when, { marketId, callAfter }), href: `/snake#proposal=${proposal}&trade=${id}` });
+  it('each proposal is read once, a failed read leaves its trades unnamed and fails nothing', async () => {
+    const trades = [linked('1', at(0, 10), 'p-left', 'yes'), linked('2', at(0, 20), 'p-left', 'yes'), linked('3', at(0, 30), 'p-gone', 'yes'), trade('4', at(0, 40))];
+    const reads: string[] = [];
+    const named = await nameTradesByProposal(trades, async id => { reads.push(id); if (id === 'p-gone') throw new Error('404'); return single('Turn left'); }, new Map());
+    expect(reads.sort()).toEqual(['p-gone', 'p-left']);
+    expect(named.map(t => t.option)).toEqual(['left', 'left', undefined, undefined]);
+  });
+  it('a proposal already in the cache is not read again', async () => {
+    const cache = new Map<string, any>([['p-left', single('Turn left')]]);
+    const named = await nameTradesByProposal([linked('1', at(0, 10), 'p-left', 'yes')], async () => { throw new Error('must not read'); }, cache);
+    expect(named[0].option).toBe('left');
+  });
+  it('the proposal comes before the price match: a trade it names keeps that name whatever the prices say', () => {
+    const entries = [entry(0), entry(1)];
+    const t = { ...trade('1', at(0, 10), { marketId: 'm1', callAfter: 4 }), option: 'left' as const };
+    // the price match alone would say right (4); the proposal said left
+    expect(betRows([t], entries[1])[0].option).toBe('left');
+    expect(betRows([trade('1', at(0, 10), { marketId: 'm1', callAfter: 4 })], entries[1])[0].option).toBe('right');
+  });
+});
+
+describe('the prices the feed did not record', () => {
+  const blank = { forward: null, left: null, right: null };
+  it('an option with named trades takes the last of their calls; an option nobody traded stays without a price', () => {
+    const entries = [entry(0), entry(1, { prices: { ...blank } }), entry(2)];
+    const t1 = { ...trade('1', at(0, 10), { marketId: 'a', callAfter: 3 }), option: 'left' as const };
+    const t2 = { ...trade('2', at(0, 40), { marketId: 'a', callAfter: 4 }), option: 'left' as const };
+    const filled = fillPricesFromTrades(entries, tradesByMove(entries, [t1, t2]));
+    expect(filled[1].prices).toEqual({ forward: null, left: 4, right: null });
+    expect(entries[1].prices).toEqual(blank);
+  });
+  it('a recorded price is never replaced', () => {
+    const entries = [entry(0), entry(1)];
+    const t = { ...trade('1', at(0, 10), { marketId: 'a', callAfter: 9 }), option: 'left' as const };
+    expect(fillPricesFromTrades(entries, tradesByMove(entries, [t]))[1].prices.left).toBe(3);
+  });
+  it('an unnamed trade fills nothing', () => {
+    const entries = [entry(0), entry(1, { prices: { ...blank } })];
+    expect(fillPricesFromTrades(entries, tradesByMove(entries, [trade('1', at(0, 10))]))[1].prices).toEqual(blank);
   });
 });

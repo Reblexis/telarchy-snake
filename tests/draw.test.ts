@@ -583,6 +583,11 @@ describe('the narrator line', () => {
     const sc = buildScene(game, [game], close, entries.map(() => []));
     expect(drawFull(sc, frameAt(hold(8), close, 0)).narrator).toBe('Traders split: straight leads by 0.3');
   });
+  it('a dead tie is not a split: nobody leads by 0.0', () => {
+    const tied = entries.map(e => ({ ...e, prices: { forward: 2, left: 2, right: 2 } }));
+    const sc = buildScene(game, [game], tied, entries.map(() => []));
+    expect(drawFull(sc, frameAt(hold(8), tied, 0)).narrator).toBe(`Attempt 1 · ${tied[8].length} long`);
+  });
   it('when only one way would not kill the snake it says which', () => {
     // head at the top-right corner heading right, body behind it: straight and left are wall, right (down) is free
     const corner: LogStep[] = [0, 1].map(i => ({ step: i, at: at(i), snake: i === 0 ? [{ x: 5, y: 0 }, { x: 4, y: 0 }, { x: 3, y: 0 }] : [{ x: 5, y: 1 }, { x: 5, y: 0 }, { x: 4, y: 0 }], food: { x: 0, y: 5 }, heading: i === 0 ? 'right' : 'down', action: i ? 'right' : null, direction: i === 0 ? 'right' : 'down', undecided: false, prices: PRICES, length: 3, deaths: 0 }));

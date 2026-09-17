@@ -651,6 +651,21 @@ What they show, how they are paced and how they sound is `docs/level-video.md`.
 A render holds a bounded amount of memory however long the level, so it fits beside
 everything else on the machine.
 
+**Which way a trade was bet, and the prices the feed did not record.** Every trade row of
+the actions log links its proposal (`href`, `#proposal=<id>`), and the public read
+`GET <telarchy>/api/proposals/<id>` (sent with `X-Workspace-Id`, the `workspaceId` of the
+public `GET <telarchy>/api/marketplace/snake/contracts`) says which option a book belongs to: a proposal with
+options lists each option's `marketId` under `markets[].options`; an older proposal is one
+option by itself, named by its title's ending (`Continue forward`, `Turn left`, `Turn
+right`), and only its first conditional market (the approved book) is a bet on that way.
+A trade is named from its proposal first; where the proposal cannot be read or does not
+list the trade's book, by the price match (an option is named only when the book's last
+call equals exactly one option's recorded price); otherwise it stays unnamed. Each
+proposal is read once and kept in `videos/.cache/proposals.json`; a proposal read that
+fails never fails the render. Where the feed recorded no price for an option on a move
+but named trades were made on it, the option's price for that move is the last of those
+trades' `callAfter`; an option nobody traded on such a move stays without a price.
+
 **All levels in one video.** `npm run video:all` joins the full cuts already rendered
 under `videos/` into `videos/snake-all-levels.mp4`: every complete level of `/games`, in
 order of level number, each cut whole. It renders nothing itself; a complete level whose
@@ -758,6 +773,6 @@ to production.
 - The operator never trades.
 - The board never shows a price the workspace did not report.
 - A level video shows a whole complete level and nothing the record does
-  not hold: every price is a recorded price, every trade row is a row of
-  the public actions log, and an option is named on a trade only when the
-  match is unambiguous.
+  not hold: every price is a recorded price or the last call of a recorded trade, every trade row is a row of
+  the public actions log, and an option is named on a trade only from its
+  proposal or when the price match is unambiguous.

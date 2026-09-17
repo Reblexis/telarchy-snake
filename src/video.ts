@@ -3,9 +3,9 @@
 // from public reads and writes the produced full cut and Short, each with its sidecar.
 // Nothing is written when the game is refused.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
-import { readLevel, tradesByMove } from './level.js';
+import { fillPricesFromTrades, nameTradesByProposal, readLevel, tradesByMove, type ProposalRead } from './level.js';
 import { momentsOf } from './moments.js';
 import { fullTimeline, shortTimeline, TL_FPS, type Segment } from './timeline.js';
 import { frameCountOf, type FrameInfo } from './frames.js';
@@ -44,7 +44,26 @@ try {
   console.error(`refused: ${(e as Error).message}`);
   process.exit(1);
 }
-const { game, games, entries, trades } = level;
+const { game, games } = level;
+// which way each trade was bet, from its proposal (docs/snake.md); the reads are kept between renders
+const telarchyUrl = (process.env.TELARCHY_PUBLIC_URL ?? 'https://telarchy.com').replace(/\/+$/, '');
+const cachePath = 'videos/.cache/proposals.json';
+mkdirSync('videos/.cache', { recursive: true });
+const cache = new Map<string, ProposalRead | null>(existsSync(cachePath) ? Object.entries(JSON.parse(readFileSync(cachePath, 'utf8'))) : []);
+const known = cache.size;
+const slim = (p: ProposalRead): ProposalRead => ({ title: p.title, options: p.options ? true : null, conditionalMarketIds: p.conditionalMarketIds, markets: (p.markets ?? []).map(m => ({ options: (m.options ?? []).map(o => ({ id: o.id, marketId: o.marketId })) })) });
+// the proposal read wants the workspace named; its id is public, on the floor's contracts read
+let workspaceId = '';
+try { workspaceId = String(((await (await fetch(`${telarchyUrl}/api/marketplace/snake/contracts`)).json()) as { workspaceId?: string }).workspaceId ?? ''); } catch { /* the trades then stay named by the price match alone */ }
+const trades = await nameTradesByProposal(level.trades, async id => {
+  if (!workspaceId) throw new Error('no workspace id');
+  const r = await fetch(`${telarchyUrl}/api/proposals/${id}`, { headers: { 'X-Workspace-Id': workspaceId } });
+  if (!r.ok) throw new Error(`proposal ${id} answered ${r.status}`);
+  return slim((await r.json()) as ProposalRead);
+}, cache);
+writeFileSync(cachePath, JSON.stringify(Object.fromEntries(cache)));
+console.error(`trades: ${trades.length}, named by proposal: ${trades.filter(t => t.option).length}, proposals read: ${cache.size - known}`);
+const entries = fillPricesFromTrades(level.entries, tradesByMove(level.entries, trades));
 const byMove = tradesByMove(entries, trades);
 const moments = momentsOf(entries, game.size, byMove);
 const scene = buildScene(game, games, entries, byMove);

@@ -131,8 +131,8 @@ credits) and the board sits in its left cell, clear of every rule even at full p
    - when only one of the three ways would not kill the snake, `One way out: <way>`;
    - when one trade of at least 300 credits was made on the move, `<handle> put <credits>
      on <way>` (the largest such trade);
-   - when the two highest prices are within 0.5 of each other, `Traders split: <way> leads
-     by <lead>`;
+   - when the two highest prices are within 0.5 of each other but not tied (a lead of at
+     least 0.05), `Traders split: <way> leads by <lead>`;
    - otherwise `Attempt <n> · <length> long`.
 
 **Nothing on screen gives away how the level goes on or when it ends**: no progress

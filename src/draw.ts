@@ -610,7 +610,7 @@ function narratorLine(scene: Scene, info: FrameInfo): string {
   const ranked = ORDER.filter(o => typeof decided.prices?.[o] === 'number').sort((a, b) => (decided.prices[b] as number) - (decided.prices[a] as number));
   if (ranked.length >= 2) {
     const lead = (decided.prices[ranked[0]] as number) - (decided.prices[ranked[1]] as number);
-    if (lead <= 0.5) return `Traders split: ${WAY[ranked[0]]} leads by ${lead.toFixed(1)}`;
+    if (lead >= 0.05 && lead <= 0.5) return `Traders split: ${WAY[ranked[0]]} leads by ${lead.toFixed(1)}`;
   }
   return `Attempt ${e.deaths + 1} · ${e.length} long`;
 }

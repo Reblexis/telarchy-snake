@@ -16,6 +16,10 @@ export interface TradeRow {
   kind: string;
   actor: { id: string; handle: string } | null;
   detail: { side: 'buy' | 'sell'; direction: 'higher' | 'lower'; shares: number; cost: number; callBefore: number; callAfter: number; marketId: string; [k: string]: unknown };
+  /** The row's link on telarchy.com; it carries the trade's proposal. */
+  href?: string;
+  /** The way the trade was bet, when its proposal said so (nameTradesByProposal). */
+  option?: Action | null;
 }
 
 /** One row of the video's panel, already worded. */
@@ -93,12 +97,71 @@ export function betRows(trades: TradeRow[], next: LogStep): BetRow[] {
   const option = optionsByBook(trades, next);
   return [...trades].sort((a, b) => newestFirst(b, a)).map(t => ({
     handle: t.actor?.handle ?? '?',
-    option: option.get(String(t.detail?.marketId ?? '')) ?? null,
+    // the proposal's word comes before the price match
+    option: t.option ?? option.get(String(t.detail?.marketId ?? '')) ?? null,
     credits: Math.abs(Number(t.detail?.cost) || 0),
     from: Number(t.detail?.callBefore),
     to: Number(t.detail?.callAfter),
     at: t.at,
   }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// which way a trade was bet, docs/snake.md "Which way a trade was bet, and the prices the feed did not record"
+
+/** What the video needs of GET /api/proposals/:id. */
+export interface ProposalRead { title?: string; options?: unknown; conditionalMarketIds?: string[]; markets?: Array<{ options?: Array<{ id?: string; marketId?: string }> | null }> }
+
+export function proposalIdOf(t: Pick<TradeRow, 'href'>): string | null {
+  return /[#&?]proposal=([0-9a-zA-Z-]+)/.exec(String(t?.href ?? ''))?.[1] ?? null;
+}
+
+const ENDINGS: Array<[RegExp, Action]> = [[/Continue forward\s*$/, 'forward'], [/Turn left\s*$/, 'left'], [/Turn right\s*$/, 'right']];
+/** The option a book belongs to, by its proposal: the option listed with that market id, or, for an older
+ *  one-option proposal, the way its title names, on its approved book alone. */
+export function optionFromProposal(p: ProposalRead | null | undefined, marketId: string): Action | null {
+  if (!p || !marketId) return null;
+  for (const m of p.markets ?? []) for (const o of m.options ?? []) {
+    if (o.marketId === marketId) return (ACTIONS as readonly string[]).includes(String(o.id)) ? (o.id as Action) : null;
+  }
+  if (p.options) return null;
+  if (p.conditionalMarketIds?.[0] !== marketId) return null;
+  return ENDINGS.find(([re]) => re.test(String(p.title ?? '')))?.[1] ?? null;
+}
+
+/** The trades with `option` set wherever their proposal names it. Each proposal is read once (the cache is
+ *  filled as it goes); a read that fails leaves its trades as they were. */
+export async function nameTradesByProposal(trades: TradeRow[], read: (id: string) => Promise<ProposalRead>, cache: Map<string, ProposalRead | null>, concurrency = 8): Promise<TradeRow[]> {
+  const wanted = [...new Set(trades.map(proposalIdOf).filter((id): id is string => !!id && !cache.has(id)))];
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, wanted.length) }, async () => {
+    while (next < wanted.length) {
+      const id = wanted[next++];
+      try { cache.set(id, await read(id)); } catch { /* unreadable: its trades stay unnamed */ }
+    }
+  }));
+  return trades.map(t => {
+    const id = proposalIdOf(t);
+    const option = id ? optionFromProposal(cache.get(id), String(t.detail?.marketId ?? '')) : null;
+    return option ? { ...t, option } : t;
+  });
+}
+
+/** Entries with the prices the feed did not record filled from the named trades of their move: the last
+ *  call on the option. A recorded price is never replaced. `byMove[i]` holds the trades of the move into entry i + 1. */
+export function fillPricesFromTrades(entries: LogStep[], byMove: TradeRow[][]): LogStep[] {
+  return entries.map((e, i) => {
+    if (i === 0) return e;
+    const missing = ACTIONS.filter(a => typeof e.prices?.[a] !== 'number');
+    if (missing.length === 0) return e;
+    const prices = { ...e.prices };
+    // newest first within a move, so the first named trade seen is the last call
+    for (const a of missing) {
+      const last = (byMove[i - 1] ?? []).find(t => t.option === a && Number.isFinite(Number(t.detail?.callAfter)));
+      if (last) prices[a] = Number(last.detail.callAfter);
+    }
+    return { ...e, prices };
+  });
 }
 
 const levelSpan = (g: GameEntry) => span(ms(g.endedAt ?? g.startedAt) - ms(g.startedAt));
