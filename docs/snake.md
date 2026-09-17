@@ -666,8 +666,10 @@ it and keeps its license beside the video). Without `--music` the cuts are silen
 and the command says so. `--credit "<line>"` gives the track's credit,
 and each sidecar's description then ends with that line; a track whose license asks
 for attribution is never used without it. The house track is
-`assets/music/holiznacc0-jump.mp3` ("Jump!" by HoliznaCC0, CC0, its license note beside
-it): long enough that the full cut never loops it, and even in level from start to end.
+`assets/music/holiznacc0-drama.mp3` ("Drama" by HoliznaCC0, CC0, its license note beside
+it): a driving instrumental electronic bed with drums and no 8-bit sound, the kind the
+most-viewed comparable videos use (the survey is `notes/level-video-music.md`), and
+longer than the full cut so it never loops.
 
 **The sidecar** `snake-level-<game>.json` is `{ game, size, title, description,
 moves, deaths, trades, traders, startedAt, endedAt, durationSeconds }`, where
