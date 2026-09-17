@@ -651,6 +651,15 @@ What they show, how they are paced and how they sound is `docs/level-video.md`.
 A render holds a bounded amount of memory however long the level, so it fits beside
 everything else on the machine.
 
+**All levels in one video.** `npm run video:all` joins the full cuts already rendered
+under `videos/` into `videos/snake-all-levels.mp4`: every complete level of `/games`, in
+order of level number, each cut whole. It renders nothing itself; a complete level whose
+full cut is missing is refused by name with a non-zero exit, and nothing is written. The
+cuts are joined without re-encoding, so the join loses no quality. Its sidecar
+`snake-all-levels.json` is `{ title, description, levels, durationSeconds }` with the
+title `Futarchy snake, levels <first> to <last>: a market chose every move` and one
+description line per level taken from that level's sidecar (its second line).
+
 **The music** is the file given with `--music`: a royalty-free track whose license
 allows it in YouTube videos without a Content ID claim (the `level-video` skill picks
 it and keeps its license beside the video). Without `--music` the cuts are silent

@@ -12,7 +12,8 @@
     "stream": "node dist/stream.js",
     "stream:dev": "tsx src/stream.ts",
     "video": "tsx src/video.ts",
-    "script": "tsx src/script.ts"
+    "script": "tsx src/script.ts",
+    "video:all": "tsx src/video-all.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { productionFrames, encodeArgs, muxArgs, musicDecodeArgs, cutSidecar } from '../src/produce.js';
+import { productionFrames, encodeArgs, muxArgs, musicDecodeArgs, cutSidecar, allLevelsPlan, concatList, concatArgs, allLevelsSidecar } from '../src/produce.js';
 import { buildScene, drawFull, drawShort, FULL_SIZE, SHORT_SIZE } from '../src/draw.js';
 import { frameCountOf } from '../src/frames.js';
 import type { Segment } from '../src/timeline.js';
@@ -82,5 +82,36 @@ describe('the sidecars', () => {
     expect(full.title).not.toContain('#shorts');
     expect(short.description).toContain('Music: X by Y (CC0)');
     expect(full.description).toContain('Music: X by Y (CC0)');
+  });
+});
+
+describe('all levels in one video', () => {
+  const g = (number: number, endedAt: string | null) => ({ number, size: 4, startedAt: '2026-09-11T00:00:00Z', endedAt, steps: 1, bestLength: 1, deaths: 0 });
+  it('joins every complete level in order of level number, and leaves out the level still being played', () => {
+    const plan = allLevelsPlan([g(3, 'x'), g(1, 'x'), g(4, null), g(2, 'x')], () => true);
+    expect(plan).toEqual({ files: ['videos/snake-level-1.mp4', 'videos/snake-level-2.mp4', 'videos/snake-level-3.mp4'], levels: [1, 2, 3] });
+  });
+  it('a complete level whose full cut is missing is refused by name', () => {
+    expect(() => allLevelsPlan([g(1, 'x'), g(2, 'x')], f => !f.includes('level-2'))).toThrow(/level 2/);
+  });
+  it('no complete level at all is refused', () => {
+    expect(() => allLevelsPlan([g(1, null)], () => true)).toThrow(/no complete level/);
+  });
+  it('the join list names each file once, quoted for ffmpeg, by absolute path', () => {
+    expect(concatList(['/a/one.mp4', "/a/it's.mp4"])).toBe("file '/a/one.mp4'\nfile '/a/it'\\''s.mp4'\n");
+  });
+  it('the cuts are joined without re-encoding', () => {
+    const a = concatArgs('list.txt', 'out.mp4');
+    expect(a.join(' ')).toContain('-f concat -safe 0 -i list.txt');
+    expect(a.join(' ')).toContain('-c copy');
+    expect(a[a.length - 1]).toBe('out.mp4');
+  });
+  it('the sidecar is titled by the first and last level and carries one line per level', () => {
+    const sc = allLevelsSidecar([1, 2, 3], ['line one', 'line two', 'line three'], 600.5);
+    expect(sc.title).toBe('Futarchy snake, levels 1 to 3: a market chose every move');
+    expect(sc.levels).toEqual([1, 2, 3]);
+    expect(sc.durationSeconds).toBe(600.5);
+    expect(sc.description.split('\n').slice(1, 4)).toEqual(['line one', 'line two', 'line three']);
+    expect(sc.description).toContain('https://telarchy.com/snake');
   });
 });

@@ -51,3 +51,40 @@ export function cutSidecar(cut: 'full' | 'short', game: GameEntry, entries: LogS
     durationSeconds: frameCountOf(tl) / TL_FPS,
   };
 }
+
+// ---------------------------------------------------------------------------------------------
+// all levels in one video, docs/snake.md "All levels in one video"
+
+/** The full cuts to join: every complete level in order of number. A missing cut is refused by name. */
+export function allLevelsPlan(games: GameEntry[], exists: (file: string) => boolean): { files: string[]; levels: number[] } {
+  const levels = games.filter(g => g.endedAt).map(g => g.number).sort((a, b) => a - b);
+  if (levels.length === 0) throw new Error('no complete level to join');
+  const files = levels.map(n => `videos/snake-level-${n}.mp4`);
+  const missing = levels.filter((_, k) => !exists(files[k]));
+  if (missing.length) throw new Error(`the full cut of level ${missing.join(', ')} is not rendered: run npm run video -- ${missing[0]} first`);
+  return { files, levels };
+}
+
+/** ffmpeg's concat list: one quoted file per line. */
+export function concatList(files: string[]): string {
+  return files.map(f => `file '${f.replace(/'/g, `'\\''`)}'\n`).join('');
+}
+
+/** The ffmpeg arguments that join the listed cuts without re-encoding. */
+export function concatArgs(list: string, out: string): string[] {
+  return ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out];
+}
+
+export function allLevelsSidecar(levels: number[], lines: string[], durationSeconds: number) {
+  return {
+    title: `Futarchy snake, levels ${levels[0]} to ${levels[levels.length - 1]}: a market chose every move`,
+    description: [
+      'A prediction market played these games of snake. Every minute three options (continue, turn left, turn right) were priced by traders on telarchy.com, and the highest price was the move.',
+      ...lines,
+      'Trade the next move: https://telarchy.com/snake',
+      'Watch it live: https://www.twitch.tv/telarchy',
+    ].join('\n'),
+    levels,
+    durationSeconds,
+  };
+}
