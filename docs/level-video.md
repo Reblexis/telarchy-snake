@@ -41,24 +41,26 @@ link while the game plays.
    explanation pops up between stretches of it, never laid over it:
    - **The hook**: the level's strongest near miss that was traded, from before the
      finale's last 8 moves, plays as a decision beat at half speed, with no caption.
-   - **Screen 1, 75 frames**, over the hook's last frame: label `FUTARCHY SNAKE · LEVEL <n>`,
+   - **Screen 1, 135 frames**, over the hook's last frame: label `FUTARCHY SNAKE · LEVEL <n>`,
      lines `Nobody is playing this.` and `A prediction market decides every move.`
    - **The game from move 1** up to the rules beat (below).
-   - **Screen 2, 100 frames**: label `HOW IT WORKS · 1`, lines `Traders bet on each
+   - **Screen 2, 240 frames**: label `HOW IT WORKS · 1`, lines `Traders bet on each
      direction the snake can go.` and `Each price is their forecast of how long the snake
      will get.`
    - **The rules beat**: the first traded decision from move 13 on whose three prices were
      recorded plays in full at half speed, with no caption. The game before it plays at 4
      moves a second when it is 40 moves or fewer, so at least 90 frames of game separate
      screen 1 from screen 2.
-   - **Screen 3, 75 frames**: label `HOW IT WORKS · 2`, lines `The highest price is the
+   - **Screen 3, 120 frames**: label `HOW IT WORKS · 2`, lines `The highest price is the
      move.` and `Nobody steers.`
    - Then the game, to the end. A level with no such near miss opens on screen 1 over move
      0; a level with no rules beat shows screens 2 and 3 straight after screen 1.
    **A screen is animated and full screen.** It pops out of the frozen game: a gold line
    across the middle of the frame opens to the full frame over 8 frames with a small
-   overshoot, the label and each line rise 40 px into place and fade in one after another
-   (6 frames apart, 10 frames each), the words that carry the idea (`prediction market`,
+   overshoot, the label and the first line rise 40 px into place and fade in (6 frames apart, 10
+   frames each) and every further line follows 36 frames after the one before, so each
+   can be read before the next arrives; a screen stays long enough to be read at three
+   words a second with a second to spare, the words that carry the idea (`prediction market`,
    `forecast`, `highest price`) turn gold once their line has landed, and over its last 8
    frames the screen closes back to the line and the game goes on from where it froze.
    While it is fully open nothing of the game shows. Type is large (title lines 84 px),

@@ -735,8 +735,9 @@ function openingScreen(p: Painter, scene: Scene, card: NonNullable<FrameInfo['ca
   const wrapped = def.lines.map(l => balanced(l, 84, 800, W));
   const total = wrapped.reduce((a, l) => a + l.length * 98, 0) + (wrapped.length - 1) * 44;
   let y = h / 2 - total / 2 + 70;
-  // each element starts 6 frames after the one before and takes 10 frames to rise 40 px and fade in
-  const start = (k: number) => 8 + k * 6;
+  // each element takes 10 frames to rise 40 px and fade in
+  // the label and the first line 6 frames apart, every further line 36 frames after the one before
+  const start = (k: number) => (k <= 1 ? 8 + k * 6 : 14 + (k - 1) * 36);
   const rise = (k: number) => easeOut((card.frame - start(k)) / 10);
   const out = Math.min(1, card.left / 8);
   if (card.frame >= start(0)) label(p, def.label(scene.game.number), X, y - 120 + 40 * (1 - rise(0)), 24, 'left', rgba(CHIP, rise(0) * out));

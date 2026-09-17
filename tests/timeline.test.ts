@@ -92,13 +92,13 @@ describe('the full cut timeline', () => {
     expect(m).toBeTruthy();
     expect(t[0]).toMatchObject({ kind: 'beat', cold: true, slow: true, move: m.move });
     expect((t[0] as any).caption).toBeUndefined();
-    expect(t[1]).toEqual({ kind: 'card', card: 'market', entry: m.move, frames: 75 });
+    expect(t[1]).toEqual({ kind: 'card', card: 'market', entry: m.move, frames: 135 });
     const first = t[2];
     expect(first.kind === 'run' ? (first as any).from === 0 : first.kind !== 'beat' || (first as any).move === 1, JSON.stringify(first)).toBe(true);
     const k = t.findIndex(x => x.kind === 'beat' && !(x as any).cold && (x as any).slow);
     const rules = t[k] as { move: number };
-    expect(t[k - 1]).toEqual({ kind: 'card', card: 'bets', entry: rules.move - 1, frames: 100 });
-    expect(t[k + 1]).toEqual({ kind: 'card', card: 'move', entry: rules.move, frames: 75 });
+    expect(t[k - 1]).toEqual({ kind: 'card', card: 'bets', entry: rules.move - 1, frames: 240 });
+    expect(t[k + 1]).toEqual({ kind: 'card', card: 'move', entry: rules.move, frames: 120 });
     expect(t.filter(x => x.kind === 'card').map(x => (x as any).card)).toEqual(['market', 'bets', 'move']);
   });
 
@@ -113,6 +113,11 @@ describe('the full cut timeline', () => {
     }
   });
 
+  it('the explanation screen is way too fast: each screen stays long enough to read at three words a second, with a second to spare', () => {
+    const words = { market: 10, bets: 20, move: 8 };
+    for (const c of tl().filter(x => x.kind === 'card') as Array<{ card: keyof typeof words; frames: number }>) expect(c.frames, c.card).toBeGreaterThanOrEqual((words[c.card] / 3 + 1) * 30);
+  });
+
   it('the hook never gives away the fill: its moment comes from before the finale\'s last 8 moves', () => {
     const last = entries.length - 1;
     const nearMiss = (move: number, weight: number) => ({ move, at: entries[move].at, kinds: ['near miss', 'whale'] as any, weight, credits: 1000, traders: 1 });
@@ -124,7 +129,7 @@ describe('the full cut timeline', () => {
     const plain = plainLevel('me'.repeat(34), 6);
     const none = plain.map(() => [] as TradeRow[]);
     const t = fullTimeline(plain, 6, none, momentsOf(plain, 6, none));
-    expect(t.slice(0, 3)).toEqual([{ kind: 'card', card: 'market', entry: 0, frames: 75 }, { kind: 'card', card: 'bets', entry: 0, frames: 100 }, { kind: 'card', card: 'move', entry: 0, frames: 75 }]);
+    expect(t.slice(0, 3)).toEqual([{ kind: 'card', card: 'market', entry: 0, frames: 135 }, { kind: 'card', card: 'bets', entry: 0, frames: 240 }, { kind: 'card', card: 'move', entry: 0, frames: 120 }]);
   });
 
   it('a beat is 20 frames a chip up to three, 18 of lock, 18 of move; the rules beat twice that', () => {

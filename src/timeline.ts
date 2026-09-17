@@ -10,7 +10,7 @@ export const FULL_MAX = 150 * TL_FPS;
 export const SHORT_MAX = 50 * TL_FPS;
 export const CREDITS_FRAMES = 18 * TL_FPS;
 export const SPEED_LADDER = [4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128] as const;
-export const SCREEN_FRAMES = { market: 75, bets: 100, move: 75 } as const;
+export const SCREEN_FRAMES = { market: 135, bets: 240, move: 120 } as const;
 /** Marks the rules beat among the chosen beats: it plays at half speed, with no caption. */
 const RULES = 'rules';
 /** The hook's caption: the credits traded on the move, whichever way they were bet; the short sentence alone when nobody traded. */
