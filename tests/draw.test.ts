@@ -600,6 +600,41 @@ describe('the narrator line', () => {
   });
 });
 
+describe('the opening cards are full screen', () => {
+  const tl: Segment[] = [{ kind: 'card', card: 'title', frames: 90 }, { kind: 'card', card: 'rules', frames: 150 }, { kind: 'run', from: 0, to: 5, speed: 4, frames: 38, easeIn: false, easeOut: false }];
+  const textOf = (f: number) => drawFull(scene(), frameAt(tl, entries, f));
+  it('the title card carries its label and its sentence in large type, and nothing of the game or the terminal', () => {
+    const d = textOf(45);
+    const all = d.texts.map(t => t.text).join(' ');
+    expect(all).toContain('TELARCHY · FUTARCHY SNAKE · LEVEL 2');
+    expect(all.replace(/\s+/g, ' ')).toContain('A game of snake where a prediction market decides every move.');
+    expect(d.rects.panels).toEqual([]);
+    expect(d.rects.lanes).toBeNull();
+    expect(d.narrator).toBe('');
+    expect(Math.max(...d.texts.map(t => t.size))).toBeGreaterThanOrEqual(80);
+    // nothing of the board: its centre is the frame's ground
+    const k = (Math.round(FULL_BOX.y + FULL_BOX.px * 0.9) * 1920 + Math.round(FULL_BOX.x + 10)) * 3;
+    expect([d.buffer[k], d.buffer[k + 1], d.buffer[k + 2]]).toEqual([0x0b, 0x0b, 0x0e]);
+  });
+  it('the rules card brings its three lines in one after another, a third of the card apart, and they stay', () => {
+    const lines = ['Traders bet on each direction the snake can go.', "Each price is the market's forecast of how long the snake will get.", 'The highest price is the move. Nobody steers.'];
+    const shown = (f: number) => { const all = textOf(f).texts.map(t => t.text).join(' ').replace(/\s+/g, ' '); return lines.filter(l => all.includes(l)).length; };
+    expect(textOf(95).texts.map(t => t.text)).toContain('HOW IT WORKS');
+    expect(shown(90 + 5)).toBe(1);
+    expect(shown(90 + 55)).toBe(2);
+    expect(shown(90 + 105)).toBe(3);
+    expect(shown(90 + 149)).toBe(3);
+  });
+  it('every card text is left aligned on one margin, inside the frame, and at least 40 px', () => {
+    for (const f of [45, 200]) {
+      const d = textOf(f);
+      const lefts = new Set(d.texts.filter(t => t.size >= 60).map(t => Math.round(t.x)));
+      expect(lefts.size).toBe(1);
+      for (const t of d.texts) { expect(t.x).toBeGreaterThanOrEqual(120); expect(t.x + t.w).toBeLessThanOrEqual(1920 - 120); expect(t.size).toBeGreaterThanOrEqual(22); }
+    }
+  });
+});
+
 describe('a long caption', () => {
   it('breaks into two lines at the space nearest its middle when it cannot fit the Short at 40 px, and stays above the board', () => {
     const text = 'Traders price each direction. The highest price moves.';

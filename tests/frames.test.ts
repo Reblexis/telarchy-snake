@@ -144,15 +144,14 @@ describe('the frame description', () => {
   });
 });
 
-describe("the hook's freeze", () => {
-  it('holds the entry it names under its own caption, with no beat and no push-in', () => {
-    const tl: Segment[] = [{ kind: 'beat', move: 10, chips: 0, frames: 72, cold: true, slow: true, caption: 'One way out.' }, { kind: 'hold', fx: 'freeze', entry: 10, frames: 75, caption: 'Nobody is playing this. A market is.' }, { kind: 'run', from: 0, to: 5, speed: 4, frames: 38, easeIn: false, easeOut: false }];
-    for (const f of [72, 100, 146]) {
-      const i = frameAt(tl, entries, f);
-      expect(i).toMatchObject({ position: 10, caption: 'Nobody is playing this. A market is.', beat: null, zoom: 1 });
-      expect(i.hold?.fx).toBe('freeze');
-    }
-    expect(frameAt(tl, entries, 147).position).toBe(0);
-    expect(frameAt(tl, entries, 147).caption).toBeNull();
+describe('the opening cards', () => {
+  const tl: Segment[] = [{ kind: 'card', card: 'title', frames: 90 }, { kind: 'card', card: 'rules', frames: 150 }, { kind: 'run', from: 0, to: 5, speed: 4, frames: 38, easeIn: false, easeOut: false }];
+  it('a card frame says which card it is and how far through, and nothing of the game', () => {
+    expect(frameAt(tl, entries, 0)).toMatchObject({ kind: 'card', card: { card: 'title', progress: 0 }, beat: null, caption: null, lowerThird: null, badge: null, zoom: 1 });
+    expect(frameAt(tl, entries, 165).card).toMatchObject({ card: 'rules' });
+    expect(frameAt(tl, entries, 165).card!.progress).toBeCloseTo(0.5, 2);
+  });
+  it('after the cards the game starts at move 1, and game frames carry no card', () => {
+    expect(frameAt(tl, entries, 240)).toMatchObject({ kind: 'run', position: 0, card: null });
   });
 });

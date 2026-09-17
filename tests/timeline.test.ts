@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment, RULES_CAPTION, hookCaption, FREEZE_CAPTION } from '../src/timeline.js';
+import { fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment, hookCaption } from '../src/timeline.js';
 import { momentsOf } from '../src/moments.js';
 import { bigDeaths } from '../src/attempts.js';
 import { frameAt } from '../src/frames.js';
@@ -86,34 +86,27 @@ describe('the full cut timeline', () => {
     expect(CREDITS_FRAMES).toBe(540);
   });
 
-  it('the cold open never gives away the fill: its moment comes from before the finale\'s last 8 moves', () => {
-    const last = entries.length - 1;
-    const nearMiss = (move: number, weight: number) => ({ move, at: entries[move].at, kinds: ['near miss', 'whale'] as any, weight, credits: 1000, traders: 1 });
-    // the strongest traded near miss sits two moves before the fill, a weaker one far earlier
-    const t = fullTimeline(entries, size, byMove, [nearMiss(60, 8), nearMiss(last - 2, 20)]);
-    expect(t[0]).toMatchObject({ kind: 'beat', cold: true, move: 60 });
-  });
-
-  it('opens cold on the strongest traded near miss, then cuts to the first move', () => {
+  it('opens on the two full-screen cards, 90 and 150 frames, then cuts to the first move', () => {
     const t = tl();
-    const m = moments().filter(x => x.kinds.includes('near miss') && x.credits > 0 && x.move < entries.length - 1 - 7).sort((a, b) => b.weight - a.weight)[0];
-    if (m) {
-      expect(t[0]).toMatchObject({ kind: 'beat', move: m.move, cold: true });
-      // the freeze: 75 frames on the hook's move under its own caption, then the hard cut to move 1
-      expect(t[1]).toEqual({ kind: 'hold', fx: 'freeze', entry: m.move, frames: 75, caption: FREEZE_CAPTION });
-      expect(FREEZE_CAPTION).toBe('Nobody is playing this. A market is.');
-      const first = t[2];
-      expect(first.kind === 'run' ? (first as any).from === 0 : first.kind === 'beat' && (first as any).move === 1, JSON.stringify(first)).toBe(true);
-    } else {
-      expect(t[0].kind).toBe('run');
-    }
+    expect(t[0]).toEqual({ kind: 'card', card: 'title', frames: 90 });
+    expect(t[1]).toEqual({ kind: 'card', card: 'rules', frames: 150 });
+    const first = t[2];
+    expect(first.kind === 'run' ? (first as any).from === 0 : first.kind === 'beat' && (first as any).move === 1, JSON.stringify(first)).toBe(true);
+    expect(t.filter(s => s.kind === 'card').length).toBe(2);
   });
 
-  it('a beat is 20 frames a chip up to three, 18 of lock, 18 of move; the cold open and the rules beat twice that', () => {
+  it('nothing of the game plays before move 1: no cold open, no freeze', () => {
+    const t = tl();
+    expect(t.some(s => s.kind === 'beat' && (s as any).cold)).toBe(false);
+    expect(t.some(s => s.kind === 'hold' && (s as any).fx === 'freeze')).toBe(false);
+  });
+
+  it('a beat is 20 frames a chip up to three, 18 of lock, 18 of move; the rules beat twice that', () => {
     const beats = tl().filter(x => x.kind === 'beat') as Array<Extract<Segment, { kind: 'beat' }>>;
-    expect(beats.some(s => s.caption)).toBe(true);
+    // no caption is laid over the game: the cards said it
+    expect(beats.some(s => s.caption)).toBe(false);
+    expect(beats.filter(s => s.slow).length).toBe(1);
     for (const s of beats) {
-      expect(Boolean(s.slow), JSON.stringify(s)).toBe(Boolean(s.cold || s.caption === RULES_CAPTION));
       expect(s.frames).toBe((20 * s.chips + 18 + 18) * (s.slow ? 2 : 1));
       expect(s.chips).toBeLessThanOrEqual(3);
       expect(s.chips).toBe(Math.min(3, (byMove[s.move - 1] ?? []).filter(r => Math.abs(Number(r.detail.cost)) >= 1).length));
@@ -186,10 +179,11 @@ describe('the full cut timeline', () => {
     expect(expectFrom).toBe(entries.length - 1);
   });
 
-  it('the first traded decision has a beat with the rules caption', () => {
+  it('the first traded decision is the rules beat: at half speed, with no caption', () => {
     const first = byMove.findIndex(l => l.some(r => Math.abs(Number(r.detail.cost)) >= 1)) + 1;
     const beat = tl().find(s => s.kind === 'beat' && !(s as any).cold && (s as any).move === first);
-    expect(beat).toMatchObject({ caption: 'Traders price each direction. The highest price moves.' });
+    expect(beat).toMatchObject({ slow: true });
+    expect((beat as any).caption).toBeUndefined();
   });
 
   it('the finale: the last 8 moves are beats, the fill holds 4 frames and then FILLED for 90', () => {
@@ -240,7 +234,7 @@ describe('the rules beat teaches on real prices', () => {
     byMove[4] = [whale(5, 50)];
     byMove[24] = [whale(25, 50)];
     const tl = fullTimeline(entries, 6, byMove, momentsOf(entries, 6, byMove));
-    const rules = tl.find(s => s.kind === 'beat' && s.caption === RULES_CAPTION) as { move: number };
+    const rules = tl.find(s => s.kind === 'beat' && s.slow) as { move: number };
     expect(rules.move).toBe(25);
   });
 });

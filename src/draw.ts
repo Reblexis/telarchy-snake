@@ -782,6 +782,54 @@ function terminal(p: Painter, scene: Scene, info: FrameInfo, rects: Drawn['rects
 }
 
 // ---------------------------------------------------------------------------------------------
+// the opening cards, docs/level-video.md "Structure", 1: the explanation has the whole frame to itself
+
+const RULE_LINES = ['Traders bet on each direction the snake can go.', "Each price is the market's forecast of how long the snake will get.", 'The highest price is the move. Nobody steers.'];
+
+/** Greedy word wrap of `text` at `size` into lines no wider than `w`. */
+function wrap(text: string, size: number, weight: number, w: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && measureText(next, size, weight, 'sans') > w) { lines.push(line); line = word; } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/** The same number of lines as `wrap`, but as even as they can be: no word left alone on the last line. */
+function balanced(text: string, size: number, weight: number, w: number): string[] {
+  const n = wrap(text, size, weight, w).length;
+  let best = w;
+  for (let tryW = w; tryW > w * 0.4; tryW -= 20) { if (wrap(text, size, weight, tryW).length === n) best = tryW; else break; }
+  return wrap(text, size, weight, best);
+}
+
+function openingCard(p: Painter, scene: Scene, card: NonNullable<FrameInfo['card']>) {
+  const X = 200, W = 1920 - 2 * X;
+  // each element eases in over a fifth of a second from its own start, and stays
+  const fade = (from: number) => Math.max(0, Math.min(1, (card.progress - from) / 0.06));
+  if (card.card === 'title') {
+    label(p, `TELARCHY · FUTARCHY SNAKE · LEVEL ${scene.game.number}`, X, 360, 24, 'left', rgba(CHIP, fade(0)));
+    balanced('A game of snake where a prediction market decides every move.', 92, 800, W).forEach((l, k) => p.text(l, X, 480 + k * 106, 92, rgba(FG, fade(0)), 800));
+    return;
+  }
+  label(p, 'HOW IT WORKS', X, 230, 24, 'left', CHIP);
+  let y = 340;
+  RULE_LINES.forEach((text, k) => {
+    const lines = balanced(text, 60, 700, W - 80);
+    // a third of the card apart: a line not yet due is not drawn at all
+    if (card.progress >= k / 3) {
+      const a = fade(k / 3);
+      p.text(String(k + 1), X, y - 4, 30, rgba(CHIP, a), 600, 'mono');
+      lines.forEach((l, j) => p.text(l, X + 80, y + j * 74, 60, rgba(FG, a), 700));
+    }
+    y += lines.length * 74 + 70;
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
 // the two frames
 
 export function drawFull(scene: Scene, info: FrameInfo): Drawn {
@@ -795,6 +843,10 @@ export function drawFull(scene: Scene, info: FrameInfo): Drawn {
   const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, drawnBoard: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null, panels: [], chart: null, playhead: null };
   let tape: TapeRow[] = [];
   let narrator = '';
+  if (info.card) {
+    openingCard(p, scene, info.card);
+    return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };
+  }
   if (info.credits !== null) {
     credits(p, scene, 160, 240, 1600, 72, false);
     return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };

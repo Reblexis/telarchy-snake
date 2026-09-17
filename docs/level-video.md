@@ -37,15 +37,18 @@ link while the game plays.
 
 **The full cut, at most two and a half minutes:**
 
-1. **The hook, about 8 seconds.** The level's strongest near miss with trades plays as a
-   decision beat in slow motion (below) under the caption `One way out. <credits> credits
-   on this move.`, the credits being everything traded on the move whichever way it was
-   bet (`One way out.` alone when nobody traded it). Then the picture freezes for 75
-   frames under `Nobody is playing this. A market is.`, and cuts hard to move 1. No logo
-   and no title card.
+1. **The opening cards, 8 seconds, full screen.** The explanation is never laid over the
+   game: it has the whole frame to itself, in large type on the frame's ground, left
+   aligned, with nothing else on screen.
+   - **The title card, 90 frames**: the label `TELARCHY · FUTARCHY SNAKE · LEVEL <n>` over
+     `A game of snake where a prediction market decides every move.`
+   - **The rules card, 150 frames**: the label `HOW IT WORKS` over three numbered lines,
+     `Traders bet on each direction the snake can go.`, `Each price is the market's
+     forecast of how long the snake will get.`, `The highest price is the move. Nobody
+     steers.` The lines come in one after another, a third of the card apart, and stay.
+   Then a hard cut to move 1. The cards say nothing about how the level went.
 2. **The rules by doing.** The first traded decision whose three prices were recorded plays
-   in full once, with one caption,
-   `Traders price each direction. The highest price moves.`
+   in full once, at half speed, with no caption over the game.
 3. **The struggle.** The level runs at speed with the death counter on screen, dropping
    into slow motion on moments (below), never twice within three seconds. Each new record
    brings a lower third, `RECORD <length> · attempt <n>`.
@@ -180,13 +183,11 @@ here are the contract the renderer and the tests share.
 - **Beats.** A beat is one decided move in slow motion: 20 frames for each chip it shows
   (up to three), 18 frames of the lock (its first 3 a hit stop, then the winner held while
   the losers dim), then 18 frames of the snake moving into the cell. A move nobody traded
-  has a beat of the lock and the move alone. The cold open and the rules beat play at
-  half speed, every phase twice as long, so their caption can be read; the Short's hook
-  plays at normal speed.
-- **Choosing beats.** The cold open uses the level's strongest near miss that was
-  traded, from before the finale's last 8 moves, so the opening never gives away the
-  fill. The first traded decision of the level whose three prices were recorded is always a beat, carrying the caption
-  `Traders price each direction. The highest price moves.`. Then the strongest moments (by weight) get
+  has a beat of the lock and the move alone. The rules beat plays at half speed, every phase twice as long, so the
+  first decision can be followed; the Short's hook plays at normal speed.
+- **Choosing beats.** The first traded decision of the level whose three prices were
+  recorded is always a beat, the rules beat; it carries no caption, the cards having said
+  it. Then the strongest moments (by weight) get
   beats, strongest first, as long as beats take at most half of the story's time and the
   full cut stays within two and a half minutes with the runs at the slowest ladder speed that fits.
   Outside the finale, between two beats there are always at least 90 frames of run, so
@@ -232,8 +233,10 @@ what sits over it. The renderer draws only what the description says.
   and no edge of the board is ever cropped.
 - **The speed badge** reads `x<speed / 4>` in a run faster than 4 moves a second, and is
   absent everywhere else.
-- **Captions.** A beat that carries a caption shows it for the whole beat, and the hook's
-  freeze shows its own; no other frame has one.
+- **Captions.** A beat that carries a caption shows it for the whole beat; no other frame
+  has one.
+- **Cards.** A card's frames say which card it is, its label, its title or its lines, and
+  how far through it is, from 0 to 1; nothing of the game is drawn on them.
 - **Record cards.** When a run or a beat reaches the crash that ends a record attempt, a
   lower third `RECORD <length> · attempt <n>` shows for 60 frames; a later card replaces
   an earlier one.

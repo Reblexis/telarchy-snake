@@ -10,9 +10,9 @@ export const FULL_MAX = 150 * TL_FPS;
 export const SHORT_MAX = 50 * TL_FPS;
 export const CREDITS_FRAMES = 18 * TL_FPS;
 export const SPEED_LADDER = [4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128] as const;
-export const FREEZE_CAPTION = 'Nobody is playing this. A market is.';
-export const FREEZE_FRAMES = 75;
-export const RULES_CAPTION = 'Traders price each direction. The highest price moves.';
+export const TITLE_CARD_FRAMES = 90, RULES_CARD_FRAMES = 150;
+/** Marks the rules beat among the chosen beats: it plays at half speed, with no caption. */
+const RULES = 'rules';
 /** The hook's caption: the credits traded on the move, whichever way they were bet; the short sentence alone when nobody traded. */
 export function hookCaption(_entries: LogStep[], byMove: TradeRow[][], move: number): string {
   const credits = Math.round((byMove[move - 1] ?? []).reduce((a, r) => a + Math.abs(Number(r.detail?.cost) || 0), 0));
@@ -24,7 +24,8 @@ const FINALE_BEATS = 8, SHORT_FILL_BY = 1200, SHORT_CRASH_MOVES = 6, SHORT_CRASH
 export type Segment =
   | { kind: 'beat'; move: number; chips: number; frames: number; cold?: boolean; slow?: boolean; caption?: string }
   | { kind: 'run'; from: number; to: number; speed: number; frames: number; easeIn: boolean; easeOut: boolean; crash?: boolean }
-  | { kind: 'hold'; fx: 'hitstop' | 'filled' | 'freeze'; entry: number; frames: number; caption?: string }
+  | { kind: 'hold'; fx: 'hitstop' | 'filled'; entry: number; frames: number }
+  | { kind: 'card'; card: 'title' | 'rules'; frames: number }
   | { kind: 'credits'; frames: number }
   | { kind: 'loop'; frames: number };
 type Run = Extract<Segment, { kind: 'run' }>;
@@ -134,7 +135,7 @@ function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Ma
     if (m - 1 > pos) pushRuns(pos, m - 1, true, prevWasBeat, prevWasBeat);
     const caption = beats.get(m);
     // the rules beat plays at half speed so its caption can be read
-    out.push(beat(byMove, m, caption ? { caption, slow: true } : {}));
+    out.push(beat(byMove, m, caption === RULES ? { slow: true } : caption ? { caption, slow: true } : {}));
     pos = m;
     prevWasBeat = true;
   }
@@ -149,11 +150,8 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const list = attempts(entries, size);
   const winStart = list[list.length - 1].start;
   const finaleFrom = Math.max(1, last - (FINALE_BEATS - 1));
-  // the cold open never gives away the fill: its moment comes from before the finale
-  const coldMoment = moments.filter(m => m.kinds.includes('near miss') && m.credits > 0 && m.move < finaleFrom).sort((a, b) => b.weight - a.weight || a.move - b.move)[0];
-  const cold: Segment[] = coldMoment
-    ? [beat(byMove, coldMoment.move, { cold: true, slow: true, caption: hookCaption(entries, byMove, coldMoment.move) }), { kind: 'hold', fx: 'freeze', entry: coldMoment.move, frames: FREEZE_FRAMES, caption: FREEZE_CAPTION }]
-    : [];
+  // the opening cards explain the game full screen; nothing of the level plays before move 1
+  const cold: Segment[] = [{ kind: 'card', card: 'title', frames: TITLE_CARD_FRAMES }, { kind: 'card', card: 'rules', frames: RULES_CARD_FRAMES }];
   const tail: Segment[] = [{ kind: 'hold', fx: 'hitstop', entry: last, frames: 4 }, { kind: 'hold', fx: 'filled', entry: last, frames: 90 }, { kind: 'credits', frames: CREDITS_FRAMES }];
 
   const base = new Map<number, string | undefined>();
@@ -161,7 +159,7 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   let firstTraded = 0;
   const priced = (m: number) => (['forward', 'left', 'right'] as const).every(o => typeof entries[m].prices?.[o] === 'number');
   for (let m = 1; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0 && priced(m)) { firstTraded = m; break; }
-  if (firstTraded) base.set(firstTraded, RULES_CAPTION);
+  if (firstTraded) base.set(firstTraded, RULES);
 
   // big deaths are beats before any other moment; if they alone outgrow half the story, the furthest-reaching stay
   const storyFrames = FULL_MAX - total(cold) - total(tail);
