@@ -23,7 +23,7 @@ const FINALE_BEATS = 8, SHORT_FILL_BY = 1200, SHORT_CRASH_MOVES = 6, SHORT_CRASH
 
 export type Segment =
   | { kind: 'beat'; move: number; chips: number; frames: number; cold?: boolean; slow?: boolean; caption?: string }
-  | { kind: 'run'; from: number; to: number; speed: number; frames: number; easeIn: boolean; easeOut: boolean; crash?: boolean }
+  | { kind: 'run'; from: number; to: number; speed: number; frames: number; easeIn: boolean; easeOut: boolean; crash?: boolean; hook?: boolean }
   | { kind: 'hold'; fx: 'hitstop' | 'filled'; entry: number; frames: number }
   | { kind: 'card'; card: 'market' | 'bets' | 'move'; entry: number; frames: number }
   | { kind: 'card'; card: 'text'; entry: number; frames: number; label: string; lines: string[]; gold: string }
@@ -88,6 +88,7 @@ export function positionAt(seg: Run, f: number): number {
 const run = (from: number, to: number, speed: number, easeIn: boolean, easeOut: boolean, extra: Partial<Run> = {}): Run =>
   ({ kind: 'run', from, to, speed, frames: runFrames(to - from, speed, easeIn, easeOut), easeIn, easeOut, ...extra });
 
+const HOOK_MOVES = 36, OPENING_SPEED = 12, RULES_FROM = 37;
 const screen = (card: keyof typeof SCREEN_FRAMES, entry: number): Segment => ({ kind: 'card', card, entry, frames: SCREEN_FRAMES[card] });
 
 /** The largest ladder speed at most `target`. */
@@ -101,11 +102,11 @@ const capForGap = (D: number, easeIn: boolean, easeOut: boolean) => {
 const total = (segs: Segment[]) => segs.reduce((a, s) => a + s.frames, 0);
 
 /** The story from move 1 to the fill, with beats on `beats` and the runs of the struggle at `speed`. */
-function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Map<number, string | undefined>, speed: number, winStart: number): Segment[] {
+function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Map<number, string | undefined>, speed: number, winStart: number, start = 0): Segment[] {
   const last = entries.length - 1;
-  const moves = [...beats.keys()].sort((a, b) => a - b);
+  const moves = [...beats.keys()].filter(m => m > start).sort((a, b) => a - b);
   const out: Segment[] = [];
-  let pos = 0;
+  let pos = start;
   let winSpeed = speed;
   const pushRuns = (from: number, to: number, beforeBeat: boolean, afterBeat: boolean, betweenBeats: boolean, beforeRules = false) => {
     // split the winning attempt at each fifth of the grid filled, slowing as it fills
@@ -131,13 +132,13 @@ function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Ma
       }
       if (betweenBeats && cuts.length === 2) s = Math.min(s, capForGap(b - a, easeIn, easeOut));
       // the game between screen 1 and screen 2 is never a flicker
-      if (beforeRules && to - from <= 40) s = MIN_SPEED;
+      if (beforeRules && to - from <= 120) s = OPENING_SPEED;
       out.push(run(a, b, s, easeIn, easeOut));
     }
   };
   let prevWasBeat = false;
   for (const m of moves) {
-    if (m - 1 > pos) pushRuns(pos, m - 1, true, prevWasBeat, prevWasBeat, beats.get(m) === RULES && pos === 0);
+    if (m - 1 > pos) pushRuns(pos, m - 1, true, prevWasBeat, prevWasBeat, beats.get(m) === RULES && pos === start);
     const caption = beats.get(m);
     // the rules beat plays at half speed so its caption can be read
     // the rules beat sits between screens 2 and 3: game, screen, game, screen, game
@@ -149,6 +150,21 @@ function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Ma
   }
   if (pos < last) pushRuns(pos, last, false, prevWasBeat, false);
   return out;
+}
+
+/** Where an opening level's story starts: the entry before the first move from which at least 5 of the next
+ *  20 moves were traded (a trade counts from one credit). 0 when the level was traded from the start or never so densely. */
+export function activeStart(entries: LogStep[], byMove: TradeRow[][]): number {
+  const last = entries.length - 1;
+  const traded = (m: number) => chipsOf(byMove, m) > 0;
+  let inWindow = 0;
+  for (let m = 1; m <= Math.min(last, 20); m++) if (traded(m)) inWindow++;
+  for (let m = 1; m <= last; m++) {
+    if (inWindow >= 5) return m - 1;
+    if (traded(m)) inWindow--;
+    if (m + 20 <= last && traded(m + 20)) inWindow++;
+  }
+  return 0;
 }
 
 /** The full cut: cold open, the story with its beats and runs, the finale, the fill, the credits. */
@@ -176,7 +192,8 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   // the hook never gives away the fill: its moment comes from before the finale
   const coldMoment = moments.filter(m => m.kinds.includes('near miss') && m.credits > 0 && m.move < finaleFrom).sort((a, b) => b.weight - a.weight || a.move - b.move)[0];
   const opening = (rulesBeat: boolean): Segment[] => !withOpening ? [] : [
-    ...(coldMoment ? [beat(byMove, coldMoment.move, { cold: true, slow: true })] : []),
+    // the hook shows the snake moving, three times the normal pace, into its tightest escape
+    ...(coldMoment ? [run(Math.max(0, coldMoment.move - HOOK_MOVES), coldMoment.move, OPENING_SPEED, false, false, { hook: true })] : []),
     screen('market', coldMoment ? coldMoment.move : 0),
     // with no rules beat in the story the other two screens follow straight away
     ...(rulesBeat ? [] : [screen('bets', 0), screen('move', 0)]),
@@ -191,7 +208,9 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   for (let m = finaleFrom; m <= last; m++) base.set(m, undefined);
   let firstTraded = 0;
   const priced = (m: number) => (['forward', 'left', 'right'] as const).every(o => typeof entries[m].prices?.[o] === 'number');
-  if (withOpening) for (let m = 13; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0 && priced(m)) { firstTraded = m; break; }
+  // a level that opens the video skips its quiet beginning
+  const start = withOpening ? Math.min(activeStart(entries, byMove), Math.max(0, finaleFrom - 60)) : 0;
+  if (withOpening) for (let m = start + RULES_FROM; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0 && priced(m)) { firstTraded = m; break; }
   if (firstTraded) base.set(firstTraded, RULES);
   const cold = opening(Boolean(firstTraded));
 
@@ -211,7 +230,7 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
 
   const build = (beats: Map<number, string | undefined>): Segment[] | null => {
     for (const speed of SPEED_LADDER) {
-      const segs = [...cold, ...story(entries, size, byMove, beats, speed, winStart), ...tail];
+      const segs = [...cold, ...story(entries, size, byMove, beats, speed, winStart, start), ...tail];
       if (total(segs) <= MAX) return segs;
     }
     return null;
@@ -222,7 +241,8 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const beatTime = (beats: Map<number, string | undefined>) => [...beats.keys()].reduce((a, m) => a + beatFrames(chipsOf(byMove, m), Boolean(beats.get(m))), 0);
   // only big deaths are slowed: a crash that is not big never becomes a beat, whatever its weight
   const smallDeath = (m: number) => entries[m].deaths > entries[m - 1].deaths && !chosen.has(m);
-  const candidates = moments.filter(m => m.move < finaleFrom - 12 && !chosen.has(m.move) && !smallDeath(m.move)).sort((a, b) => b.weight - a.weight || a.move - b.move).slice(0, 300);
+  // the opening stretch, up to the rules beat, stays clean: the snake simply runs
+  const candidates = moments.filter(m => m.move < finaleFrom - 12 && m.move > Math.max(start, firstTraded) && !chosen.has(m.move) && !smallDeath(m.move)).sort((a, b) => b.weight - a.weight || a.move - b.move).slice(0, 300);
   for (const c of candidates) {
     const spaced = [...chosen.keys()].every(b => b >= finaleFrom || Math.abs(b - c.move) >= 13);
     if (!spaced) continue;
@@ -232,7 +252,7 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
     const plan = build(tentative);
     if (plan) { chosen = tentative; best = plan; }
   }
-  return best ?? [...cold, ...story(entries, size, byMove, chosen, SPEED_LADDER[SPEED_LADDER.length - 1], winStart), ...tail];
+  return best ?? [...cold, ...story(entries, size, byMove, chosen, SPEED_LADDER[SPEED_LADDER.length - 1], winStart, start), ...tail];
 }
 
 /** The Short: hook, the record crashes, the winning attempt with two beats at most, the fill, the loop. */

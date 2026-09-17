@@ -39,18 +39,25 @@ link while the game plays.
 
 1. **The opening: game, screen, game, screen, game.** The video starts on the game and the
    explanation pops up between stretches of it, never laid over it:
-   - **The hook**: the level's strongest near miss that was traded, from before the
-     finale's last 8 moves, plays as a decision beat at half speed, with no caption.
+   - **The hook**: the snake is seen moving, so it is plain at once that something is
+     steering it: the 36 moves that lead into the level's strongest near miss that was
+     traded (from before the finale's last 8 moves) play as a run at 12 moves a second,
+     three times the normal pace, ending on the escape. No caption, no slow motion.
    - **Screen 1, 135 frames**, over the hook's last frame: label `FUTARCHY SNAKE · LEVEL <n>`,
      lines `Nobody is playing this.` and `A prediction market decides every move.`
-   - **The game from move 1** up to the rules beat (below).
+   - **The game, from where the market is awake** up to the rules beat (below). A level
+     that opens the video skips its quiet beginning, so the market is seen at work from
+     the first second: its story starts at the first move from which at least 5 of the
+     next 20 moves were traded (move 1 when the level was traded from the start, or never
+     that densely). The counters show the true figures of the move on screen, so the
+     skipped moves are not hidden, only not played. Every other level plays from move 1.
    - **Screen 2, 240 frames**: label `HOW IT WORKS · 1`, lines `Traders bet on each
      direction the snake can go.` and `Each price is their forecast of how long the snake
      will get.`
-   - **The rules beat**: the first traded decision from move 13 on whose three prices were
-     recorded plays in full at half speed, with no caption. The game before it plays at 4
-     moves a second when it is 40 moves or fewer, so at least 90 frames of game separate
-     screen 1 from screen 2.
+   - **The rules beat**: the first traded decision at least 37 moves into the story whose three prices were
+     recorded plays in full at half speed, with no caption. The game before it plays at 12
+     moves a second, three times the normal pace, when it is 120 moves or fewer, so the
+     snake is seen moving and at least 90 frames of game separate screen 1 from screen 2.
    - **Screen 3, 120 frames**: label `HOW IT WORKS · 2`, lines `The highest price is the
      move.` and `Nobody steers.`
    - Then the game, to the end. A level with no such near miss opens on screen 1 over move
@@ -252,7 +259,7 @@ here are the contract the renderer and the tests share.
   has a beat of the lock and the move alone. The rules beat plays at half speed, every phase twice as long, so the
   first decision can be followed; the Short's hook plays at normal speed.
 - **Choosing beats.** The hook (Structure, 1) replays a moment of the story and is no part
-  of it. The first traded decision from move 13 on whose three prices were
+  of it. The first traded decision at least 37 moves into the story whose three prices were
   recorded is always a beat, the rules beat; it carries no caption, the cards having said
   it. Then the strongest moments (by weight) get
   beats, strongest first, as long as beats take at most half of the story's time and the

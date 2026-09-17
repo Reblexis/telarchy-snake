@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment, hookCaption } from '../src/timeline.js';
+import { activeStart, fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment, hookCaption } from '../src/timeline.js';
 import { momentsOf } from '../src/moments.js';
 import { bigDeaths } from '../src/attempts.js';
 import { frameAt } from '../src/frames.js';
@@ -90,8 +90,9 @@ describe('the full cut timeline', () => {
     const t = tl();
     const m = moments().filter(x => x.kinds.includes('near miss') && x.credits > 0 && x.move < entries.length - 1 - 7).sort((a, b) => b.weight - a.weight)[0];
     expect(m).toBeTruthy();
-    expect(t[0]).toMatchObject({ kind: 'beat', cold: true, slow: true, move: m.move });
-    expect((t[0] as any).caption).toBeUndefined();
+    // the hook shows the snake moving: the 36 moves into the escape at 12 moves a second, no slow motion
+    expect(t[0]).toMatchObject({ kind: 'run', from: Math.max(0, m.move - 36), to: m.move, speed: 12, hook: true });
+    expect(t.some(x => x.kind === 'beat' && (x as any).cold)).toBe(false);
     expect(t[1]).toEqual({ kind: 'card', card: 'market', entry: m.move, frames: 135 });
     const first = t[2];
     expect(first.kind === 'run' ? (first as any).from === 0 : first.kind !== 'beat' || (first as any).move === 1, JSON.stringify(first)).toBe(true);
@@ -104,12 +105,14 @@ describe('the full cut timeline', () => {
 
   it('at least 90 frames of game separate screen 1 from screen 2, so the screens never flicker past', () => {
     for (const lv of [bigLevel()]) {
-      const by = lv.entries.map((_, k) => (k >= 1 && k <= 30 ? [whale(k + 1, 50)] : [])) as TradeRow[][];
+      const by = lv.entries.map((_, k) => (k >= 1 && k <= 60 ? [whale(k + 1, 50)] : [])) as TradeRow[][];
       const t = fullTimeline(lv.entries, lv.size, by, momentsOf(lv.entries, lv.size, by));
       const a = t.findIndex(x => x.kind === 'card' && (x as any).card === 'market'), b = t.findIndex(x => x.kind === 'card' && (x as any).card === 'bets');
       expect(b).toBeGreaterThan(a);
       expect(t.slice(a + 1, b).reduce((n, x) => n + x.frames, 0)).toBeGreaterThanOrEqual(90);
-      expect((t[b + 1] as any).move).toBeGreaterThanOrEqual(13);
+      expect((t[b + 1] as any).move).toBeGreaterThanOrEqual(37);
+      // and the snake is seen moving at three times the normal pace
+      expect(t.slice(a + 1, b).every(x => x.kind !== 'run' || (x as any).speed === 12)).toBe(true);
     }
   });
 
@@ -122,7 +125,7 @@ describe('the full cut timeline', () => {
     const last = entries.length - 1;
     const nearMiss = (move: number, weight: number) => ({ move, at: entries[move].at, kinds: ['near miss', 'whale'] as any, weight, credits: 1000, traders: 1 });
     const t = fullTimeline(entries, size, byMove, [nearMiss(60, 8), nearMiss(last - 2, 20)]);
-    expect(t[0]).toMatchObject({ kind: 'beat', cold: true, move: 60 });
+    expect(t[0]).toMatchObject({ kind: 'run', hook: true, to: 60 });
   });
 
   it('a level with no traded near miss opens on screen 1 over move 0; with no rules beat the other screens follow it', () => {
@@ -136,9 +139,8 @@ describe('the full cut timeline', () => {
     const beats = tl().filter(x => x.kind === 'beat') as Array<Extract<Segment, { kind: 'beat' }>>;
     // no caption is laid over the game: the cards said it
     expect(beats.some(s => s.caption)).toBe(false);
-    // half speed: the hook and the rules beat, nothing else
-    expect(beats.filter(s => s.slow && !s.cold).length).toBe(1);
-    expect(beats.filter(s => s.cold).every(s => s.slow)).toBe(true);
+    // half speed: the rules beat, nothing else
+    expect(beats.filter(s => s.slow).length).toBe(1);
     for (const s of beats) {
       expect(s.frames).toBe((20 * s.chips + 18 + 18) * (s.slow ? 2 : 1));
       expect(s.chips).toBeLessThanOrEqual(3);
@@ -204,9 +206,9 @@ describe('the full cut timeline', () => {
   });
 
   it('the story covers every move exactly once, in order', () => {
-    const all = tl();
-    const t = all[0].kind === 'beat' && (all[0] as any).cold ? all.slice(1) : all;
-    let expectFrom = 0;
+    // the hook replays a stretch and is no part of the story; the story starts where the market is awake
+    const t = tl().filter(s => !(s.kind === 'run' && s.hook));
+    let expectFrom = activeStart(entries, byMove);
     for (const s of t) {
       if (s.kind === 'run') { expect(s.from, JSON.stringify(s)).toBe(expectFrom); expectFrom = s.to; }
       if (s.kind === 'beat') { expect(s.move, JSON.stringify(s)).toBe(expectFrom + 1); expectFrom = s.move; }
@@ -214,9 +216,9 @@ describe('the full cut timeline', () => {
     expect(expectFrom).toBe(entries.length - 1);
   });
 
-  it('the first traded decision from move 13 on is the rules beat: at half speed, with no caption', () => {
-    // the first traded decision from move 13 on (byMove[k] holds the trades of move k + 1)
-    const first = byMove.findIndex((l, k) => k + 1 >= 13 && l.some(r => Math.abs(Number(r.detail.cost)) >= 1)) + 1;
+  it('the first traded decision from move 37 on is the rules beat: at half speed, with no caption', () => {
+    // the first traded decision from move 37 on (byMove[k] holds the trades of move k + 1)
+    const first = byMove.findIndex((l, k) => k + 1 >= activeStart(entries, byMove) + 37 && l.some(r => Math.abs(Number(r.detail.cost)) >= 1)) + 1;
     const beat = tl().find(s => s.kind === 'beat' && !(s as any).cold && (s as any).move === first);
     expect(beat).toMatchObject({ slow: true });
     expect((beat as any).caption).toBeUndefined();
@@ -268,10 +270,10 @@ describe('the rules beat teaches on real prices', () => {
     const entries = plainLevel('m'.repeat(60) + 'me'.repeat(34), 6).map((e, i) => (i < 20 ? { ...e, prices: { forward: null, left: null, right: null } } : e)) as unknown as LogStep[];
     const byMove = entries.map(() => [] as TradeRow[]);
     byMove[4] = [whale(5, 50)];
-    byMove[24] = [whale(25, 50)];
+    byMove[44] = [whale(45, 50)];
     const tl = fullTimeline(entries, 6, byMove, momentsOf(entries, 6, byMove));
     const rules = tl.find(s => s.kind === 'beat' && s.slow) as { move: number };
-    expect(rules.move).toBe(25);
+    expect(rules.move).toBe(45);
   });
 });
 
@@ -308,6 +310,42 @@ describe('a level inside the series cut', () => {
   it('with no options it is the full cut as before', () => {
     expect(fullTimeline(lv.entries, lv.size, lv.byMove, ms)).toEqual(fullTimeline(lv.entries, lv.size, lv.byMove, ms, {}));
     expect(fullTimeline(lv.entries, lv.size, lv.byMove, ms).at(-1)).toMatchObject({ kind: 'credits' });
+  });
+});
+
+describe('the opening level starts where the market is awake', () => {
+  const quiet = (n: number) => plainLevel('m'.repeat(n) + 'me'.repeat(34), 6);
+  it('the story starts at the first move from which at least 5 of the next 20 moves were traded', () => {
+    const entries = quiet(200);
+    const byMove = entries.map(() => [] as TradeRow[]);
+    byMove[9] = [whale(10, 50)];                                  // a lone early trade wakes nothing
+    for (const m of [101, 104, 108, 112, 119]) byMove[m - 1] = [whale(m, 50)];
+    // moves 100 to 119 hold five traded moves; so do moves 101 to 120, but 100 comes first
+    expect(activeStart(entries, byMove)).toBe(99);
+    const tl = fullTimeline(entries, 6, byMove, momentsOf(entries, 6, byMove));
+    const firstRun = tl.find(s => s.kind === 'run' && !s.hook) as { from: number };
+    expect(firstRun.from).toBe(99);
+  });
+  it('a level traded from the start, or never that densely, starts at move 1', () => {
+    const entries = quiet(100);
+    const dense = entries.map((_, k) => (k < 60 ? [whale(k + 1, 50)] : [])) as TradeRow[][];
+    expect(activeStart(entries, dense)).toBe(0);
+    const sparse = entries.map((_, k) => (k % 30 === 0 ? [whale(k + 1, 50)] : [])) as TradeRow[][];
+    expect(activeStart(entries, sparse)).toBe(0);
+    expect(activeStart(entries, entries.map(() => []))).toBe(0);
+  });
+  it('a trade under one credit wakes nothing', () => {
+    const entries = quiet(100);
+    const dust = entries.map((_, k) => (k >= 50 && k < 80 ? [whale(k + 1, 0.4)] : [])) as TradeRow[][];
+    expect(activeStart(entries, dust)).toBe(0);
+  });
+  it('only the level that opens the video skips: inside a series a later level plays from move 1', () => {
+    const entries = quiet(200);
+    const byMove = entries.map(() => [] as TradeRow[]);
+    for (const m of [101, 104, 108, 112, 119]) byMove[m - 1] = [whale(m, 50)];
+    const tl = fullTimeline(entries, 6, byMove, momentsOf(entries, 6, byMove), { opening: false, credits: false });
+    const first = tl[0] as { from?: number; move?: number };
+    expect(first.from ?? (first.move! - 1)).toBe(0);
   });
 });
 
