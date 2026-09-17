@@ -600,37 +600,56 @@ describe('the narrator line', () => {
   });
 });
 
-describe('the opening cards are full screen', () => {
-  const tl: Segment[] = [{ kind: 'card', card: 'title', frames: 90 }, { kind: 'card', card: 'rules', frames: 150 }, { kind: 'run', from: 0, to: 5, speed: 4, frames: 38, easeIn: false, easeOut: false }];
-  const textOf = (f: number) => drawFull(scene(), frameAt(tl, entries, f));
-  it('the title card carries its label and its sentence in large type, and nothing of the game or the terminal', () => {
-    const d = textOf(45);
-    const all = d.texts.map(t => t.text).join(' ');
-    expect(all).toContain('TELARCHY · FUTARCHY SNAKE · LEVEL 2');
-    expect(all.replace(/\s+/g, ' ')).toContain('A game of snake where a prediction market decides every move.');
-    expect(d.rects.panels).toEqual([]);
-    expect(d.rects.lanes).toBeNull();
-    expect(d.narrator).toBe('');
-    expect(Math.max(...d.texts.map(t => t.size))).toBeGreaterThanOrEqual(80);
-    // nothing of the board: its centre is the frame's ground
-    const k = (Math.round(FULL_BOX.y + FULL_BOX.px * 0.9) * 1920 + Math.round(FULL_BOX.x + 10)) * 3;
-    expect([d.buffer[k], d.buffer[k + 1], d.buffer[k + 2]]).toEqual([0x0b, 0x0b, 0x0e]);
+describe('the opening screens pop out of the game', () => {
+  const tl: Segment[] = [{ kind: 'card', card: 'market', entry: 8, frames: 75 }, { kind: 'card', card: 'bets', entry: 8, frames: 100 }, { kind: 'card', card: 'move', entry: 8, frames: 75 }];
+  const at = (f: number) => drawFull(scene(), frameAt(tl, entries, f));
+  const joined = (d: ReturnType<typeof at>) => d.texts.map(t => t.text).join(' ').replace(/\s+/g, ' ');
+  const pixel = (d: ReturnType<typeof at>, x: number, y: number) => { const k = (Math.round(y) * 1920 + Math.round(x)) * 3; return [d.buffer[k], d.buffer[k + 1], d.buffer[k + 2]]; };
+  it('each screen carries its label and its lines once it is open', () => {
+    expect(joined(at(60))).toContain('FUTARCHY SNAKE · LEVEL 2');
+    expect(joined(at(60))).toContain('Nobody is playing this.');
+    expect(joined(at(60))).toContain('A prediction market decides every move.');
+    expect(joined(at(75 + 80))).toContain('HOW IT WORKS · 1');
+    expect(joined(at(75 + 80))).toContain('Traders bet on each direction the snake can go.');
+    expect(joined(at(75 + 80))).toContain('Each price is their forecast of how long the snake will get.');
+    expect(joined(at(175 + 60))).toContain('HOW IT WORKS · 2');
+    expect(joined(at(175 + 60))).toContain('The highest price is the move.');
+    expect(joined(at(175 + 60))).toContain('Nobody steers.');
   });
-  it('the rules card brings its three lines in one after another, a third of the card apart, and they stay', () => {
-    const lines = ['Traders bet on each direction the snake can go.', "Each price is the market's forecast of how long the snake will get.", 'The highest price is the move. Nobody steers.'];
-    const shown = (f: number) => { const all = textOf(f).texts.map(t => t.text).join(' ').replace(/\s+/g, ' '); return lines.filter(l => all.includes(l)).length; };
-    expect(textOf(95).texts.map(t => t.text)).toContain('HOW IT WORKS');
-    expect(shown(90 + 5)).toBe(1);
-    expect(shown(90 + 55)).toBe(2);
-    expect(shown(90 + 105)).toBe(3);
-    expect(shown(90 + 149)).toBe(3);
+  it('it opens from a line across the middle: on its first frame the game still shows above and below, fully open nothing of it does', () => {
+    const boardPoint: [number, number] = [FULL_BOX.x + 10, FULL_BOX.y + 10];
+    expect([GAME.boardA, GAME.boardB].map(h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)])).toContainEqual(pixel(at(0), ...boardPoint));
+    expect(pixel(at(40), ...boardPoint)).toEqual([0x0b, 0x0b, 0x0e]);
+    expect(at(40).rects.panels).toEqual([]);
+    // and it closes back over its last frames
+    expect(pixel(at(74), ...boardPoint)).not.toEqual([0x0b, 0x0b, 0x0e]);
   });
-  it('every card text is left aligned on one margin, inside the frame, and at least 40 px', () => {
-    for (const f of [45, 200]) {
-      const d = textOf(f);
-      const lefts = new Set(d.texts.filter(t => t.size >= 60).map(t => Math.round(t.x)));
-      expect(lefts.size).toBe(1);
-      for (const t of d.texts) { expect(t.x).toBeGreaterThanOrEqual(120); expect(t.x + t.w).toBeLessThanOrEqual(1920 - 120); expect(t.size).toBeGreaterThanOrEqual(22); }
+  it('the lines come in one after another and stay', () => {
+    const count = (f: number) => ['Nobody is playing this.', 'A prediction market decides every move.'].filter(l => joined(at(f)).includes(l)).length;
+    expect(count(9)).toBe(0);
+    expect(count(18)).toBe(1);
+    expect(count(30)).toBe(2);
+    expect(count(60)).toBe(2);
+  });
+  it('a line rises into place: it sits lower when it first shows than once it has landed', () => {
+    const yOf = (f: number) => at(f).texts.find(t => t.text.startsWith('Nobody'))!.y;
+    expect(yOf(16)).toBeGreaterThan(yOf(40));
+    expect(yOf(40)).toBe(yOf(60));
+  });
+  it('the words that carry the idea turn gold once their line has landed', () => {
+    const d = at(60);
+    const line = d.texts.find(t => t.text.includes('prediction market'))!;
+    let gold = 0;
+    for (let y = Math.floor(line.y); y < line.y + line.h; y++) for (let x = Math.floor(line.x); x < line.x + line.w; x++) { const [r, g, b] = pixel(d, x, y); if (r > 220 && g > 150 && g < 215 && b < 90) gold++; }
+    expect(gold).toBeGreaterThan(300);
+  });
+  it('every line is left aligned on one margin, inside the frame, in large type', () => {
+    for (const f of [60, 155, 235]) {
+      const d = at(f);
+      const big = d.texts.filter(t => t.size >= 60);
+      expect(new Set(big.map(t => Math.round(t.x))).size).toBe(1);
+      expect(Math.max(...big.map(t => t.size))).toBeGreaterThanOrEqual(84);
+      for (const t of d.texts) { expect(t.x).toBeGreaterThanOrEqual(120); expect(t.x + t.w).toBeLessThanOrEqual(1920 - 120); }
     }
   });
 });

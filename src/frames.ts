@@ -18,7 +18,8 @@ export interface FrameInfo {
   caption: string | null;
   lowerThird: { text: string; progress: number } | null;
   hold: { fx: 'hitstop' | 'filled'; progress: number } | null;
-  card: { card: 'title' | 'rules'; progress: number } | null;
+  /** An opening screen: which one, how many frames in, how many from its end. */
+  card: { card: 'market' | 'bets' | 'move'; frame: number; left: number } | null;
   credits: number | null;
   cold: boolean;
 }
@@ -82,7 +83,7 @@ function positionOf(s: Segment, lf: number, entries: LogStep[], tl: Segment[]): 
     return s.move - 1 + Math.min(1, (lf - lockEnd + 1) / moveF);
   }
   if (s.kind === 'hold') return s.entry;
-  if (s.kind === 'card') return 0;
+  if (s.kind === 'card') return s.entry;
   if (s.kind === 'loop') return tl.length ? positionOf(tl[0], 0, entries, tl) : 0;
   return entries.length - 1;
 }
@@ -118,7 +119,7 @@ export function frameAt(tl: Segment[], entries: LogStep[], frame: number): Frame
     caption: s.kind === 'beat' ? s.caption ?? null : null,
     lowerThird: card ? { text: card.text, progress: (f - card.start) / CARD_FRAMES } : null,
     hold: s.kind === 'hold' ? { fx: s.fx, progress: lf / s.frames } : null,
-    card: s.kind === 'card' ? { card: s.card, progress: lf / s.frames } : null,
+    card: s.kind === 'card' ? { card: s.card, frame: lf, left: s.frames - 1 - lf } : null,
     credits: s.kind === 'credits' ? lf / s.frames : null,
     cold: s.kind === 'beat' && s.cold === true,
   };

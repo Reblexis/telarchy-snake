@@ -37,18 +37,32 @@ link while the game plays.
 
 **The full cut, at most two and a half minutes:**
 
-1. **The opening cards, 8 seconds, full screen.** The explanation is never laid over the
-   game: it has the whole frame to itself, in large type on the frame's ground, left
-   aligned, with nothing else on screen.
-   - **The title card, 90 frames**: the label `TELARCHY · FUTARCHY SNAKE · LEVEL <n>` over
-     `A game of snake where a prediction market decides every move.`
-   - **The rules card, 150 frames**: the label `HOW IT WORKS` over three numbered lines,
-     `Traders bet on each direction the snake can go.`, `Each price is the market's
-     forecast of how long the snake will get.`, `The highest price is the move. Nobody
-     steers.` The lines come in one after another, a third of the card apart, and stay.
-   Then a hard cut to move 1. The cards say nothing about how the level went.
-2. **The rules by doing.** The first traded decision whose three prices were recorded plays
-   in full once, at half speed, with no caption over the game.
+1. **The opening: game, screen, game, screen, game.** The video starts on the game and the
+   explanation pops up between stretches of it, never laid over it:
+   - **The hook**: the level's strongest near miss that was traded, from before the
+     finale's last 8 moves, plays as a decision beat at half speed, with no caption.
+   - **Screen 1, 75 frames**, over the hook's last frame: label `FUTARCHY SNAKE · LEVEL <n>`,
+     lines `Nobody is playing this.` and `A prediction market decides every move.`
+   - **The game from move 1** up to the rules beat (below).
+   - **Screen 2, 100 frames**: label `HOW IT WORKS · 1`, lines `Traders bet on each
+     direction the snake can go.` and `Each price is their forecast of how long the snake
+     will get.`
+   - **The rules beat**: the first traded decision from move 13 on whose three prices were
+     recorded plays in full at half speed, with no caption. The game before it plays at 4
+     moves a second when it is 40 moves or fewer, so at least 90 frames of game separate
+     screen 1 from screen 2.
+   - **Screen 3, 75 frames**: label `HOW IT WORKS · 2`, lines `The highest price is the
+     move.` and `Nobody steers.`
+   - Then the game, to the end. A level with no such near miss opens on screen 1 over move
+     0; a level with no rules beat shows screens 2 and 3 straight after screen 1.
+   **A screen is animated and full screen.** It pops out of the frozen game: a gold line
+   across the middle of the frame opens to the full frame over 8 frames with a small
+   overshoot, the label and each line rise 40 px into place and fade in one after another
+   (6 frames apart, 10 frames each), the words that carry the idea (`prediction market`,
+   `forecast`, `highest price`) turn gold once their line has landed, and over its last 8
+   frames the screen closes back to the line and the game goes on from where it froze.
+   While it is fully open nothing of the game shows. Type is large (title lines 84 px),
+   left aligned on one margin. The screens say nothing about how the level went.
 3. **The struggle.** The level runs at speed with the death counter on screen, dropping
    into slow motion on moments (below), never twice within three seconds. Each new record
    brings a lower third, `RECORD <length> · attempt <n>`.
@@ -191,7 +205,8 @@ here are the contract the renderer and the tests share.
   the losers dim), then 18 frames of the snake moving into the cell. A move nobody traded
   has a beat of the lock and the move alone. The rules beat plays at half speed, every phase twice as long, so the
   first decision can be followed; the Short's hook plays at normal speed.
-- **Choosing beats.** The first traded decision of the level whose three prices were
+- **Choosing beats.** The hook (Structure, 1) replays a moment of the story and is no part
+  of it. The first traded decision from move 13 on whose three prices were
   recorded is always a beat, the rules beat; it carries no caption, the cards having said
   it. Then the strongest moments (by weight) get
   beats, strongest first, as long as beats take at most half of the story's time and the
@@ -241,8 +256,8 @@ what sits over it. The renderer draws only what the description says.
   absent everywhere else.
 - **Captions.** A beat that carries a caption shows it for the whole beat; no other frame
   has one.
-- **Cards.** A card's frames say which card it is, its label, its title or its lines, and
-  how far through it is, from 0 to 1; nothing of the game is drawn on them.
+- **Screens.** A screen's frames say which screen it is, the entry the game is frozen on
+  under it, and how many frames in and how many from its end the frame is.
 - **Record cards.** When a run or a beat reaches the crash that ends a record attempt, a
   lower third `RECORD <length> · attempt <n>` shows for 60 frames; a later card replaces
   an earlier one.

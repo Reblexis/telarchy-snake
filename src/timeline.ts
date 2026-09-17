@@ -10,7 +10,7 @@ export const FULL_MAX = 150 * TL_FPS;
 export const SHORT_MAX = 50 * TL_FPS;
 export const CREDITS_FRAMES = 18 * TL_FPS;
 export const SPEED_LADDER = [4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128] as const;
-export const TITLE_CARD_FRAMES = 90, RULES_CARD_FRAMES = 150;
+export const SCREEN_FRAMES = { market: 75, bets: 100, move: 75 } as const;
 /** Marks the rules beat among the chosen beats: it plays at half speed, with no caption. */
 const RULES = 'rules';
 /** The hook's caption: the credits traded on the move, whichever way they were bet; the short sentence alone when nobody traded. */
@@ -25,7 +25,7 @@ export type Segment =
   | { kind: 'beat'; move: number; chips: number; frames: number; cold?: boolean; slow?: boolean; caption?: string }
   | { kind: 'run'; from: number; to: number; speed: number; frames: number; easeIn: boolean; easeOut: boolean; crash?: boolean }
   | { kind: 'hold'; fx: 'hitstop' | 'filled'; entry: number; frames: number }
-  | { kind: 'card'; card: 'title' | 'rules'; frames: number }
+  | { kind: 'card'; card: 'market' | 'bets' | 'move'; entry: number; frames: number }
   | { kind: 'credits'; frames: number }
   | { kind: 'loop'; frames: number };
 type Run = Extract<Segment, { kind: 'run' }>;
@@ -87,6 +87,8 @@ export function positionAt(seg: Run, f: number): number {
 const run = (from: number, to: number, speed: number, easeIn: boolean, easeOut: boolean, extra: Partial<Run> = {}): Run =>
   ({ kind: 'run', from, to, speed, frames: runFrames(to - from, speed, easeIn, easeOut), easeIn, easeOut, ...extra });
 
+const screen = (card: keyof typeof SCREEN_FRAMES, entry: number): Segment => ({ kind: 'card', card, entry, frames: SCREEN_FRAMES[card] });
+
 /** The largest ladder speed at most `target`. */
 const ladderFloor = (target: number) => [...SPEED_LADDER].reverse().find(s => s <= target) ?? MIN_SPEED;
 /** The fastest ladder speed at which D moves still take at least GAP_F frames (a faster run never takes longer). */
@@ -104,7 +106,7 @@ function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Ma
   const out: Segment[] = [];
   let pos = 0;
   let winSpeed = speed;
-  const pushRuns = (from: number, to: number, beforeBeat: boolean, afterBeat: boolean, betweenBeats: boolean) => {
+  const pushRuns = (from: number, to: number, beforeBeat: boolean, afterBeat: boolean, betweenBeats: boolean, beforeRules = false) => {
     // split the winning attempt at each fifth of the grid filled, slowing as it fills
     const cuts = [from];
     for (let e = from + 1; e < to; e++) {
@@ -127,15 +129,20 @@ function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Ma
         winSpeed = s;
       }
       if (betweenBeats && cuts.length === 2) s = Math.min(s, capForGap(b - a, easeIn, easeOut));
+      // the game between screen 1 and screen 2 is never a flicker
+      if (beforeRules && to - from <= 40) s = MIN_SPEED;
       out.push(run(a, b, s, easeIn, easeOut));
     }
   };
   let prevWasBeat = false;
   for (const m of moves) {
-    if (m - 1 > pos) pushRuns(pos, m - 1, true, prevWasBeat, prevWasBeat);
+    if (m - 1 > pos) pushRuns(pos, m - 1, true, prevWasBeat, prevWasBeat, beats.get(m) === RULES && pos === 0);
     const caption = beats.get(m);
     // the rules beat plays at half speed so its caption can be read
-    out.push(beat(byMove, m, caption === RULES ? { slow: true } : caption ? { caption, slow: true } : {}));
+    // the rules beat sits between screens 2 and 3: game, screen, game, screen, game
+    if (caption === RULES) {
+      out.push(screen('bets', m - 1), beat(byMove, m, { slow: true }), screen('move', m));
+    } else out.push(beat(byMove, m, caption ? { caption, slow: true } : {}));
     pos = m;
     prevWasBeat = true;
   }
@@ -150,16 +157,23 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const list = attempts(entries, size);
   const winStart = list[list.length - 1].start;
   const finaleFrom = Math.max(1, last - (FINALE_BEATS - 1));
-  // the opening cards explain the game full screen; nothing of the level plays before move 1
-  const cold: Segment[] = [{ kind: 'card', card: 'title', frames: TITLE_CARD_FRAMES }, { kind: 'card', card: 'rules', frames: RULES_CARD_FRAMES }];
+  // the hook never gives away the fill: its moment comes from before the finale
+  const coldMoment = moments.filter(m => m.kinds.includes('near miss') && m.credits > 0 && m.move < finaleFrom).sort((a, b) => b.weight - a.weight || a.move - b.move)[0];
+  const opening = (rulesBeat: boolean): Segment[] => [
+    ...(coldMoment ? [beat(byMove, coldMoment.move, { cold: true, slow: true })] : []),
+    screen('market', coldMoment ? coldMoment.move : 0),
+    // with no rules beat in the story the other two screens follow straight away
+    ...(rulesBeat ? [] : [screen('bets', 0), screen('move', 0)]),
+  ];
   const tail: Segment[] = [{ kind: 'hold', fx: 'hitstop', entry: last, frames: 4 }, { kind: 'hold', fx: 'filled', entry: last, frames: 90 }, { kind: 'credits', frames: CREDITS_FRAMES }];
 
   const base = new Map<number, string | undefined>();
   for (let m = finaleFrom; m <= last; m++) base.set(m, undefined);
   let firstTraded = 0;
   const priced = (m: number) => (['forward', 'left', 'right'] as const).every(o => typeof entries[m].prices?.[o] === 'number');
-  for (let m = 1; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0 && priced(m)) { firstTraded = m; break; }
+  for (let m = 13; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0 && priced(m)) { firstTraded = m; break; }
   if (firstTraded) base.set(firstTraded, RULES);
+  const cold = opening(Boolean(firstTraded));
 
   // big deaths are beats before any other moment; if they alone outgrow half the story, the furthest-reaching stay
   const storyFrames = FULL_MAX - total(cold) - total(tail);

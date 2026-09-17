@@ -682,7 +682,11 @@ function terminal(p: Painter, scene: Scene, info: FrameInfo, rects: Drawn['rects
 // ---------------------------------------------------------------------------------------------
 // the opening cards, docs/level-video.md "Structure", 1: the explanation has the whole frame to itself
 
-const RULE_LINES = ['Traders bet on each direction the snake can go.', "Each price is the market's forecast of how long the snake will get.", 'The highest price is the move. Nobody steers.'];
+const SCREENS: Record<'market' | 'bets' | 'move', { label: (n: number) => string; lines: string[]; gold: string }> = {
+  market: { label: n => `FUTARCHY SNAKE · LEVEL ${n}`, lines: ['Nobody is playing this.', 'A prediction market decides every move.'], gold: 'prediction market' },
+  bets: { label: () => 'HOW IT WORKS · 1', lines: ['Traders bet on each direction the snake can go.', 'Each price is their forecast of how long the snake will get.'], gold: 'forecast' },
+  move: { label: () => 'HOW IT WORKS · 2', lines: ['The highest price is the move.', 'Nobody steers.'], gold: 'highest price' },
+};
 
 /** Greedy word wrap of `text` at `size` into lines no wider than `w`. */
 function wrap(text: string, size: number, weight: number, w: number): string[] {
@@ -704,27 +708,57 @@ function balanced(text: string, size: number, weight: number, w: number): string
   return wrap(text, size, weight, best);
 }
 
-function openingCard(p: Painter, scene: Scene, card: NonNullable<FrameInfo['card']>) {
-  const X = 200, W = 1920 - 2 * X;
-  // each element eases in over a fifth of a second from its own start, and stays
-  const fade = (from: number) => Math.max(0, Math.min(1, (card.progress - from) / 0.06));
-  if (card.card === 'title') {
-    label(p, `TELARCHY · FUTARCHY SNAKE · LEVEL ${scene.game.number}`, X, 360, 24, 'left', rgba(CHIP, fade(0)));
-    balanced('A game of snake where a prediction market decides every move.', 92, 800, W).forEach((l, k) => p.text(l, X, 480 + k * 106, 92, rgba(FG, fade(0)), 800));
-    return;
-  }
-  label(p, 'HOW IT WORKS', X, 230, 24, 'left', CHIP);
-  let y = 340;
-  RULE_LINES.forEach((text, k) => {
-    const lines = balanced(text, 60, 700, W - 80);
-    // a third of the card apart: a line not yet due is not drawn at all
-    if (card.progress >= k / 3) {
-      const a = fade(k / 3);
-      p.text(String(k + 1), X, y - 4, 30, rgba(CHIP, a), 600, 'mono');
-      lines.forEach((l, j) => p.text(l, X + 80, y + j * 74, 60, rgba(FG, a), 700));
+const easeOut = (t: number) => 1 - (1 - Math.max(0, Math.min(1, t))) ** 3;
+/** How far open a screen is, 0 to 1 and a little past it on the way in: 8 frames to open with an overshoot, 8 to close. */
+function screenOpen(card: NonNullable<FrameInfo['card']>): number {
+  const t = Math.min(1, (card.frame + 1) / 8);
+  const s2 = 1.70158 * 0.6;
+  const back = 1 + (s2 + 1) * (t - 1) ** 3 + s2 * (t - 1) ** 2;
+  return Math.min(back, Math.min(1, card.left / 8));
+}
+
+/** An opening screen over the frozen game: a gold line that opens to the full frame, lines that rise in, gold words. */
+function openingScreen(p: Painter, scene: Scene, card: NonNullable<FrameInfo['card']>) {
+  const c = p.ctx;
+  const { w, h } = FULL_SIZE;
+  const open = screenOpen(card);
+  const half = Math.min(h / 2, (h / 2) * open);
+  c.fillStyle = BG;
+  c.fillRect(0, h / 2 - half, w, half * 2);
+  c.fillStyle = CHIP;
+  // the line it opens from rides its edges, and thins away once it is fully open
+  const edge = Math.max(0, 4 * (1 - Math.max(0, open - 0.98) * 50));
+  if (edge > 0.1) { c.fillRect(0, h / 2 - half - edge / 2, w, edge); c.fillRect(0, h / 2 + half - edge / 2, w, edge); }
+  if (open < 0.85) return;
+  const def = SCREENS[card.card];
+  const X = 200, W = w - 2 * X;
+  const wrapped = def.lines.map(l => balanced(l, 84, 800, W));
+  const total = wrapped.reduce((a, l) => a + l.length * 98, 0) + (wrapped.length - 1) * 44;
+  let y = h / 2 - total / 2 + 70;
+  // each element starts 6 frames after the one before and takes 10 frames to rise 40 px and fade in
+  const start = (k: number) => 8 + k * 6;
+  const rise = (k: number) => easeOut((card.frame - start(k)) / 10);
+  const out = Math.min(1, card.left / 8);
+  if (card.frame >= start(0)) label(p, def.label(scene.game.number), X, y - 120 + 40 * (1 - rise(0)), 24, 'left', rgba(CHIP, rise(0) * out));
+  let k = 1;
+  for (const lines of wrapped) {
+    const r = rise(k), landed = card.frame >= start(k) + 10;
+    if (card.frame >= start(k)) {
+      lines.forEach((l, j) => {
+        const ly = y + j * 98 + 40 * (1 - r);
+        p.text(l, X, ly, 84, rgba(FG, r * out), 800);
+        const at = l.indexOf(def.gold);
+        if (landed && at >= 0) {
+          c.font = `800 84px "${FONTS.sans}"`;
+          c.fillStyle = rgba(CHIP, out);
+          c.textAlign = 'left';
+          c.fillText(def.gold, X + measureText(l.slice(0, at), 84, 800, 'sans'), ly);
+        }
+      });
     }
-    y += lines.length * 74 + 70;
-  });
+    y += lines.length * 98 + 44;
+    k += 1;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -741,10 +775,6 @@ export function drawFull(scene: Scene, info: FrameInfo): Drawn {
   const rects: Drawn['rects'] = { board: { x: box.x, y: box.y, w: box.px, h: box.px }, drawnBoard: { x: box.x, y: box.y, w: box.px, h: box.px }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null, panels: [], chart: null, playhead: null };
   let tape: TapeRow[] = [];
   let narrator = '';
-  if (info.card) {
-    openingCard(p, scene, info.card);
-    return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };
-  }
   if (info.credits !== null) {
     credits(p, scene, 160, 240, 1600, 72, false);
     return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };
@@ -772,6 +802,12 @@ export function drawFull(scene: Scene, info: FrameInfo): Drawn {
   if (info.lowerThird) {
     const top = info.caption ? !low : low;
     lowerThird(p, info.lowerThird.text, box.x + 24, top ? box.y + 24 : box.y + box.px - 24 - 50 * 1.9, 50);
+  }
+  if (info.card) {
+    // the screen pops out of the frozen game; what it covers is not reported as drawn
+    const under = p.texts.length;
+    openingScreen(p, scene, info.card);
+    if (screenOpen(info.card) >= 0.85) return { buffer: rgb(canvas, w, h), texts: p.texts.slice(under), tape: [], narrator: '', rects: { ...rects, panels: [], lanes: null, chips: [], chart: null } };
   }
   return { buffer: rgb(canvas, w, h), texts: p.texts, tape, narrator, rects };
 }

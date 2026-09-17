@@ -86,26 +86,54 @@ describe('the full cut timeline', () => {
     expect(CREDITS_FRAMES).toBe(540);
   });
 
-  it('opens on the two full-screen cards, 90 and 150 frames, then cuts to the first move', () => {
+  it('opens game, screen, game, screen, game: the hook, screen 1, the game from move 1, screen 2, the rules beat, screen 3', () => {
     const t = tl();
-    expect(t[0]).toEqual({ kind: 'card', card: 'title', frames: 90 });
-    expect(t[1]).toEqual({ kind: 'card', card: 'rules', frames: 150 });
+    const m = moments().filter(x => x.kinds.includes('near miss') && x.credits > 0 && x.move < entries.length - 1 - 7).sort((a, b) => b.weight - a.weight)[0];
+    expect(m).toBeTruthy();
+    expect(t[0]).toMatchObject({ kind: 'beat', cold: true, slow: true, move: m.move });
+    expect((t[0] as any).caption).toBeUndefined();
+    expect(t[1]).toEqual({ kind: 'card', card: 'market', entry: m.move, frames: 75 });
     const first = t[2];
-    expect(first.kind === 'run' ? (first as any).from === 0 : first.kind === 'beat' && (first as any).move === 1, JSON.stringify(first)).toBe(true);
-    expect(t.filter(s => s.kind === 'card').length).toBe(2);
+    expect(first.kind === 'run' ? (first as any).from === 0 : first.kind !== 'beat' || (first as any).move === 1, JSON.stringify(first)).toBe(true);
+    const k = t.findIndex(x => x.kind === 'beat' && !(x as any).cold && (x as any).slow);
+    const rules = t[k] as { move: number };
+    expect(t[k - 1]).toEqual({ kind: 'card', card: 'bets', entry: rules.move - 1, frames: 100 });
+    expect(t[k + 1]).toEqual({ kind: 'card', card: 'move', entry: rules.move, frames: 75 });
+    expect(t.filter(x => x.kind === 'card').map(x => (x as any).card)).toEqual(['market', 'bets', 'move']);
   });
 
-  it('nothing of the game plays before move 1: no cold open, no freeze', () => {
-    const t = tl();
-    expect(t.some(s => s.kind === 'beat' && (s as any).cold)).toBe(false);
-    expect(t.some(s => s.kind === 'hold' && (s as any).fx === 'freeze')).toBe(false);
+  it('at least 90 frames of game separate screen 1 from screen 2, so the screens never flicker past', () => {
+    for (const lv of [bigLevel()]) {
+      const by = lv.entries.map((_, k) => (k >= 1 && k <= 30 ? [whale(k + 1, 50)] : [])) as TradeRow[][];
+      const t = fullTimeline(lv.entries, lv.size, by, momentsOf(lv.entries, lv.size, by));
+      const a = t.findIndex(x => x.kind === 'card' && (x as any).card === 'market'), b = t.findIndex(x => x.kind === 'card' && (x as any).card === 'bets');
+      expect(b).toBeGreaterThan(a);
+      expect(t.slice(a + 1, b).reduce((n, x) => n + x.frames, 0)).toBeGreaterThanOrEqual(90);
+      expect((t[b + 1] as any).move).toBeGreaterThanOrEqual(13);
+    }
+  });
+
+  it('the hook never gives away the fill: its moment comes from before the finale\'s last 8 moves', () => {
+    const last = entries.length - 1;
+    const nearMiss = (move: number, weight: number) => ({ move, at: entries[move].at, kinds: ['near miss', 'whale'] as any, weight, credits: 1000, traders: 1 });
+    const t = fullTimeline(entries, size, byMove, [nearMiss(60, 8), nearMiss(last - 2, 20)]);
+    expect(t[0]).toMatchObject({ kind: 'beat', cold: true, move: 60 });
+  });
+
+  it('a level with no traded near miss opens on screen 1 over move 0; with no rules beat the other screens follow it', () => {
+    const plain = plainLevel('me'.repeat(34), 6);
+    const none = plain.map(() => [] as TradeRow[]);
+    const t = fullTimeline(plain, 6, none, momentsOf(plain, 6, none));
+    expect(t.slice(0, 3)).toEqual([{ kind: 'card', card: 'market', entry: 0, frames: 75 }, { kind: 'card', card: 'bets', entry: 0, frames: 100 }, { kind: 'card', card: 'move', entry: 0, frames: 75 }]);
   });
 
   it('a beat is 20 frames a chip up to three, 18 of lock, 18 of move; the rules beat twice that', () => {
     const beats = tl().filter(x => x.kind === 'beat') as Array<Extract<Segment, { kind: 'beat' }>>;
     // no caption is laid over the game: the cards said it
     expect(beats.some(s => s.caption)).toBe(false);
-    expect(beats.filter(s => s.slow).length).toBe(1);
+    // half speed: the hook and the rules beat, nothing else
+    expect(beats.filter(s => s.slow && !s.cold).length).toBe(1);
+    expect(beats.filter(s => s.cold).every(s => s.slow)).toBe(true);
     for (const s of beats) {
       expect(s.frames).toBe((20 * s.chips + 18 + 18) * (s.slow ? 2 : 1));
       expect(s.chips).toBeLessThanOrEqual(3);
@@ -160,7 +188,9 @@ describe('the full cut timeline', () => {
     const by: TradeRow[][] = lv.map(() => []);
     by[999] = [whale(1000, 5000)];
     const t = fullTimeline(lv, 6, by, momentsOf(lv, 6, by));
-    const eased = t.filter((s, k) => s.kind === 'run' && t[k - 1]?.kind === 'beat' && (s as any).speed >= 8 && s.frames > 40) as Array<Extract<Segment, { kind: 'run' }>>;
+    // the game goes on gently after a beat, also when a screen popped up in between
+    const before = (k: number) => { let j = k - 1; while (j >= 0 && t[j].kind === 'card') j--; return t[j]; };
+    const eased = t.filter((s, k) => s.kind === 'run' && before(k)?.kind === 'beat' && (s as any).speed >= 8 && s.frames > 40) as Array<Extract<Segment, { kind: 'run' }>>;
     expect(eased.length).toBeGreaterThan(0);
     for (const s of eased) {
       const first = positionAt(s, 1) - positionAt(s, 0), twelfth = positionAt(s, 12) - positionAt(s, 11);
@@ -179,8 +209,9 @@ describe('the full cut timeline', () => {
     expect(expectFrom).toBe(entries.length - 1);
   });
 
-  it('the first traded decision is the rules beat: at half speed, with no caption', () => {
-    const first = byMove.findIndex(l => l.some(r => Math.abs(Number(r.detail.cost)) >= 1)) + 1;
+  it('the first traded decision from move 13 on is the rules beat: at half speed, with no caption', () => {
+    // the first traded decision from move 13 on (byMove[k] holds the trades of move k + 1)
+    const first = byMove.findIndex((l, k) => k + 1 >= 13 && l.some(r => Math.abs(Number(r.detail.cost)) >= 1)) + 1;
     const beat = tl().find(s => s.kind === 'beat' && !(s as any).cold && (s as any).move === first);
     expect(beat).toMatchObject({ slow: true });
     expect((beat as any).caption).toBeUndefined();

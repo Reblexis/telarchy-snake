@@ -144,14 +144,14 @@ describe('the frame description', () => {
   });
 });
 
-describe('the opening cards', () => {
-  const tl: Segment[] = [{ kind: 'card', card: 'title', frames: 90 }, { kind: 'card', card: 'rules', frames: 150 }, { kind: 'run', from: 0, to: 5, speed: 4, frames: 38, easeIn: false, easeOut: false }];
-  it('a card frame says which card it is and how far through, and nothing of the game', () => {
-    expect(frameAt(tl, entries, 0)).toMatchObject({ kind: 'card', card: { card: 'title', progress: 0 }, beat: null, caption: null, lowerThird: null, badge: null, zoom: 1 });
-    expect(frameAt(tl, entries, 165).card).toMatchObject({ card: 'rules' });
-    expect(frameAt(tl, entries, 165).card!.progress).toBeCloseTo(0.5, 2);
+describe('the opening screens', () => {
+  const tl: Segment[] = [{ kind: 'run', from: 0, to: 5, speed: 4, frames: 38, easeIn: false, easeOut: false }, { kind: 'card', card: 'bets', entry: 5, frames: 100 }, { kind: 'run', from: 5, to: 9, speed: 4, frames: 30, easeIn: false, easeOut: false }];
+  it('a screen frame says which screen it is, how many frames in and how many from its end, over the entry the game froze on', () => {
+    expect(frameAt(tl, entries, 38)).toMatchObject({ kind: 'card', position: 5, card: { card: 'bets', frame: 0, left: 99 }, beat: null, caption: null, badge: null, zoom: 1 });
+    expect(frameAt(tl, entries, 137).card).toEqual({ card: 'bets', frame: 99, left: 0 });
   });
-  it('after the cards the game starts at move 1, and game frames carry no card', () => {
-    expect(frameAt(tl, entries, 240)).toMatchObject({ kind: 'run', position: 0, card: null });
+  it('the game goes on from where it froze, and game frames carry no screen', () => {
+    expect(frameAt(tl, entries, 138)).toMatchObject({ kind: 'run', position: 5, card: null });
+    expect(frameAt(tl, entries, 10).card).toBeNull();
   });
 });
