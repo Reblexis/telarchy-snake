@@ -214,17 +214,126 @@ describe('the full cut frame', () => {
     expect(credits.some(t => t.includes('vi0'))).toBe(true);
   });
 
-  it('the race bars show on every beat frame and on no other; at speed the best-so-far bar takes their place', () => {
+  it('the market panel shows its race bars in every frame of the game; chips fly only in a beat', () => {
     const sc = scene();
     const gameplay = frameCountOf(TL) - 540;
     for (let f = 0; f < gameplay; f += 3) {
       const i = info(f);
       const d = drawFull(sc, i);
-      if (i.beat) expect(d.rects.lanes, `beat frame ${f}`).not.toBeNull();
-      else expect(d.rects.lanes, `${i.kind} frame ${f}`).toBeNull();
+      expect(d.rects.lanes, `${i.kind} frame ${f}`).not.toBeNull();
+      if (!i.beat) expect(d.rects.chips, `${i.kind} frame ${f}`).toEqual([]);
     }
-    expect(drawFull(sc, info(10)).texts.some(t => t.text === 'BEST SO FAR')).toBe(true);
+    expect(drawFull(sc, info(creditsFrame)).rects.lanes).toBeNull();
   }, 60_000);
+
+  it('the dashboard: every panel is labelled in every frame of the game, and none shows in the credits', () => {
+    const sc = scene();
+    const labels = ['SNAKE · LEVEL 2 · 6×6', 'LENGTH', 'BEST', 'DEATHS', 'ATTEMPT', 'LENGTH · WHOLE LEVEL', 'MARKET · NEXT MOVE', 'TRADES'];
+    for (const f of gameplayFrames) {
+      const texts = drawFull(sc, info(f)).texts.map(t => t.text);
+      for (const l of labels) expect(texts, `frame ${f}`).toContain(l);
+      expect(texts.some(t => /^T\+/.test(t)), `frame ${f}`).toBe(true);
+    }
+    const credits = drawFull(sc, info(creditsFrame)).texts.map(t => t.text);
+    // the credits' own stats card has DEATHS and TRADES figures; the panels' labels are what must be gone
+    for (const l of labels.filter(l => l !== 'DEATHS' && l !== 'TRADES')) expect(credits).not.toContain(l);
+    expect(drawFull(sc, info(creditsFrame)).rects.panels).toEqual([]);
+  });
+
+  it('the stat cells read the move on screen: length, best of the grid, deaths, attempt', () => {
+    const sc = scene();
+    // frame 250 is in the run after the beat, past the death at move 12
+    const i = info(250), e = entries[Math.floor(i.position)];
+    const texts = drawFull(sc, i).texts.map(t => t.text);
+    expect(texts).toContain(String(e.length));
+    expect(texts).toContain(`${sc.best[Math.floor(i.position)]} / 36`);
+    expect(texts).toContain(String(e.deaths + 1));
+  });
+
+  it('the panels stay clear of the board and of the margin its push-in may grow into, and inside the frame', () => {
+    const sc = scene();
+    for (const f of gameplayFrames) {
+      const d = drawFull(sc, info(f));
+      expect(d.rects.panels.length, `frame ${f}`).toBe(5);
+      for (const r of d.rects.panels) {
+        expect(r.x, JSON.stringify(r)).toBeGreaterThanOrEqual(60 + 960 + 50);
+        expect(r.x + r.w).toBeLessThanOrEqual(1920 - 40);
+        expect(r.y).toBeGreaterThanOrEqual(40);
+        expect(r.y + r.h).toBeLessThanOrEqual(1080 - 40);
+      }
+      // the panels stack: none overlaps another
+      const ps = d.rects.panels;
+      for (let a = 0; a < ps.length; a++) for (let b = a + 1; b < ps.length; b++) expect(ps[a].y + ps[a].h <= ps[b].y || ps[b].y + ps[b].h <= ps[a].y, `frame ${f} panels ${a},${b}`).toBe(true);
+    }
+  });
+
+  it('no two texts overlap anywhere on the dashboard', () => {
+    const sc = scene();
+    for (const f of gameplayFrames) {
+      const texts = drawFull(sc, info(f)).texts;
+      for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+        const a = texts[i], b = texts[j];
+        const overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        expect(overlap, `frame ${f}: ${JSON.stringify(a)} over ${JSON.stringify(b)}`).toBe(false);
+      }
+    }
+  });
+
+  it('the tape never shows a trade of a move that has not yet been shown', () => {
+    const moves: TradeRow[][] = entries.map(() => []);
+    moves[19] = byMove[19];
+    moves[4] = [trade(5, 70, 'eve', 'forward', 0), trade(5, 80, 'fay', 'left', 1)];
+    const sc = buildScene(game, [game], entries, moves);
+    const tape = (f: number) => drawFull(sc, info(f)).tape.map(r => r.handle);
+    expect(tape(0)).toEqual([]);
+    // the run reaches move 5 somewhere before the beat; by its last frame both early trades are on the tape, newest first
+    expect(tape(29)).toEqual(['fay', 'eve']);
+    // the beat on move 20: a chip's trade enters when its chip starts (chips at frames 30, 70, 110)
+    expect(tape(30)).toEqual(['vi0', 'fay', 'eve']);
+    expect(tape(69)).toEqual(['vi0', 'fay', 'eve']);
+    expect(tape(70)).toEqual(['bob', 'vi0', 'fay', 'eve']);
+    expect(tape(115)).toEqual(['dee', 'bob', 'vi0', 'fay', 'eve']);
+    // at the lock the move's smaller trades enter; the tape holds the five most recent, newest first
+    expect(tape(150)).toEqual(['dee', 'cy', 'bob', 'vi0', 'ann']);
+    expect(tape(250)).toEqual(['dee', 'cy', 'bob', 'vi0', 'ann']);
+  });
+
+  it('a tape row says who, which way, how much and the price it moved; a bet against is a minus', () => {
+    const d = drawFull(scene(), info(160));
+    const dee = d.tape.find(r => r.handle === 'dee')!;
+    expect(dee).toMatchObject({ option: 'left', against: true });
+    const texts = d.texts.map(t => t.text);
+    expect(texts).toContain('−300');
+    expect(texts).toContain('+900');
+    expect(texts).toContain('30.0 → 12.0');
+  });
+
+  it('the playhead marks the move on screen: it starts at the chart\'s left, only moves right, and ends at its right', () => {
+    const sc = scene();
+    const gameplay = frameCountOf(TL) - 540;
+    let last = -Infinity;
+    for (let f = 0; f < gameplay; f += 5) {
+      const i = info(f), d = drawFull(sc, i), c = d.rects.chart!;
+      expect(d.rects.playhead!).toBeCloseTo(c.x + c.w * (i.position / (entries.length - 1)), 3);
+      expect(d.rects.playhead!).toBeGreaterThanOrEqual(last);
+      last = d.rects.playhead!;
+    }
+    const c = drawFull(sc, info(0)).rects.chart!;
+    expect(drawFull(sc, info(0)).rects.playhead).toBeCloseTo(c.x, 3);
+    expect(last).toBeCloseTo(c.x + c.w, 0);
+  }, 60_000);
+
+  it('the chart is bright where the level has played and dimmed where it has not', () => {
+    const sc = scene();
+    const d = drawFull(sc, info(250)), c = d.rects.chart!, ph = d.rects.playhead!;
+    const lum = (x0: number, x1: number) => { let s = 0, n = 0; for (let y = Math.round(c.y); y < c.y + c.h; y++) for (let x = Math.round(x0); x < x1; x++) { const k = (y * 1920 + x) * 3; s += d.buffer[k] + d.buffer[k + 1] + d.buffer[k + 2]; n++; } return s / n; };
+    expect(ph - c.x).toBeGreaterThan(40);
+    expect(c.x + c.w - ph).toBeGreaterThan(40);
+    // the line sits at the same heights either side only roughly, so compare the brightest pixel instead of the mean
+    const peak = (x0: number, x1: number) => { let m = 0; for (let y = Math.round(c.y); y < c.y + c.h; y++) for (let x = Math.round(x0); x < x1; x++) { const k = (y * 1920 + x) * 3; m = Math.max(m, d.buffer[k] + d.buffer[k + 1] + d.buffer[k + 2]); } return m; };
+    void lum;
+    expect(peak(c.x, ph - 4)).toBeGreaterThan(peak(ph + 4, c.x + c.w) * 1.5);
+  });
 
   it('the chips are the three largest trades, each inside its own lane', () => {
     const sc = scene();

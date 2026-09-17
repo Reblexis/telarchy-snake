@@ -7,7 +7,8 @@ comes from and how a render is run.
 
 A level video is a produced piece, not a screen recording. It tells the story of one
 level: the market failing again and again, learning, the near misses, the big bets,
-and the fill. It carries no site chrome while it plays; the links come in the credits.
+and the fill. Around the game it looks like a professional trading tool, a dashboard
+of panels (below); it carries no link while it plays; the links come in the credits.
 
 ## Moments
 
@@ -32,7 +33,7 @@ moves away.
 ## Structure
 
 Both cuts are 1920 by 1080 (the Short 1080 by 1920) at 30 frames a second, and carry no
-site chrome, no link and no panel while the game plays.
+link while the game plays.
 
 **The full cut, at most five minutes:**
 
@@ -57,6 +58,34 @@ record crashes at speed (to 20 s), the winning attempt with two or three decisio
 text sits inside 60 px at the sides, 180 px at the top and 390 px at the bottom, where
 YouTube draws over the Short: the counters sit above the board (the hook's caption takes
 their place), and the race bars, or the best-so-far bar at speed, sit under it.
+
+## The dashboard (full cut)
+
+Everything around the board reads as a high-end trading tool: flat dark panels with a
+hairline border, a small uppercase mono label at each panel's top left, tabular figures,
+and no decoration that carries no data. The board keeps its box on the left; the panels
+stack in one column to its right, clear of the margin the push-in may grow into, and
+are on screen in every frame of the game (never in the credits):
+
+1. **The status line**: `SNAKE · LEVEL <n> · <size>×<size>`, the time into the level of the
+   move on screen as `T+<span>`, and the speed badge at its right end.
+2. **Four stat cells**: `LENGTH`, `BEST` (as `<best> / <cells>`, over a thin gold progress
+   bar of the best length so far against the full grid), `DEATHS` (red) and `ATTEMPT`.
+3. **The length chart**, `LENGTH · WHOLE LEVEL`: the snake's length at every move of the
+   level as one line, each crash a fall to the floor, with the credits traded per stretch
+   of moves as volume bars under it. A playhead marks the move on screen; the part of
+   the level still to come is dimmed, the part played is bright.
+4. **The market**, `MARKET · NEXT MOVE`: the race bars (below), in every frame. Outside a
+   beat they show the recorded prices of the move on screen, with no chips.
+5. **The tape**, `TRADES`: the five most recent trades made up to the move on screen,
+   newest first, one row each: the trader's handle, the option's arrow in its hue (a dash
+   when it cannot be named), `+<credits>` in gold or `−<credits>` in grey, and the price it
+   moved `<from> → <to>`. **The tape never shows a trade of a move that has not yet
+   been shown**; within a beat a trade shown as a chip enters the tape when its chip
+   starts, and the move's smaller trades enter at the lock.
+
+A record card shows on the board, at the end away from the snake's head (and away from a
+caption, if one is up). The Short keeps its own layout (Structure, above).
 
 ## The game looks like a game
 
@@ -100,8 +129,9 @@ violet, turn right magenta). Green belongs to the snake, red to death, gold to r
   instead: its chip sits on the pot's line, beside the pot's total, never over the board or a lane. Chips never overlap: a chip waits until the one before it has landed.
   `+N more` and the pot share one line above the bars, clear of the counters. Every
   price, credit line and chip stays inside the frame's safe area.
-- At speed the race bars are hidden; the board and the counters stay, with a progress bar
-  of the best length so far against the full grid in their place.
+- In the Short the race bars are hidden at speed; the board and the counters stay, with a
+  progress bar of the best length so far against the full grid in their place. In the full
+  cut they stay (the dashboard, above).
 - The leading lane is fully saturated, the others at 60 percent. At the lock the losing
   lanes dim to 30 percent, the winner flashes once, its arrow on the board reaches into
   the next cell, and the snake moves.
@@ -199,19 +229,9 @@ is centred.
 
 ## Sound
 
-The music is the bed, about -18 LUFS. The sound plan lists every sound by frame, kind,
-variant and gain relative to the music:
-
-- a coin at the start of each chip inside a beat;
-- an eat, a crash and the fill wherever they happen at 8 moves a second or slower, and
-  none at all inside a faster run;
-- a record at the frame its card appears;
-- a coin or an eat sits 4 to 8 dB under the music; a crash, a record or the fill at most
-  6 dB above it, each with the music ducked 3 to 5 dB for the sound's length;
-- every kind has four variants with a small pitch and level offset, and a sound never
-  repeats the variant of the previous sound of its kind.
-
-The finished mix is -14 LUFS integrated.
+A cut carries its music and nothing else: no sound effects of any kind. The music plays
+from the first frame, looped if the cut outlasts it, fades in over a second and out over
+the last two. The finished mix is -14 LUFS integrated.
 
 ## The script
 
@@ -222,8 +242,7 @@ strongest ten marked. A person reads the script to see what the video will dwell
 
 ## Encoding
 
-The music is decoded to mono at 44.1 kHz and normalized to -18 LUFS; the sounds are
-synthesized at their planned gains and mixed over it, and the mix is normalized to
+The music is decoded to mono at 44.1 kHz, normalized to
 -14 LUFS, limited, and encoded as AAC at 160 kbit/s beside the video. Each cut's sidecar
 gives its duration as the timeline's frames over 30.
 
