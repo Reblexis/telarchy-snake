@@ -23,8 +23,9 @@ if (!Number.isInteger(n) || n < 1) {
 const musicPath = flag('--music');
 const credit = flag('--credit');
 const only = flag('--only');
-if (musicPath && !existsSync(musicPath)) {
-  console.error(`refused: no music file at ${musicPath}`);
+const musicPaths = musicPath ? musicPath.split(',').map(x => x.trim()).filter(Boolean) : [];
+for (const m of musicPaths) if (!existsSync(m)) {
+  console.error(`refused: no music file at ${m}`);
   process.exit(1);
 }
 if (!musicPath) console.error('no --music: the cuts are silent');
@@ -40,7 +41,7 @@ const { game, games, entries, trades, byMove } = level;
 const moments = momentsOf(entries, game.size, byMove);
 const scene = buildScene(game, games, entries, byMove);
 
-async function cut(kind: 'full' | 'short', music: Float32Array | null) {
+async function cut(kind: 'full' | 'short', music: Float32Array[] | null) {
   const name = kind === 'full' ? `snake-level-${n}` : `snake-level-${n}-short`;
   const tl = kind === 'full' ? fullTimeline(entries, game.size, byMove, moments) : shortTimeline(entries, game.size, byMove, moments);
   const total = frameCountOf(tl);
@@ -51,7 +52,7 @@ async function cut(kind: 'full' | 'short', music: Float32Array | null) {
 }
 
 try {
-  const music = musicPath ? await decodeMusic(musicPath) : null;
+  const music = musicPaths.length ? await Promise.all(musicPaths.map(decodeMusic)) : null;
   if (only !== 'short') await cut('full', music);
   if (only !== 'full') await cut('short', music);
 } catch (e) {

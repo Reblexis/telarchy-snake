@@ -13,7 +13,8 @@ import { levelBudgetFrames, levelStats, seriesSidecar, stepUpScreen, topTradersO
 const argv = process.argv.slice(2);
 const flag = (name: string): string | null => { const i = argv.indexOf(name); return i >= 0 && i + 1 < argv.length ? argv[i + 1] : null; };
 const musicPath = flag('--music'), credit = flag('--credit');
-if (musicPath && !existsSync(musicPath)) { console.error(`refused: no music file at ${musicPath}`); process.exit(1); }
+const musicPaths = musicPath ? musicPath.split(',').map(x => x.trim()).filter(Boolean) : [];
+for (const m of musicPaths) if (!existsSync(m)) { console.error(`refused: no music file at ${m}`); process.exit(1); }
 if (!musicPath) console.error('no --music: the video is silent');
 
 try {
@@ -45,7 +46,7 @@ try {
     for (const s of endScreens) for (let f = 0; f < SERIES_END_FRAMES[s]; f++) yield drawSeriesEnd(end, s, f).buffer;
   }
   console.error(`snake-series: ${levels.length} levels, ${total} frames, ${(total / TL_FPS).toFixed(1)} s`);
-  const out = await renderVideo('snake-series', FULL_SIZE, total, frames(), musicPath ? await decodeMusic(musicPath) : null);
+  const out = await renderVideo('snake-series', FULL_SIZE, total, frames(), musicPaths.length ? await Promise.all(musicPaths.map(decodeMusic)) : null);
   const sidecar = seriesSidecar(stats, total / TL_FPS);
   writeFileSync('videos/snake-series.json', `${JSON.stringify(credit ? { ...sidecar, description: `${sidecar.description}\n${credit}` } : sidecar, null, 2)}\n`);
   console.error(`wrote ${out} and videos/snake-series.json`);

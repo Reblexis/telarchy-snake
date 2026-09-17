@@ -67,7 +67,7 @@ async function truePeakOf(file: string): Promise<number | null> {
 
 /** Encodes `total` frames to videos/<name>.mp4 with the music beside them; the peak is measured and the
  *  mix lowered until it cannot clip (docs/level-video.md, "Encoding"). */
-export async function renderVideo(name: string, size: { w: number; h: number }, total: number, frames: Iterable<Buffer>, music: Float32Array | null) {
+export async function renderVideo(name: string, size: { w: number; h: number }, total: number, frames: Iterable<Buffer>, music: Float32Array[] | null) {
   const out = `videos/${name}.mp4`, video = `videos/${name}.video.mp4`, audio = `videos/${name}.mix.wav`, part = `videos/${name}.part.mp4`;
   mkdirSync('videos', { recursive: true });
   try {

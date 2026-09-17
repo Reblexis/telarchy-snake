@@ -38,3 +38,34 @@ describe('a cut carries its music and nothing else', () => {
     expect(musicTrack(new Float32Array(0), 30, 30).every(v => v === 0)).toBe(true);
   });
 });
+
+describe('a long video moves on to different music', () => {
+  const flat = (seconds: number, v: number) => new Float32Array(sec(seconds)).fill(v);
+  it('the second track follows the first instead of the first repeating', () => {
+    const out = musicTrack([flat(3, 0.2), flat(10, 0.6)], 8 * 30, 30);
+    expect(out[sec(1.5)]).toBeCloseTo(0.2, 3);
+    expect(out[sec(4.5)]).toBeCloseTo(0.6, 3);
+    expect(out[sec(5.5)]).toBeCloseTo(0.6, 3);
+  });
+  it('the next track comes in over a one-second crossfade as the one before ends', () => {
+    const out = musicTrack([flat(3, 0.2), flat(10, 0.6)], 8 * 30, 30);
+    // the crossfade runs from 2 s to 3 s: halfway through, half of each
+    expect(out[sec(2.5)]).toBeCloseTo(0.4, 2);
+    expect(out[sec(1.99)]).toBeCloseTo(0.2, 2);
+    expect(out[sec(3.01)]).toBeCloseTo(0.6, 2);
+  });
+  it('the list starts over only when the video outlasts all of it', () => {
+    const out = musicTrack([flat(3, 0.2), flat(3, 0.6)], 12 * 30, 30);
+    // 0-3 first, 2-5 second (crossfaded in), then the first again from 4 s
+    expect(out[sec(3.5)]).toBeCloseTo(0.6, 3);
+    expect(out[sec(5.5)]).toBeCloseTo(0.2, 3);
+    expect(out[sec(7.5)]).toBeCloseTo(0.6, 3);
+  });
+  it('one track alone loops as before, and an empty track in the list is skipped', () => {
+    const one = musicTrack([flat(2, 0.5)], 6 * 30, 30);
+    expect(one[sec(3.5)]).toBeCloseTo(0.5, 2);
+    const skipped = musicTrack([new Float32Array(0), flat(10, 0.3)], 4 * 30, 30);
+    expect(skipped[sec(2)]).toBeCloseTo(0.3, 3);
+    expect(musicTrack([], 30, 30).every(v => v === 0)).toBe(true);
+  });
+});

@@ -689,7 +689,9 @@ for attribution is never used without it. The house track is
 `assets/music/holiznacc0-drama.mp3` ("Drama" by HoliznaCC0, CC0, its license note beside
 it): a driving instrumental electronic bed with drums and no 8-bit sound, the kind the
 most-viewed comparable videos use (the survey is `notes/level-video-music.md`), and
-longer than the full cut so it never loops.
+longer than the full cut so it never loops. The series cut outlasts it, so it is rendered with a playlist:
+the house track, then `holiznacc0-back-in-the-80s.mp3`, then `holiznacc0-retro-synths.mp3` (both CC0,
+same artist and album, their license notes beside them).
 
 **The sidecar** `snake-level-<game>.json` is `{ game, size, title, description,
 moves, deaths, trades, traders, startedAt, endedAt, durationSeconds }`, where

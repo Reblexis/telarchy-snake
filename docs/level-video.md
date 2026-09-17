@@ -345,9 +345,12 @@ is centred.
 
 ## Sound
 
-A cut carries its music and nothing else: no sound effects of any kind. The music plays
-from the first frame, looped if the cut outlasts it, fades in over a second and out over
-the last two. The finished mix is -14 LUFS integrated.
+A cut carries its music and nothing else: no sound effects of any kind. The music is a
+playlist (`--music` takes one file or several, separated by commas): the tracks play in
+the order given, each from its start, the next one coming in over a one-second crossfade
+as the one before ends, and the list starts over only when the cut outlasts all of it, so
+a long video moves on to different music instead of repeating the first track. The mix
+fades in over a second and out over the last two. The finished mix is -14 LUFS integrated.
 
 ## The script
 
