@@ -9,6 +9,7 @@ import type { GameEntry, LogStep } from './gamelog.js';
 import { betRows, tradesByMove as _unused, type BetRow, type TradeRow } from './level.js';
 import { directionsFrom, type Action } from './decide.js';
 import { survivableOptions } from './moments.js';
+import type { LevelStats } from './series.js';
 import { span } from './frame.js';
 import type { FrameInfo } from './frames.js';
 void _unused;
@@ -761,6 +762,77 @@ function openingScreen(p: Painter, scene: Scene, card: NonNullable<FrameInfo['ca
     y += lines.length * 98 + 44;
     k += 1;
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// the comparison after the last fill, docs/level-video.md "The series cut", 4
+
+export interface SeriesEnd { levels: LevelStats[]; changed: string[]; top: Array<{ handle: string; credits: number }> }
+export const SERIES_END_FRAMES = { table: 300, changed: 270, close: 300 } as const;
+
+/** One frame of a comparison screen. `frame` counts from the screen's first frame. */
+export function drawSeriesEnd(end: SeriesEnd, screen: keyof typeof SERIES_END_FRAMES, frame: number): Drawn {
+  const { w, h } = FULL_SIZE;
+  const canvas = reusable('full', w, h);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, w, h);
+  const p = new Painter(ctx);
+  const X = 200, R = 1720;
+  const total = SERIES_END_FRAMES[screen];
+  // the close holds still for the end screen: it neither animates late nor fades out
+  const out = screen === 'close' ? 1 : Math.min(1, (total - 1 - frame) / 8);
+  const rise = (from: number) => easeOut((frame - from) / 10);
+  const shown = (from: number) => frame >= from;
+  const num = (v: number) => Math.round(v).toLocaleString('en-US');
+  // the gold line every screen opens from
+  const open = Math.min(1, (frame + 1) / 8);
+  ctx.fillStyle = rgba(CHIP, (1 - open) * 0.9);
+  ctx.fillRect(0, h / 2 - 2, w * open, 4);
+
+  if (screen === 'table') {
+    if (shown(8)) label(p, 'EVERY LEVEL, SIDE BY SIDE', X, 190 + 40 * (1 - rise(8)), 24, 'left', rgba(CHIP, rise(8) * out));
+    const n = end.levels.length;
+    const first = 760, colX = (k: number) => (n === 1 ? R : first + ((R - first) * k) / (n - 1));
+    const size = n <= 3 ? 56 : n === 4 ? 46 : 38;
+    if (shown(8)) end.levels.forEach((l, k) => { ctx.letterSpacing = '1.5px'; p.text(`${l.size}×${l.size}`, colX(k), 290 + 40 * (1 - rise(8)), 34, rgba(CHIP, rise(8) * out), 600, 'mono', 'right'); ctx.letterSpacing = '0px'; });
+    const rows: Array<[string, (l: LevelStats) => string, string]> = [['REAL TIME', l => l.span, FG], ['MOVES', l => num(l.moves), FG], ['DEATHS', l => num(l.deaths), RED], ['TRADES', l => num(l.trades), FG], ['TRADERS', l => num(l.traders), FG], ['CREDITS TRADED', l => num(l.credits), CHIP]];
+    rows.forEach(([name, value, colour], r) => {
+      const from = 14 + r * 12;
+      if (!shown(from)) return;
+      const a = rise(from) * out, y = 400 + r * 104 + 40 * (1 - rise(from));
+      ctx.fillStyle = rgba(EDGE, a);
+      ctx.fillRect(X, y - 70, R - X, 1);
+      label(p, name, X, y - 8, 20, 'left', rgba(MUTE, a));
+      end.levels.forEach((l, k) => p.text(value(l), colX(k), y, size, rgba(colour, a), 800, 'sans', 'right'));
+    });
+  } else if (screen === 'changed') {
+    if (shown(8)) label(p, 'WHAT CHANGED', X, 190 + 40 * (1 - rise(8)), 24, 'left', rgba(CHIP, rise(8) * out));
+    end.changed.slice(0, 4).forEach((line, k) => {
+      const from = 20 + k * 40;
+      if (!shown(from)) return;
+      const a = rise(from) * out, y = 330 + k * 170 + 40 * (1 - rise(from));
+      const cut = line.indexOf(': ');
+      p.text(cut >= 0 ? line.slice(0, cut) : line, X, y, 56, rgba(FG, a), 800);
+      if (cut >= 0) p.text(line.slice(cut + 2), X, y + 62, 40, rgba(CHIP, a), 600, 'mono');
+    });
+  } else {
+    const a = rise(8);
+    label(p, 'TOP TRADERS · ALL LEVELS', X, 250, 24, 'left', rgba(CHIP, a));
+    end.top.slice(0, 5).forEach((t, k) => {
+      let handle = t.handle;
+      while (handle.length > 3 && measureText(handle, 44, 600, 'mono') > 520) handle = `${handle.slice(0, -2)}…`;
+      p.text(handle, X, 350 + k * 84, 44, rgba(FG, a), 600, 'mono');
+      p.text(`${num(t.credits)} cr`, X + 900, 350 + k * 84, 44, rgba(CHIP, a), 800, 'sans', 'right');
+    });
+    const lx = 1200;
+    ctx.globalAlpha = a;
+    if (LOGO_NATURAL.w > 0) ctx.drawImage(logoImage, lx, 300, (84 * LOGO_NATURAL.w) / LOGO_NATURAL.h, 84);
+    ctx.globalAlpha = 1;
+    p.text('Bet on the next move', lx, 490, 48, rgba(FG, a), 800);
+    p.text('telarchy.com/snake', lx, 560, 48, rgba(CHIP, a), 800);
+  }
+  return { buffer: rgb(canvas, w, h), texts: p.texts, tape: [], narrator: '', rects: { board: { x: 0, y: 0, w: 0, h: 0 }, drawnBoard: { x: 0, y: 0, w: 0, h: 0 }, head: { x: 0, y: 0 }, caption: null, lanes: null, chips: [], chosen: null, panels: [], chart: null, playhead: null } };
 }
 
 // ---------------------------------------------------------------------------------------------

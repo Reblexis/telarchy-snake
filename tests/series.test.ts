@@ -86,3 +86,70 @@ describe('the series sidecar', () => {
     expect(sc.description).toContain('4x4');
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// the comparison screens at the end of the series
+
+import { drawSeriesEnd, SERIES_END_FRAMES, type SeriesEnd } from '../src/draw.js';
+
+describe('the comparison after the last fill', () => {
+  const end: SeriesEnd = {
+    levels: [stats({}), stats({ level: 2, size: 6, cells: 36, span: '34h 42m', moves: 2042, deaths: 228, trades: 2404, traders: 9, credits: 90000 }), stats({ level: 3, size: 8, cells: 64, span: '91h 7m', moves: 5456, deaths: 39, trades: 37217, traders: 16, credits: 2_900_000.4 })],
+    changed: ['Deaths per cell filled fell: 3.6 → 6.3 → 0.6', 'Trades per move rose: 0.5 → 1.2 → 6.8', 'Credits traded per move rose: 20 → 44 → 532', 'Moves per cell filled rose: 12.5 → 56.7 → 85.3'],
+    top: [{ handle: 'vi0', credits: 2443345 }, { handle: 'bobalobascrob', credits: 514947 }, { handle: 'Wobert', credits: 12000 }],
+  };
+  const texts = (screen: 'table' | 'changed' | 'close', frame: number) => drawSeriesEnd(end, screen, frame).texts;
+  const words = (screen: 'table' | 'changed' | 'close', frame: number) => texts(screen, frame).map(t => t.text);
+  const overlaps = (ts: ReturnType<typeof texts>) => { for (let i = 0; i < ts.length; i++) for (let j = i + 1; j < ts.length; j++) { const a = ts[i], b = ts[j]; if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) return `${a.text} over ${b.text}`; } return null; };
+
+  it('the screens last 300, 270 and 300 frames', () => {
+    expect(SERIES_END_FRAMES).toEqual({ table: 300, changed: 270, close: 300 });
+  });
+  it('the table has a column per level and a row per figure, every figure in full', () => {
+    const w = words('table', 250);
+    for (const t of ['EVERY LEVEL, SIDE BY SIDE', '4×4', '6×6', '8×8', 'REAL TIME', 'MOVES', 'DEATHS', 'TRADES', 'TRADERS', 'CREDITS TRADED', '91h 7m', '5,456', '228', '37,217', '16', '2,900,000']) expect(w, t).toContain(t);
+  });
+  it('the table\'s rows arrive one after another, 12 frames apart, and stay', () => {
+    const rows = ['REAL TIME', 'MOVES', 'DEATHS', 'TRADES', 'TRADERS', 'CREDITS TRADED'];
+    const shown = (f: number) => rows.filter(r => words('table', f).includes(r)).length;
+    expect(shown(5)).toBe(0);
+    // the first row at frame 14, the second at 26
+    expect(shown(20)).toBe(1);
+    expect(shown(30)).toBe(2);
+    expect(shown(100)).toBe(6);
+    expect(shown(299 - 20)).toBe(6);
+  });
+  it('what changed shows each sentence\'s reading and its figures, 40 frames apart', () => {
+    const w = words('changed', 250);
+    for (const t of ['WHAT CHANGED', 'Deaths per cell filled fell', '3.6 → 6.3 → 0.6', 'Trades per move rose', '0.5 → 1.2 → 6.8', 'Moves per cell filled rose', '12.5 → 56.7 → 85.3']) expect(w, t).toContain(t);
+    const shown = (f: number) => end.changed.filter(c => words('changed', f).includes(c.split(': ')[0])).length;
+    expect(shown(10)).toBe(0);
+    expect(shown(30)).toBe(1);
+    expect(shown(70)).toBe(2);
+    expect(shown(150)).toBe(4);
+  });
+  it('the close names the top traders over all levels and carries the link; the other two carry none', () => {
+    const w = words('close', 200);
+    for (const t of ['TOP TRADERS · ALL LEVELS', 'vi0', '2,443,345 cr', 'bobalobascrob', 'Bet on the next move', 'telarchy.com/snake']) expect(w, t).toContain(t);
+    expect(words('table', 250).some(t => /telarchy\.com/.test(t))).toBe(false);
+    expect(words('changed', 250).some(t => /telarchy\.com/.test(t))).toBe(false);
+  });
+  it('the close stays still over its last 240 frames, for the end screen', () => {
+    const a = drawSeriesEnd(end, 'close', 60).buffer, b = drawSeriesEnd(end, 'close', 299).buffer, c = drawSeriesEnd(end, 'close', 180).buffer;
+    expect(a.equals(b)).toBe(true);
+    expect(a.equals(c)).toBe(true);
+  });
+  it('no two texts overlap, everything is inside the frame, and the big type shares one left margin', () => {
+    for (const [screen, f] of [['table', 250], ['changed', 250], ['close', 200]] as const) {
+      const ts = texts(screen, f);
+      expect(overlaps(ts), screen).toBeNull();
+      for (const t of ts) { expect(t.x, `${screen} ${t.text}`).toBeGreaterThanOrEqual(120); expect(t.x + t.w, `${screen} ${t.text}`).toBeLessThanOrEqual(1800); expect(t.y + t.h).toBeLessThanOrEqual(1040); }
+    }
+  });
+  it('five levels still fit the table', () => {
+    const many: SeriesEnd = { ...end, levels: [1, 2, 3, 4, 5].map(n => stats({ level: n, size: 2 + 2 * n, credits: 12_345_678 })) };
+    const ts = drawSeriesEnd(many, 'table', 250).texts;
+    expect(overlaps(ts)).toBeNull();
+    for (const t of ts) expect(t.x + t.w).toBeLessThanOrEqual(1800);
+  });
+});
