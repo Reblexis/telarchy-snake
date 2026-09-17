@@ -59,30 +59,41 @@ text sits inside 60 px at the sides, 180 px at the top and 390 px at the bottom,
 YouTube draws over the Short: the counters sit above the board (the hook's caption takes
 their place), and the race bars, or the best-so-far bar at speed, sit under it.
 
-## The dashboard (full cut)
+## The terminal (full cut)
 
-Everything around the board reads as a high-end trading tool: flat dark panels with a
-hairline border, a small uppercase mono label at each panel's top left, tabular figures,
-and no decoration that carries no data. The board keeps its box on the left; the panels
-stack in one column to its right, clear of the margin the push-in may grow into, and
-are on screen in every frame of the game (never in the credits):
+Everything around the board reads as a professional trading terminal: no boxes, one grid
+ruled by hairlines, small uppercase mono labels, tabular figures, and nothing on screen
+that carries no data. The grid is on screen in every frame of the game (never in the
+credits) and the board sits in its left cell, clear of every rule even at full push-in:
 
-1. **The status line**: `SNAKE · LEVEL <n> · <size>×<size>`, the time into the level of the
-   move on screen as `T+<span>`, and the speed badge at its right end.
-2. **Four stat cells**: `LENGTH`, `BEST` (as `<best> / <cells>`, over a thin gold progress
-   bar of the best length so far against the full grid), `DEATHS` (red) and `ATTEMPT`.
-3. **The length chart**, `LENGTH · WHOLE LEVEL`: the snake's length at every move of the
-   level as one line, each crash a fall to the floor, with the credits traded per stretch
-   of moves as volume bars under it. A playhead marks the move on screen; the part of
-   the level still to come is dimmed, the part played is bright.
-4. **The market**, `MARKET · NEXT MOVE`: the race bars (below), in every frame. Outside a
-   beat they show the recorded prices of the move on screen, with no chips.
-5. **The tape**, `TRADES`: the five most recent trades made up to the move on screen,
-   newest first, one row each: the trader's handle, the option's arrow in its hue (a dash
-   when it cannot be named), `+<credits>` in gold or `−<credits>` in grey, and the price it
-   moved `<from> → <to>`. **The tape never shows a trade of a move that has not yet
-   been shown**; within a beat a trade shown as a chip enters the tape when its chip
-   starts, and the move's smaller trades enter at the lock.
+1. **The ticker**, across the top: `SNAKE/L<n>`, then `<size>×<size> · T+<span>` (the time
+   into the level of the move on screen), and at the right `LEN`, `BEST` (as `<best>` with
+   `/<cells>` in grey), `DEATHS` (red), `ATTEMPT`, `MOVE` (the number of the move on
+   screen, alone) and the speed badge.
+2. **The price ladder**, `NEXT MOVE · PRICE LADDER`: one row per option in the fixed order,
+   under the column heads `OPTION`, `PRICE`, `Δ`, `CREDITS`, `TRADES`. A row is the option's
+   arrow and name in its hue, its price in large figures, the change the move's trades
+   made to it (green up, red down, grey when none), the credits traded on it as
+   `<credits> cr`, and the count of its trades, over a depth bar in the option's hue whose
+   length is the price on the axis from 0 to the full grid. The ladder is the full cut's
+   form of the race bars (below): chips fly along a row to its depth bar's tip, and the
+   lock dims the losing rows. Outside a beat it shows the settled figures of the move on
+   screen, with no chips.
+3. **The price chart**, `PRICES · LAST 40 MOVES`: the three options' prices as three lines
+   in their hues over the forty moves up to the one on screen, on an axis fitted to them
+   and labelled at the right, each line ending in a dot at its latest price (while a beat's trades are still arriving
+   the lines stop at the move before), with a gold
+   diamond on a line where at least 300 credits were traded on that option in one move.
+4. **The tape**, `TAPE`: the nine most recent trades made up to the move on screen,
+   newest first, one row each: the trade's clock time, the trader's handle, the option's
+   arrow in its hue (a dash when it cannot be named), `+<credits>` in gold or `−<credits>`
+   in grey, and the price it moved `<from> → <to>`. Within a beat a trade shown as a chip
+   enters the tape when its chip starts, and the move's smaller trades enter at the lock.
+
+**Nothing on screen gives away how the level goes on or when it ends**: no progress
+through the level, no count of its moves, no chart or list reaching past the move on
+screen. A frame of the game is drawn from the record up to the move it shows and the
+move being decided, and would look the same if the level's record stopped there.
 
 A record card shows on the board, at the end away from the snake's head (and away from a
 caption, if one is up). The Short keeps its own layout (Structure, above).
@@ -131,7 +142,7 @@ violet, turn right magenta). Green belongs to the snake, red to death, gold to r
   price, credit line and chip stays inside the frame's safe area.
 - In the Short the race bars are hidden at speed; the board and the counters stay, with a
   progress bar of the best length so far against the full grid in their place. In the full
-  cut they stay (the dashboard, above).
+  cut they take the form of the price ladder (the terminal, above).
 - The leading lane is fully saturated, the others at 60 percent. At the lock the losing
   lanes dim to 30 percent, the winner flashes once, its arrow on the board reaches into
   the next cell, and the snake moves.
@@ -222,7 +233,7 @@ its eyes are entry `i + 1`'s heading, and at a whole position that entry's own; 
 is not a glide, so the snake keeps entry `i`'s heading until it jumps. Above eight moves a second it jumps cell to cell with a short fading trail on the
 head. Entrances ease out, moves ease in and out, durations are 150, 300 or
 600 ms. Type is Inter at 600 to 800 weight with tabular figures; handles in JetBrains
-Mono. Counters are at least 48 px in the full cut and 96 px in the Short, and nothing in
+Mono. Counters are at least 36 px in the full cut and 96 px in the Short, and nothing in
 the Short is under 40 px. A caption never covers the snake's head; in the Short the hook's
 caption sits above the board, in place of the counters. Text is left-aligned; only a single-line title or a lone number
 is centred.

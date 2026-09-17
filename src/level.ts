@@ -87,7 +87,7 @@ function optionsByBook(trades: TradeRow[], next: LogStep): Map<string, Action | 
 }
 
 /** A move's trades for its bet beat (docs/snake.md, "The fun cuts"), oldest first. */
-export interface BetRow { handle: string; option: Action | null; credits: number; from: number; to: number }
+export interface BetRow { handle: string; option: Action | null; credits: number; from: number; to: number; at: string }
 
 export function betRows(trades: TradeRow[], next: LogStep): BetRow[] {
   const option = optionsByBook(trades, next);
@@ -97,6 +97,7 @@ export function betRows(trades: TradeRow[], next: LogStep): BetRow[] {
     credits: Math.abs(Number(t.detail?.cost) || 0),
     from: Number(t.detail?.callBefore),
     to: Number(t.detail?.callAfter),
+    at: t.at,
   }));
 }
 
