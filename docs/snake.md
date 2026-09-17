@@ -666,6 +666,11 @@ fails never fails the render. Where the feed recorded no price for an option on 
 but named trades were made on it, the option's price for that move is the last of those
 trades' `callAfter`; an option nobody traded on such a move stays without a price.
 
+**The series cut.** `npm run video:series -- [--music <file>] [--credit "<line>"]` renders every
+complete level as one continuous video, `videos/snake-series.mp4`, with its sidecar
+`snake-series.json`; what it shows is `docs/level-video.md`, "The series cut". It is the
+main video. It reads and draws the levels itself, so no per-level cut has to exist first.
+
 **All levels in one video.** `npm run video:all` joins the full cuts already rendered
 under `videos/` into `videos/snake-all-levels.mp4`: every complete level of `/games`, in
 order of level number, each cut whole. It renders nothing itself; a complete level whose
