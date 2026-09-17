@@ -6,19 +6,27 @@ import type { Moment } from './moments.js';
 import { attempts, bigDeaths } from './attempts.js';
 
 export const TL_FPS = 30;
-export const FULL_MAX = 5 * 60 * TL_FPS;
+export const FULL_MAX = 150 * TL_FPS;
 export const SHORT_MAX = 50 * TL_FPS;
 export const CREDITS_FRAMES = 18 * TL_FPS;
 export const SPEED_LADDER = [4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128] as const;
-export const HOOK_CAPTION = 'A market picks every move.';
-export const RULES_CAPTION = 'Traders bet. The highest price moves.';
+export const FREEZE_CAPTION = 'Nobody is playing this. A market is.';
+export const FREEZE_FRAMES = 75;
+export const RULES_CAPTION = 'Traders price each direction. The highest price moves.';
+const WAY = { left: 'left', forward: 'straight', right: 'right' } as const;
+/** The hook's caption: how many credits backed the way that was played; the short sentence alone when nobody traded. */
+export function hookCaption(entries: LogStep[], byMove: TradeRow[][], move: number): string {
+  const credits = Math.round((byMove[move - 1] ?? []).reduce((a, r) => a + Math.abs(Number(r.detail?.cost) || 0), 0));
+  const action = entries[move]?.action;
+  return credits >= 1 && action ? `One way out. ${credits.toLocaleString('en-US')} credits say ${WAY[action]}.` : 'One way out.';
+}
 const GAP_F = 90, EASE_F = 12, MIN_SPEED = 4;
 const FINALE_BEATS = 8, SHORT_FILL_BY = 1200, SHORT_CRASH_MOVES = 6, SHORT_CRASH_SPEED = 16;
 
 export type Segment =
   | { kind: 'beat'; move: number; chips: number; frames: number; cold?: boolean; slow?: boolean; caption?: string }
   | { kind: 'run'; from: number; to: number; speed: number; frames: number; easeIn: boolean; easeOut: boolean; crash?: boolean }
-  | { kind: 'hold'; fx: 'hitstop' | 'filled'; entry: number; frames: number }
+  | { kind: 'hold'; fx: 'hitstop' | 'filled' | 'freeze'; entry: number; frames: number; caption?: string }
   | { kind: 'credits'; frames: number }
   | { kind: 'loop'; frames: number };
 type Run = Extract<Segment, { kind: 'run' }>;
@@ -145,7 +153,9 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const finaleFrom = Math.max(1, last - (FINALE_BEATS - 1));
   // the cold open never gives away the fill: its moment comes from before the finale
   const coldMoment = moments.filter(m => m.kinds.includes('near miss') && m.credits > 0 && m.move < finaleFrom).sort((a, b) => b.weight - a.weight || a.move - b.move)[0];
-  const cold: Segment[] = coldMoment ? [beat(byMove, coldMoment.move, { cold: true, slow: true, caption: HOOK_CAPTION })] : [];
+  const cold: Segment[] = coldMoment
+    ? [beat(byMove, coldMoment.move, { cold: true, slow: true, caption: hookCaption(entries, byMove, coldMoment.move) }), { kind: 'hold', fx: 'freeze', entry: coldMoment.move, frames: FREEZE_FRAMES, caption: FREEZE_CAPTION }]
+    : [];
   const tail: Segment[] = [{ kind: 'hold', fx: 'hitstop', entry: last, frames: 4 }, { kind: 'hold', fx: 'filled', entry: last, frames: 90 }, { kind: 'credits', frames: CREDITS_FRAMES }];
 
   const base = new Map<number, string | undefined>();
@@ -202,7 +212,7 @@ export function shortTimeline(entries: LogStep[], size: number, byMove: TradeRow
   const beforeFinale = Math.max(winStart + 1, last - (FINALE_BEATS - 1));
   const hookMove = moments.filter(m => m.move > winStart && m.move < beforeFinale && m.kinds.includes('near miss')).at(-1)?.move
     ?? moments.filter(m => m.move < beforeFinale).sort((a, b) => b.weight - a.weight)[0]?.move ?? Math.max(1, beforeFinale - 1);
-  const out: Segment[] = [beat(byMove, hookMove, { caption: HOOK_CAPTION })];
+  const out: Segment[] = [beat(byMove, hookMove, { caption: hookCaption(entries, byMove, hookMove) })];
   for (const a of list.slice(0, -1).filter(x => x.record).slice(-4)) {
     const from = Math.max(0, a.end - SHORT_CRASH_MOVES);
     if (a.end > from) out.push(run(from, a.end, SHORT_CRASH_SPEED, out[out.length - 1].kind === 'beat', false, { crash: true }));

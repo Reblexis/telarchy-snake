@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment, RULES_CAPTION } from '../src/timeline.js';
+import { fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment, RULES_CAPTION, hookCaption, FREEZE_CAPTION } from '../src/timeline.js';
 import { momentsOf } from '../src/moments.js';
 import { bigDeaths } from '../src/attempts.js';
 import { frameAt } from '../src/frames.js';
@@ -77,10 +77,10 @@ describe('the full cut timeline', () => {
   const moments = () => momentsOf(entries, size, byMove);
   const tl = () => fullTimeline(entries, size, byMove, moments());
 
-  it('runs at 30 frames a second, at most five minutes, credits last', () => {
+  it('runs at 30 frames a second, at most two and a half minutes, credits last', () => {
     const t = tl();
     expect(TL_FPS).toBe(30);
-    expect(FULL_MAX).toBe(5 * 60 * 30);
+    expect(FULL_MAX).toBe(150 * 30);
     expect(frames(t)).toBeLessThanOrEqual(FULL_MAX);
     expect(t.at(-1)).toMatchObject({ kind: 'credits', frames: CREDITS_FRAMES });
     expect(CREDITS_FRAMES).toBe(540);
@@ -99,7 +99,10 @@ describe('the full cut timeline', () => {
     const m = moments().filter(x => x.kinds.includes('near miss') && x.credits > 0 && x.move < entries.length - 1 - 7).sort((a, b) => b.weight - a.weight)[0];
     if (m) {
       expect(t[0]).toMatchObject({ kind: 'beat', move: m.move, cold: true });
-      const first = t[1];
+      // the freeze: 75 frames on the hook's move under its own caption, then the hard cut to move 1
+      expect(t[1]).toEqual({ kind: 'hold', fx: 'freeze', entry: m.move, frames: 75, caption: FREEZE_CAPTION });
+      expect(FREEZE_CAPTION).toBe('Nobody is playing this. A market is.');
+      const first = t[2];
       expect(first.kind === 'run' ? (first as any).from === 0 : first.kind === 'beat' && (first as any).move === 1, JSON.stringify(first)).toBe(true);
     } else {
       expect(t[0].kind).toBe('run');
@@ -186,7 +189,7 @@ describe('the full cut timeline', () => {
   it('the first traded decision has a beat with the rules caption', () => {
     const first = byMove.findIndex(l => l.some(r => Math.abs(Number(r.detail.cost)) >= 1)) + 1;
     const beat = tl().find(s => s.kind === 'beat' && !(s as any).cold && (s as any).move === first);
-    expect(beat).toMatchObject({ caption: 'Traders bet. The highest price moves.' });
+    expect(beat).toMatchObject({ caption: 'Traders price each direction. The highest price moves.' });
   });
 
   it('the finale: the last 8 moves are beats, the fill holds 4 frames and then FILLED for 90', () => {
@@ -194,7 +197,7 @@ describe('the full cut timeline', () => {
     const last = entries.length - 1;
     const beats = t.filter(s => s.kind === 'beat' && !(s as any).cold).map(s => (s as any).move);
     for (let m = last - 7; m <= last; m++) expect(beats).toContain(m);
-    const fill = t.filter(s => s.kind === 'hold');
+    const fill = t.filter(s => s.kind === 'hold' && s.fx !== 'freeze');
     expect(fill.map(s => [(s as any).fx, s.frames])).toEqual([['hitstop', 4], ['filled', 90]]);
   });
 
@@ -227,6 +230,34 @@ describe('the full cut timeline', () => {
     const t = fullTimeline(e, size, [[], []], momentsOf(e, size, [[], []]));
     expect(frames(t)).toBeLessThanOrEqual(FULL_MAX);
     expect(t.at(-1)!.kind).toBe('credits');
+  });
+});
+
+describe('the full cut is short', () => {
+  it('two and a half minutes at most, whatever the level', () => {
+    expect(FULL_MAX).toBe(150 * TL_FPS);
+  });
+});
+
+describe("the hook's caption", () => {
+  const entries = plainLevel('mmmm', 6);
+  it('says how many credits backed the way that was played', () => {
+    const byMove = entries.map(() => [] as TradeRow[]);
+    byMove[2] = [whale(3, 9000), whale(3, 989.4)];
+    expect(hookCaption(entries, byMove, 3)).toBe('One way out. 9,989 credits say straight.');
+    expect(hookCaption(entries.map((e, i) => (i === 3 ? { ...e, action: 'left' as const } : e)), byMove, 3)).toBe('One way out. 9,989 credits say left.');
+  });
+  it('is the short sentence alone when nobody traded the move, or under one credit', () => {
+    const byMove = entries.map(() => [] as TradeRow[]);
+    expect(hookCaption(entries, byMove, 3)).toBe('One way out.');
+    byMove[2] = [whale(3, 0.4)];
+    expect(hookCaption(entries, byMove, 3)).toBe('One way out.');
+  });
+  it('the Short opens under it too', () => {
+    const big = bigLevel();
+    const ms = momentsOf(big.entries, big.size, big.byMove);
+    const s0 = shortTimeline(big.entries, big.size, big.byMove, ms)[0] as { move: number; caption?: string };
+    expect(s0.caption).toBe(hookCaption(big.entries, big.byMove, s0.move));
   });
 });
 
@@ -286,7 +317,7 @@ describe('the Short timeline', () => {
   });
   it('hooks on a beat with the caption, then the record crashes at 16 moves a second', () => {
     const t = tl();
-    expect(t[0]).toMatchObject({ kind: 'beat', caption: 'A market picks every move.' });
+    expect(t[0]).toMatchObject({ kind: 'beat', caption: 'One way out.' });
     // the Short's hook plays at normal speed
     expect((t[0] as any).slow).toBeFalsy();
     expect(t[0].frames).toBe(20 * (t[0] as any).chips + 36);

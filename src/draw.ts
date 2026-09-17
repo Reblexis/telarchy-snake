@@ -416,15 +416,28 @@ function counters(p: Painter, scene: Scene, info: FrameInfo, x: number, y: numbe
 }
 
 function caption(p: Painter, text: string, x: number, y: number, want: number, w: number): Rect {
-  // the caption shrinks to fit its band, never under the frame's smallest size
+  // the caption shrinks to fit its band, never under the frame's smallest size; still too long, it breaks in two
+  const floor = Math.max(p.minSize, 28);
+  const fits = (t: string, size: number) => measureText(t, size, 800, 'sans') <= w - size * 1.2;
   let size = want;
-  while (size > p.minSize && measureText(text, size, 800, 'sans') > w - size * 1.2) size -= 1;
-  const h = want * 1.9;
-  p.round(x, y, w, h, size * 0.35, 'rgba(24,24,28,0.95)');
+  while (size > floor && !fits(text, size)) size -= 1;
+  let lines = [text];
+  if (!fits(text, size)) {
+    const spaces = [...text].map((ch, i) => (ch === ' ' ? i : -1)).filter(i => i > 0);
+    const mid = spaces.sort((i, j) => Math.abs(i - text.length / 2) - Math.abs(j - text.length / 2))[0];
+    if (mid) lines = [text.slice(0, mid), text.slice(mid + 1)];
+    size = Math.min(want, Math.max(floor, size));
+    while (size > floor && !lines.every(l => fits(l, size))) size -= 1;
+  }
+  const h = lines.length === 1 ? want * 1.9 : size * 2.5 + want * 0.5;
+  // a two-line caption grows upward, so what sits under it (the Short's board) stays clear
+  const top = lines.length === 1 ? y : y + want * 1.9 - h;
+  p.round(x, top, w, h, size * 0.35, 'rgba(24,24,28,0.95)');
   p.ctx.fillStyle = CHIP;
-  p.ctx.fillRect(x, y + h * 0.2, size * 0.14, h * 0.6);
-  p.text(text, x + size * 0.6, y + h * 0.5 + size * 0.36, size, FG, 800);
-  return { x, y, w, h };
+  p.ctx.fillRect(x, top + h * 0.2, size * 0.14, h * 0.6);
+  if (lines.length === 1) p.text(text, x + size * 0.6, top + h * 0.5 + size * 0.36, size, FG, 800);
+  else lines.forEach((l, k) => p.text(l, x + size * 0.6, top + want * 0.25 + size * (1.0 + k * 1.2), size, FG, 800));
+  return { x, y: top, w, h };
 }
 
 function bestSoFar(p: Painter, scene: Scene, info: FrameInfo, x: number, y: number, w: number, big: number) {

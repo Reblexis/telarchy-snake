@@ -37,7 +37,7 @@ const scene = () => buildScene(game, [game], entries, byMove);
 
 const TL: Segment[] = [
   { kind: 'run', from: 0, to: 19, speed: 24, frames: 30, easeIn: false, easeOut: true },
-  { kind: 'beat', move: 20, chips: 3, frames: 192, slow: true, caption: 'Traders bet. The highest price moves.' },
+  { kind: 'beat', move: 20, chips: 3, frames: 192, slow: true, caption: 'Traders price each direction. The highest price moves.' },
   { kind: 'run', from: 20, to: 30, speed: 4, frames: 75, easeIn: true, easeOut: false },
   { kind: 'hold', fx: 'hitstop', entry: 30, frames: 4 },
   { kind: 'hold', fx: 'filled', entry: 30, frames: 90 },
@@ -470,7 +470,7 @@ describe('the full cut frame', () => {
     const low: LogStep[] = [0, 1, 2].map(i => ({ step: i, at: at(i), snake: [{ x: 1 + i, y: 5 }, { x: i, y: 5 }], food: { x: 0, y: 0 }, heading: 'right', action: i ? 'forward' : null, direction: 'right', undecided: false, prices: PRICES, length: 2, deaths: 0 }));
     const g: GameEntry = { number: 1, size, startedAt: at(0), endedAt: at(2), steps: 2, bestLength: 2, deaths: 0 };
     const sc = buildScene(g, [g], low, [[], []]);
-    const tl: Segment[] = [{ kind: 'beat', move: 1, chips: 0, frames: 72, slow: true, caption: 'A market picks every move.' }, { kind: 'beat', move: 2, chips: 0, frames: 36 }];
+    const tl: Segment[] = [{ kind: 'beat', move: 1, chips: 0, frames: 72, slow: true, caption: 'One way out.' }, { kind: 'beat', move: 2, chips: 0, frames: 36 }];
     for (let f = 0; f < 72; f += 3) {
       const d = drawFull(sc, frameAt(tl, low, f));
       const { caption, head } = d.rects;
@@ -533,6 +533,22 @@ describe('the Short frame', () => {
       if (d.rects.caption) expect(d.rects.caption.y + d.rects.caption.h).toBeLessThanOrEqual(d.rects.board.y);
       if (d.rects.caption) expect(d.texts.map(t => t.text)).not.toContain('LENGTH');
     }
+  });
+});
+
+describe('a long caption', () => {
+  it('breaks into two lines at the space nearest its middle when it cannot fit the Short at 40 px, and stays above the board', () => {
+    const text = 'Traders price each direction. The highest price moves.';
+    const tl: Segment[] = [{ kind: 'beat', move: 20, chips: 0, frames: 72, slow: true, caption: text }];
+    const d = drawShort(scene(), frameAt(tl, entries, 10));
+    const lines = d.texts.filter(t => text.includes(t.text) && t.text.length > 10).map(t => t.text);
+    expect(lines).toEqual(['Traders price each direction.', 'The highest price moves.']);
+    expect(d.rects.caption!.y + d.rects.caption!.h).toBeLessThanOrEqual(d.rects.board.y);
+    for (const t of d.texts) { expect(t.x + t.w).toBeLessThanOrEqual(1080 - 60); expect(t.y).toBeGreaterThanOrEqual(180); }
+  });
+  it('a caption that fits stays on one line', () => {
+    const tl: Segment[] = [{ kind: 'beat', move: 20, chips: 0, frames: 72, slow: true, caption: 'One way out.' }];
+    expect(drawShort(scene(), frameAt(tl, entries, 10)).texts.map(t => t.text)).toContain('One way out.');
   });
 });
 

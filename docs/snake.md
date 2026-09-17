@@ -644,7 +644,7 @@ or does not exist.
 
 **The cuts.** `npm run video -- <game> [--music <audio file>] [--credit "<line>"]`
 writes the produced **full cut** `videos/snake-level-<game>.mp4` (1920 by 1080, at
-most five minutes) and the **Short** `videos/snake-level-<game>-short.mp4` (1080 by
+most two and a half minutes) and the **Short** `videos/snake-level-<game>-short.mp4` (1080 by
 1920), each with its sidecar; `--only full` or `--only short` writes one of them.
 What they show, how they are paced and how they sound is `docs/level-video.md`.
 `npm run script -- <game>` prints the level's script, the moments a video dwells on.

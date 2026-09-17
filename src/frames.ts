@@ -17,7 +17,7 @@ export interface FrameInfo {
   badge: string | null;
   caption: string | null;
   lowerThird: { text: string; progress: number } | null;
-  hold: { fx: 'hitstop' | 'filled'; progress: number } | null;
+  hold: { fx: 'hitstop' | 'filled' | 'freeze'; progress: number } | null;
   credits: number | null;
   cold: boolean;
 }
@@ -113,7 +113,7 @@ export function frameAt(tl: Segment[], entries: LogStep[], frame: number): Frame
     beat,
     zoom,
     badge: s.kind === 'run' && s.speed > 4 ? `x${s.speed / 4}` : null,
-    caption: s.kind === 'beat' ? s.caption ?? null : null,
+    caption: s.kind === 'beat' || s.kind === 'hold' ? s.caption ?? null : null,
     lowerThird: card ? { text: card.text, progress: (f - card.start) / CARD_FRAMES } : null,
     hold: s.kind === 'hold' ? { fx: s.fx, progress: lf / s.frames } : null,
     credits: s.kind === 'credits' ? lf / s.frames : null,

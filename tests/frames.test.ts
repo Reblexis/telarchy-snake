@@ -17,7 +17,7 @@ const deaths = lengths.map((_, i) => (i >= 20 ? 2 : i >= 10 ? 1 : 0));
 const entries = level(lengths, deaths);
 const run = (from: number, to: number, speed: number, frames: number, extra: Partial<Segment> = {}): Segment => ({ kind: 'run', from, to, speed, frames, easeIn: false, easeOut: false, ...extra } as Segment);
 const TL: Segment[] = [
-  { kind: 'beat', move: 30, chips: 2, frames: 152, cold: true, slow: true, caption: 'A market picks every move.' },
+  { kind: 'beat', move: 30, chips: 2, frames: 152, cold: true, slow: true, caption: 'One way out.' },
   run(0, 9, 24, 12),
   { kind: 'beat', move: 10, chips: 3, frames: 96 },
   run(10, 39, 24, 37),
@@ -63,7 +63,7 @@ describe('the frame description', () => {
   });
 
   it('a captioned beat not marked slow (the Short\'s hook) keeps normal phases', () => {
-    const hook: Segment[] = [{ kind: 'beat', move: 30, chips: 1, frames: 56, caption: 'A market picks every move.' }];
+    const hook: Segment[] = [{ kind: 'beat', move: 30, chips: 1, frames: 56, caption: 'One way out.' }];
     expect(frameAt(hook, entries, 19).beat).toMatchObject({ phase: 'chips', chip: 0 });
     expect(frameAt(hook, entries, 20).beat).toMatchObject({ phase: 'lock' });
     expect(frameAt(hook, entries, 38).beat).toMatchObject({ phase: 'move' });
@@ -100,8 +100,8 @@ describe('the frame description', () => {
   });
 
   it('a beat with a caption shows it for the whole beat, and no other frame has one', () => {
-    expect(frameAt(TL, entries, 0).caption).toBe('A market picks every move.');
-    expect(frameAt(TL, entries, 151).caption).toBe('A market picks every move.');
+    expect(frameAt(TL, entries, 0).caption).toBe('One way out.');
+    expect(frameAt(TL, entries, 151).caption).toBe('One way out.');
     expect(frameAt(TL, entries, 152).caption).toBeNull();
     expect(frameAt(TL, entries, start(2) + 5).caption).toBeNull();
   });
@@ -124,7 +124,7 @@ describe('the frame description', () => {
 
   it('a cold open on a record crash brings no card; the card comes when the story reaches the crash', () => {
     const cold: Segment[] = [
-      { kind: 'beat', move: 10, chips: 1, frames: 112, cold: true, slow: true, caption: 'A market picks every move.' },
+      { kind: 'beat', move: 10, chips: 1, frames: 112, cold: true, slow: true, caption: 'One way out.' },
       run(0, 9, 24, 12),
       { kind: 'beat', move: 10, chips: 1, frames: 56 },
       { kind: 'credits', frames: 540 },
@@ -141,5 +141,18 @@ describe('the frame description', () => {
     expect(frameAt(TL, entries, start(6) + 45).position).toBe(40);
     expect(frameAt(TL, entries, start(7) + 270).credits).toBeCloseTo(0.5, 6);
     expect(frameAt(TL, entries, start(1)).credits).toBeNull();
+  });
+});
+
+describe("the hook's freeze", () => {
+  it('holds the entry it names under its own caption, with no beat and no push-in', () => {
+    const tl: Segment[] = [{ kind: 'beat', move: 10, chips: 0, frames: 72, cold: true, slow: true, caption: 'One way out.' }, { kind: 'hold', fx: 'freeze', entry: 10, frames: 75, caption: 'Nobody is playing this. A market is.' }, { kind: 'run', from: 0, to: 5, speed: 4, frames: 38, easeIn: false, easeOut: false }];
+    for (const f of [72, 100, 146]) {
+      const i = frameAt(tl, entries, f);
+      expect(i).toMatchObject({ position: 10, caption: 'Nobody is playing this. A market is.', beat: null, zoom: 1 });
+      expect(i.hold?.fx).toBe('freeze');
+    }
+    expect(frameAt(tl, entries, 147).position).toBe(0);
+    expect(frameAt(tl, entries, 147).caption).toBeNull();
   });
 });
