@@ -10,8 +10,7 @@ import { momentsOf } from './moments.js';
 import { fullTimeline, shortTimeline, TL_FPS, type Segment } from './timeline.js';
 import { frameCountOf, type FrameInfo } from './frames.js';
 import { buildScene, drawFull, drawShort, FULL_SIZE, SHORT_SIZE, type Drawn, type Scene } from './draw.js';
-import { soundPlan } from './sound.js';
-import { mixTracks, musicGain, synthEffects, wavOf } from './mixer.js';
+import { musicTrack, wavOf } from './mixer.js';
 import { cutSidecar, encodeArgs, musicDecodeArgs, muxArgs, productionFrames } from './produce.js';
 import { pump } from './pump.js';
 import { parseTruePeak, peakCorrectionDb } from './loudness.js';
@@ -33,7 +32,7 @@ if (musicPath && !existsSync(musicPath)) {
   console.error(`refused: no music file at ${musicPath}`);
   process.exit(1);
 }
-if (!musicPath) console.error('no --music: the cuts carry the sound effects alone');
+if (!musicPath) console.error('no --music: the cuts are silent');
 
 let level;
 try {
@@ -104,8 +103,7 @@ async function cut(kind: 'full' | 'short', music: Float32Array | null) {
   console.error(`${name}: ${tl.length} segments, ${total} frames, ${(total / TL_FPS).toFixed(1)} s`);
   try {
     await encode(video, kind === 'full' ? FULL_SIZE : SHORT_SIZE, tl, kind === 'full' ? drawFull : drawShort);
-    const plan = soundPlan(tl, entries, game.size);
-    const mix = mixTracks(music, synthEffects(plan, total, TL_FPS), musicGain(plan, total, TL_FPS));
+    const mix = musicTrack(music, total, TL_FPS);
     writeFileSync(audio, wavOf(mix));
     // measure the encoded file and lower the mix until it cannot clip (docs/level-video.md, "Encoding")
     let gainDb = 0;

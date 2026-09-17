@@ -25,9 +25,9 @@ export function encodeArgs(path: string, size: { w: number; h: number }): string
   ];
 }
 
-/** The ffmpeg arguments that decode a music file to mono float samples at the mixer's rate, normalized to -18 LUFS. */
+/** The ffmpeg arguments that decode a music file to mono float samples at the mixer's rate, normalized to -14 LUFS. */
 export function musicDecodeArgs(path: string): string[] {
-  return ['-hide_banner', '-loglevel', 'error', '-i', path, '-af', 'loudnorm=I=-18:TP=-2:LRA=11', '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'f32le', 'pipe:1'];
+  return ['-hide_banner', '-loglevel', 'error', '-i', path, '-af', 'loudnorm=I=-14:TP=-2:LRA=11', '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'f32le', 'pipe:1'];
 }
 
 /** The ffmpeg arguments that put the mixed audio beside the encoded video: normalized to -14 LUFS, limited, and

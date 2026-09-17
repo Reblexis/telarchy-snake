@@ -44,10 +44,10 @@ describe('the encoder', () => {
 });
 
 describe('the audio', () => {
-  it('decodes the music to mono 44.1 kHz floats normalized to -18 LUFS', () => {
+  it('decodes the music to mono 44.1 kHz floats normalized to -14 LUFS', () => {
     const s = musicDecodeArgs('track.ogg').join(' ');
     expect(s).toContain('-i track.ogg');
-    expect(s).toContain('loudnorm=I=-18');
+    expect(s).toContain('loudnorm=I=-14');
     expect(s).toContain('-ac 1');
     expect(s).toContain('-ar 44100');
     expect(s).toContain('-f f32le');

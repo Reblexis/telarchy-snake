@@ -653,13 +653,12 @@ everything else on the machine.
 
 **The music** is the file given with `--music`: a royalty-free track whose license
 allows it in YouTube videos without a Content ID claim (the `level-video` skill picks
-it and keeps its license beside the video). Without `--music` the cuts carry the sound
-effects alone and the command says so. `--credit "<line>"` gives the track's credit,
+it and keeps its license beside the video). Without `--music` the cuts are silent
+and the command says so. `--credit "<line>"` gives the track's credit,
 and each sidecar's description then ends with that line; a track whose license asks
 for attribution is never used without it. The house track is
 `assets/music/holiznacc0-jump.mp3` ("Jump!" by HoliznaCC0, CC0, its license note beside
-it): long enough that the full cut never loops it, and even in level so it sits under
-the sound effects.
+it): long enough that the full cut never loops it, and even in level from start to end.
 
 **The sidecar** `snake-level-<game>.json` is `{ game, size, title, description,
 moves, deaths, trades, traders, startedAt, endedAt, durationSeconds }`, where
