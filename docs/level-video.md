@@ -89,6 +89,50 @@ row in a beat, the lock dims the losing rows, the tape never shows a trade of a 
 yet shown, and nothing reaches past the move on screen. In the Short a trade whose option
 cannot be named has no chip and no pot line; it shows on the tape with a dash.
 
+## The series cut: every level in one continuous video
+
+`npm run video:series` renders one video of every complete level, in order, as one
+continuous piece: one opening, no credits between levels, a screen between levels that
+raises the stakes, and the comparison of all levels at the end. It is the main video; the
+per-level full cuts stay available. It is drawn exactly like the full cut (the terminal,
+the game, the screens) and carries the same music, looped.
+
+1. **The opening** (Structure, 1) plays once, on the first level; its hook comes from the
+   first level. Later levels start straight on their move 1, with no hook, no screens
+   and no rules beat.
+2. **Each level** plays as its full cut's story and finale, up to the fill and `FILLED`,
+   inside its own time budget: `40 + 1.7 x cells` seconds, at most 150 (67 s for 4x4,
+   101 s for 6x6, 149 s for 8x8).
+3. **Between two levels, a step-up screen, 105 frames**, popping out of the filled board
+   like every screen: label `LEVEL <n> FILLED`, then two lines. The first line is, by the
+   number of the level that follows: level 2 `Let's step it up a notch.`, level 3 `Too
+   easy.`, level 4 `Bigger again.`, and from level 5 on `And again.`; the second is
+   `How about a <size>×<size> grid?` for level 2 and `<size>×<size>: <cells> cells to fill.`
+   after it. The grid size is the gold word.
+4. **The comparison, after the last fill**, three screens in the terminal's type, left
+   aligned, each popping open like every screen:
+   - **The table, 300 frames**: label `EVERY LEVEL, SIDE BY SIDE`; one column per level
+     headed `<size>×<size>`, one row each for `REAL TIME`, `MOVES`, `DEATHS`, `TRADES`,
+     `TRADERS` and `CREDITS TRADED`, the rows arriving one after another 12 frames apart.
+   - **What changed, 270 frames**: label `WHAT CHANGED`; up to four sentences computed from
+     the levels, each with its figures level by level (below), arriving 40 frames apart.
+   - **The close, 300 frames**: the top five traders over all levels by credits traded,
+     then `Bet on the next move` and `telarchy.com/snake`; its last 240 frames stay still
+     for YouTube's end screen.
+5. **What changed** is measured, never asserted. Each line is a rate per level, written
+   `<first> → ... → <last>`:
+   - `Deaths per cell filled` (deaths over cells, one decimal);
+   - `Trades per move` (one decimal);
+   - `Credits traded per move` (whole credits);
+   - `Moves per cell filled` (one decimal).
+   A line is followed by its reading only when the first and last level differ by at
+   least a fifth: `fell` or `rose`, as in `Deaths per cell filled fell: 3.6 → 6.3 → 0.6`;
+   otherwise it reads `held`. Nothing on these screens is rounded to look better and no
+   cause is claimed.
+
+The sidecar `snake-series.json` is `{ title, description, levels, durationSeconds }`, the
+title `A prediction market plays snake: levels <first> to <last>`.
+
 ## The terminal (full cut)
 
 Everything around the board reads as a professional trading terminal: no boxes, one grid
