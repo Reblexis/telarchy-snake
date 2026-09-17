@@ -269,31 +269,6 @@ function board(p: Painter, scene: Scene, info: FrameInfo, box: Box, margin: numb
   if (info.beat) {
     const decided = scene.entries[info.beat.move];
     const before = scene.entries[info.beat.move - 1];
-    const dirs = directionsFrom(before.heading);
-    const locked = info.beat.phase !== 'chips';
-    const chosen = decided && !decided.undecided ? decided.action : null;
-    const bh = before.snake[0];
-    const h = cellRect(bh.x, bh.y, N, box);
-    for (const opt of ORDER) {
-      const [dx, dy] = DELTA[dirs[opt]];
-      const nx = bh.x + dx, ny = bh.y + dy;
-      const inside = nx >= 0 && ny >= 0 && nx < N && ny < N;
-      const cx = h.x + h.w / 2 + dx * h.w * (inside ? 0.78 : 0.42), cy = h.y + h.h / 2 + dy * h.h * (inside ? 0.78 : 0.42);
-      const a = locked ? (opt === chosen ? 1 : 0.22) : 0.95;
-      const r = h.w * (inside ? 0.26 : 0.14);
-      c.save();
-      c.translate(cx, cy);
-      c.rotate(Math.atan2(dy, dx));
-      c.beginPath();
-      c.moveTo(r, 0); c.lineTo(-r * 0.55, -r * 0.8); c.lineTo(-r * 0.2, 0); c.lineTo(-r * 0.55, r * 0.8); c.closePath();
-      c.lineJoin = 'round';
-      c.lineWidth = h.w * 0.05;
-      c.strokeStyle = rgba(BG, 0.9 * a);
-      c.stroke();
-      c.fillStyle = rgba(HUE[opt], a);
-      c.fill();
-      c.restore();
-    }
     // a crash lands in red at the end of its move
     if (decided && decided.deaths > before.deaths && info.beat.phase === 'move') {
       c.fillStyle = rgba(RED, 0.35 * (1 - info.beat.progress));

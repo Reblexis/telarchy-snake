@@ -200,6 +200,21 @@ describe('the game looks like a game', () => {
   });
 });
 
+describe('the board carries no option arrows', () => {
+  it('in a beat no pixel of the board has an option\'s hue, in either cut', () => {
+    const hues = [[0x38, 0xbd, 0xf8], [0xa7, 0x8b, 0xfa], [0xf4, 0x72, 0xb6]];
+    for (const [draw, w] of [[drawFull, 1920], [drawShort, 1080]] as const) for (const f of [45, 160, 200]) {
+      const d = draw(scene(), info(f)), b = d.rects.drawnBoard;
+      let hits = 0;
+      for (let y = Math.ceil(b.y); y < b.y + b.h; y += 2) for (let x = Math.ceil(b.x); x < b.x + b.w; x += 2) {
+        const k = (y * w + x) * 3;
+        if (hues.some(h => Math.abs(d.buffer[k] - h[0]) + Math.abs(d.buffer[k + 1] - h[1]) + Math.abs(d.buffer[k + 2] - h[2]) < 24)) hits++;
+      }
+      expect(hits, `frame ${f} width ${w}`).toBe(0);
+    }
+  });
+});
+
 describe('the full cut frame', () => {
   it('is 1920 by 1080 and carries no link while the game plays; the credits carry it', () => {
     expect(FULL_SIZE).toEqual({ w: 1920, h: 1080 });

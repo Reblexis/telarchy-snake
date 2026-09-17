@@ -123,9 +123,8 @@ cards, captions) stops at the box's edge.
 The market is three horizontal **race bars**, one lane per option in a fixed order (turn
 left, straight on, turn right), beside the board in the full cut, centred on it, and
 under it in the Short. A lane is labelled with the arrow of the direction the option moves
-the snake on screen, and the same arrow, larger and outlined, sits on the board in the
-cell ahead; an option that runs into the wall keeps its arrow, pinned inside the head's
-cell against that wall. Each option keeps one hue for the whole video (turn left cyan, straight on
+the snake on screen. The board itself carries no option arrows: nothing is drawn next to
+the snake's head. Each option keeps one hue for the whole video (turn left cyan, straight on
 violet, turn right magenta). Green belongs to the snake, red to death, gold to records.
 
 - A bar's length is the option's price on an axis from 0 to the full grid; a price under
@@ -145,8 +144,7 @@ violet, turn right magenta). Green belongs to the snake, red to death, gold to r
   progress bar of the best length so far against the full grid in their place. In the full
   cut they take the form of the price ladder (the terminal, above).
 - The leading lane is fully saturated, the others at 60 percent. At the lock the losing
-  lanes dim to 30 percent, the winner flashes once, its arrow on the board reaches into
-  the next cell, and the snake moves.
+  lanes dim to 30 percent, the winner flashes once, and the snake moves.
 
 ## The timeline
 
