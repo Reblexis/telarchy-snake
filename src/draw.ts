@@ -730,7 +730,8 @@ function openingScreen(p: Painter, scene: Scene, card: NonNullable<FrameInfo['ca
   const edge = Math.max(0, 4 * (1 - Math.max(0, open - 0.98) * 50));
   if (edge > 0.1) { c.fillRect(0, h / 2 - half - edge / 2, w, edge); c.fillRect(0, h / 2 + half - edge / 2, w, edge); }
   if (open < 0.85) return;
-  const def = SCREENS[card.card];
+  // a step-up screen brings its own words; the opening's three are fixed
+  const def = card.card === 'text' ? { label: () => card.label ?? '', lines: card.lines ?? [], gold: card.gold ?? '' } : SCREENS[card.card];
   const X = 200, W = w - 2 * X;
   const wrapped = def.lines.map(l => balanced(l, 84, 800, W));
   const total = wrapped.reduce((a, l) => a + l.length * 98, 0) + (wrapped.length - 1) * 44;
@@ -748,7 +749,7 @@ function openingScreen(p: Painter, scene: Scene, card: NonNullable<FrameInfo['ca
       lines.forEach((l, j) => {
         const ly = y + j * 98 + 40 * (1 - r);
         p.text(l, X, ly, 84, rgba(FG, r * out), 800);
-        const at = l.indexOf(def.gold);
+        const at = def.gold ? l.indexOf(def.gold) : -1;
         if (landed && at >= 0) {
           c.font = `800 84px "${FONTS.sans}"`;
           c.fillStyle = rgba(CHIP, out);

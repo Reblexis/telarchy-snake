@@ -19,7 +19,7 @@ export interface FrameInfo {
   lowerThird: { text: string; progress: number } | null;
   hold: { fx: 'hitstop' | 'filled'; progress: number } | null;
   /** An opening screen: which one, how many frames in, how many from its end. */
-  card: { card: 'market' | 'bets' | 'move'; frame: number; left: number } | null;
+  card: { card: 'market' | 'bets' | 'move' | 'text'; frame: number; left: number; label?: string; lines?: string[]; gold?: string } | null;
   credits: number | null;
   cold: boolean;
 }
@@ -119,7 +119,7 @@ export function frameAt(tl: Segment[], entries: LogStep[], frame: number): Frame
     caption: s.kind === 'beat' ? s.caption ?? null : null,
     lowerThird: card ? { text: card.text, progress: (f - card.start) / CARD_FRAMES } : null,
     hold: s.kind === 'hold' ? { fx: s.fx, progress: lf / s.frames } : null,
-    card: s.kind === 'card' ? { card: s.card, frame: lf, left: s.frames - 1 - lf } : null,
+    card: s.kind === 'card' ? { card: s.card, frame: lf, left: s.frames - 1 - lf, ...(s.card === 'text' ? { label: s.label, lines: s.lines, gold: s.gold } : {}) } : null,
     credits: s.kind === 'credits' ? lf / s.frames : null,
     cold: s.kind === 'beat' && s.cold === true,
   };

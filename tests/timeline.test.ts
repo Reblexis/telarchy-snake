@@ -275,6 +275,42 @@ describe('the rules beat teaches on real prices', () => {
   });
 });
 
+describe('a level inside the series cut', () => {
+  const lv = bigLevel();
+  const ms = momentsOf(lv.entries, lv.size, lv.byMove);
+  const step = { label: 'LEVEL 1 FILLED', lines: ["Let's step it up a notch.", 'How about a 6×6 grid?'], gold: '6×6' };
+  it('a later level starts straight on move 1: no hook, no screens, no rules beat', () => {
+    const t = fullTimeline(lv.entries, lv.size, lv.byMove, ms, { opening: false, credits: false });
+    expect(t.some(s => s.kind === 'card')).toBe(false);
+    expect(t.some(s => s.kind === 'beat' && (s.cold || s.slow))).toBe(false);
+    expect(t[0].kind === 'run' ? (t[0] as any).from : (t[0] as any).move - 1).toBe(0);
+  });
+  it('no credits between levels: it ends on the fill, then its step-up screen over the filled board', () => {
+    const last = lv.entries.length - 1;
+    const t = fullTimeline(lv.entries, lv.size, lv.byMove, ms, { opening: false, credits: false, stepUp: step });
+    expect(t.some(s => s.kind === 'credits')).toBe(false);
+    expect(t.slice(-3)).toEqual([{ kind: 'hold', fx: 'hitstop', entry: last, frames: 4 }, { kind: 'hold', fx: 'filled', entry: last, frames: 90 }, { kind: 'card', card: 'text', entry: last, frames: 105, ...step }]);
+  });
+  it('the last level ends on the fill alone', () => {
+    const t = fullTimeline(lv.entries, lv.size, lv.byMove, ms, { opening: false, credits: false });
+    expect(t.at(-1)).toMatchObject({ kind: 'hold', fx: 'filled' });
+  });
+  it('a level keeps inside its own budget, step-up screen included', () => {
+    for (const max of [2010, 3036]) {
+      const t = fullTimeline(lv.entries, lv.size, lv.byMove, ms, { opening: false, credits: false, stepUp: step, maxFrames: max });
+      expect(frames(t)).toBeLessThanOrEqual(max);
+    }
+  });
+  it('the first level of a series keeps the opening', () => {
+    const t = fullTimeline(lv.entries, lv.size, lv.byMove, ms, { credits: false, stepUp: step });
+    expect(t.filter(s => s.kind === 'card').map(s => (s as any).card)).toEqual(['market', 'bets', 'move', 'text']);
+  });
+  it('with no options it is the full cut as before', () => {
+    expect(fullTimeline(lv.entries, lv.size, lv.byMove, ms)).toEqual(fullTimeline(lv.entries, lv.size, lv.byMove, ms, {}));
+    expect(fullTimeline(lv.entries, lv.size, lv.byMove, ms).at(-1)).toMatchObject({ kind: 'credits' });
+  });
+});
+
 describe('the full cut is short', () => {
   it('two and a half minutes at most, whatever the level', () => {
     expect(FULL_MAX).toBe(150 * TL_FPS);

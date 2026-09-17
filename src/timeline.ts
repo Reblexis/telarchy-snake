@@ -26,6 +26,7 @@ export type Segment =
   | { kind: 'run'; from: number; to: number; speed: number; frames: number; easeIn: boolean; easeOut: boolean; crash?: boolean }
   | { kind: 'hold'; fx: 'hitstop' | 'filled'; entry: number; frames: number }
   | { kind: 'card'; card: 'market' | 'bets' | 'move'; entry: number; frames: number }
+  | { kind: 'card'; card: 'text'; entry: number; frames: number; label: string; lines: string[]; gold: string }
   | { kind: 'credits'; frames: number }
   | { kind: 'loop'; frames: number };
 type Run = Extract<Segment, { kind: 'run' }>;
@@ -151,7 +152,22 @@ function story(entries: LogStep[], size: number, byMove: TradeRow[][], beats: Ma
 }
 
 /** The full cut: cold open, the story with its beats and runs, the finale, the fill, the credits. */
-export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[][], moments: Moment[]): Segment[] {
+/** How a level's timeline differs inside the series cut (docs/level-video.md, "The series cut"). */
+export interface TimelineOptions {
+  /** The hook, the screens and the rules beat; only the series' first level has them. Default true. */
+  opening?: boolean;
+  /** The credits after the fill. Default true. */
+  credits?: boolean;
+  /** The screen that follows the fill, over the filled board. */
+  stepUp?: { label: string; lines: string[]; gold: string } | null;
+  /** The level's time budget, everything included. Default FULL_MAX. */
+  maxFrames?: number;
+}
+export const STEP_UP_SCREEN_FRAMES = 105;
+
+export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[][], moments: Moment[], opts: TimelineOptions = {}): Segment[] {
+  const withOpening = opts.opening !== false;
+  const MAX = opts.maxFrames ?? FULL_MAX;
   const last = entries.length - 1;
   if (last < 1) return [{ kind: 'credits', frames: CREDITS_FRAMES }];
   const list = attempts(entries, size);
@@ -159,24 +175,28 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const finaleFrom = Math.max(1, last - (FINALE_BEATS - 1));
   // the hook never gives away the fill: its moment comes from before the finale
   const coldMoment = moments.filter(m => m.kinds.includes('near miss') && m.credits > 0 && m.move < finaleFrom).sort((a, b) => b.weight - a.weight || a.move - b.move)[0];
-  const opening = (rulesBeat: boolean): Segment[] => [
+  const opening = (rulesBeat: boolean): Segment[] => !withOpening ? [] : [
     ...(coldMoment ? [beat(byMove, coldMoment.move, { cold: true, slow: true })] : []),
     screen('market', coldMoment ? coldMoment.move : 0),
     // with no rules beat in the story the other two screens follow straight away
     ...(rulesBeat ? [] : [screen('bets', 0), screen('move', 0)]),
   ];
-  const tail: Segment[] = [{ kind: 'hold', fx: 'hitstop', entry: last, frames: 4 }, { kind: 'hold', fx: 'filled', entry: last, frames: 90 }, { kind: 'credits', frames: CREDITS_FRAMES }];
+  const tail: Segment[] = [
+    { kind: 'hold', fx: 'hitstop', entry: last, frames: 4 }, { kind: 'hold', fx: 'filled', entry: last, frames: 90 },
+    ...(opts.stepUp ? [{ kind: 'card' as const, card: 'text' as const, entry: last, frames: STEP_UP_SCREEN_FRAMES, ...opts.stepUp }] : []),
+    ...(opts.credits !== false ? [{ kind: 'credits' as const, frames: CREDITS_FRAMES }] : []),
+  ];
 
   const base = new Map<number, string | undefined>();
   for (let m = finaleFrom; m <= last; m++) base.set(m, undefined);
   let firstTraded = 0;
   const priced = (m: number) => (['forward', 'left', 'right'] as const).every(o => typeof entries[m].prices?.[o] === 'number');
-  for (let m = 13; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0 && priced(m)) { firstTraded = m; break; }
+  if (withOpening) for (let m = 13; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0 && priced(m)) { firstTraded = m; break; }
   if (firstTraded) base.set(firstTraded, RULES);
   const cold = opening(Boolean(firstTraded));
 
   // big deaths are beats before any other moment; if they alone outgrow half the story, the furthest-reaching stay
-  const storyFrames = FULL_MAX - total(cold) - total(tail);
+  const storyFrames = MAX - total(cold) - total(tail);
   const reachedAt = new Map(list.map(a => [a.end, a.reached] as const));
   const big = bigDeaths(entries, size)
     .filter(m => m < finaleFrom - 12 && !base.has(m) && (!firstTraded || Math.abs(m - firstTraded) >= 13))
@@ -192,13 +212,13 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   const build = (beats: Map<number, string | undefined>): Segment[] | null => {
     for (const speed of SPEED_LADDER) {
       const segs = [...cold, ...story(entries, size, byMove, beats, speed, winStart), ...tail];
-      if (total(segs) <= FULL_MAX) return segs;
+      if (total(segs) <= MAX) return segs;
     }
     return null;
   };
   let chosen = new Map(base);
   let best = build(chosen);
-  const storyBudget = FULL_MAX - total(cold) - total(tail);
+  const storyBudget = MAX - total(cold) - total(tail);
   const beatTime = (beats: Map<number, string | undefined>) => [...beats.keys()].reduce((a, m) => a + beatFrames(chipsOf(byMove, m), Boolean(beats.get(m))), 0);
   // only big deaths are slowed: a crash that is not big never becomes a beat, whatever its weight
   const smallDeath = (m: number) => entries[m].deaths > entries[m - 1].deaths && !chosen.has(m);
