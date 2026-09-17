@@ -25,6 +25,15 @@ export function attempts(entries: LogStep[], size: number): Attempt[] {
   return out;
 }
 
+/** A death is big when the attempt had reached at least this share of the grid (docs/level-video.md, "Big deaths"). */
+export const BIG_DEATH_SHARE = 0.4;
+/** The entries at which a big death lands, in order. */
+export function bigDeaths(entries: LogStep[], size: number): number[] {
+  return attempts(entries, size)
+    .filter(a => a.end > 0 && entries[a.end].deaths > entries[a.end - 1].deaths && a.reached >= BIG_DEATH_SHARE * size * size)
+    .map(a => a.end);
+}
+
 /** What happens on the move into entry `i`. */
 export function fxOf(entries: LogStep[], i: number, size: number): Fx | null {
   if (i <= 0) return null;

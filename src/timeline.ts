@@ -3,7 +3,7 @@
 import type { LogStep } from './gamelog.js';
 import type { TradeRow } from './level.js';
 import type { Moment } from './moments.js';
-import { attempts } from './attempts.js';
+import { attempts, bigDeaths } from './attempts.js';
 
 export const TL_FPS = 30;
 export const FULL_MAX = 5 * 60 * TL_FPS;
@@ -154,6 +154,20 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   for (let m = 1; m < finaleFrom - 12; m++) if (chipsOf(byMove, m) > 0) { firstTraded = m; break; }
   if (firstTraded) base.set(firstTraded, RULES_CAPTION);
 
+  // big deaths are beats before any other moment; if they alone outgrow half the story, the furthest-reaching stay
+  const storyFrames = FULL_MAX - total(cold) - total(tail);
+  const reachedAt = new Map(list.map(a => [a.end, a.reached] as const));
+  const big = bigDeaths(entries, size)
+    .filter(m => m < finaleFrom - 12 && !base.has(m) && (!firstTraded || Math.abs(m - firstTraded) >= 13))
+    .sort((a, b) => (reachedAt.get(b) ?? 0) - (reachedAt.get(a) ?? 0) || a - b);
+  let bigTime = [...base.keys()].reduce((a, m) => a + beatFrames(chipsOf(byMove, m), Boolean(base.get(m))), 0);
+  for (const m of big) {
+    const cost = beatFrames(chipsOf(byMove, m));
+    if (bigTime + cost > storyFrames / 2) continue;
+    base.set(m, undefined);
+    bigTime += cost;
+  }
+
   const build = (beats: Map<number, string | undefined>): Segment[] | null => {
     for (const speed of SPEED_LADDER) {
       const segs = [...cold, ...story(entries, size, byMove, beats, speed, winStart), ...tail];
@@ -165,7 +179,9 @@ export function fullTimeline(entries: LogStep[], size: number, byMove: TradeRow[
   let best = build(chosen);
   const storyBudget = FULL_MAX - total(cold) - total(tail);
   const beatTime = (beats: Map<number, string | undefined>) => [...beats.keys()].reduce((a, m) => a + beatFrames(chipsOf(byMove, m), Boolean(beats.get(m))), 0);
-  const candidates = moments.filter(m => m.move < finaleFrom - 12 && !chosen.has(m.move)).sort((a, b) => b.weight - a.weight || a.move - b.move).slice(0, 300);
+  // only big deaths are slowed: a crash that is not big never becomes a beat, whatever its weight
+  const smallDeath = (m: number) => entries[m].deaths > entries[m - 1].deaths && !chosen.has(m);
+  const candidates = moments.filter(m => m.move < finaleFrom - 12 && !chosen.has(m.move) && !smallDeath(m.move)).sort((a, b) => b.weight - a.weight || a.move - b.move).slice(0, 300);
   for (const c of candidates) {
     const spaced = [...chosen.keys()].every(b => b >= finaleFrom || Math.abs(b - c.move) >= 13);
     if (!spaced) continue;

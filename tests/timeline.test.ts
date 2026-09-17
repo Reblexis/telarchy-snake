@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { fullTimeline, shortTimeline, positionAt, runFrames, SPEED_LADDER, TL_FPS, FULL_MAX, SHORT_MAX, CREDITS_FRAMES, type Segment, RULES_CAPTION } from '../src/timeline.js';
 import { momentsOf } from '../src/moments.js';
+import { bigDeaths } from '../src/attempts.js';
+import { frameAt } from '../src/frames.js';
 import type { LogStep } from '../src/gamelog.js';
 import type { TradeRow } from '../src/level.js';
 
@@ -225,6 +227,51 @@ describe('the full cut timeline', () => {
     const t = fullTimeline(e, size, [[], []], momentsOf(e, size, [[], []]));
     expect(frames(t)).toBeLessThanOrEqual(FULL_MAX);
     expect(t.at(-1)!.kind).toBe('credits');
+  });
+});
+
+describe('big deaths', () => {
+  // 6x6: 40 percent of the grid is 14.4, so an attempt that reached 15 dies big and one that reached 14 does not
+  const grow = (n: number) => 'me'.repeat(n - 2);
+  const level = () => plainLevel(`${grow(5)}mmd${grow(15)}mmd${grow(14)}mmd${'mmd'.repeat(30)}${grow(16)}mmd${grow(36)}`, 6);
+  const crashes = (entries: LogStep[]) => entries.map((e, i) => (i > 0 && e.deaths > entries[i - 1].deaths ? i : -1)).filter(i => i > 0);
+  it('a death after reaching 40 percent of the grid is big; one short of it is not', () => {
+    expect(bigDeaths(level(), 6).map(i => level()[i - 1].length)).toEqual([15, 16]);
+  });
+  it('every big death is a beat on the move that kills the snake, and no small death is', () => {
+    const entries = level();
+    const byMove = entries.map(() => [] as TradeRow[]);
+    const tl = fullTimeline(entries, 6, byMove, momentsOf(entries, 6, byMove));
+    const beats = new Set(tl.filter(s => s.kind === 'beat').map(s => (s as { move: number }).move));
+    const big = bigDeaths(entries, 6);
+    expect(big.length).toBe(2);
+    for (const c of crashes(entries)) expect(beats.has(c), `crash at ${c}`).toBe(big.includes(c));
+  });
+  it('the run into a big death eases down, so the snake never jumps from fast to slow', () => {
+    const entries = level();
+    const byMove = entries.map(() => [] as TradeRow[]);
+    const tl = fullTimeline(entries, 6, byMove, momentsOf(entries, 6, byMove));
+    for (const c of bigDeaths(entries, 6)) {
+      const k = tl.findIndex(s => s.kind === 'beat' && s.move === c);
+      const before = tl[k - 1];
+      expect(before.kind).toBe('run');
+      if (before.kind === 'run') expect(before.easeOut).toBe(true);
+    }
+  });
+  it('the winning attempt is never a death, and a level with no big death gets no such beat', () => {
+    const entries = plainLevel(`${'mmd'.repeat(10)}${grow(36)}`, 6);
+    expect(bigDeaths(entries, 6)).toEqual([]);
+  });
+  it('a big death that set no record shows DIED AT, a record crash keeps its record card', () => {
+    // attempt 2 reached 15 (a record), attempt 34 reached 16 (a record); make a later big death below the record
+    const entries = plainLevel(`${grow(20)}mmd${grow(15)}mmd${grow(36)}`, 6);
+    const byMove = entries.map(() => [] as TradeRow[]);
+    const tl = fullTimeline(entries, 6, byMove, momentsOf(entries, 6, byMove));
+    const texts = new Set<string>();
+    const total = tl.reduce((a, s2) => a + s2.frames, 0);
+    for (let f = 0; f < total; f += 5) { const c = frameAt(tl, entries, f).lowerThird; if (c) texts.add(c.text); }
+    expect([...texts]).toContain('RECORD 20 · attempt 1');
+    expect([...texts]).toContain('DIED AT 15 · attempt 2');
   });
 });
 

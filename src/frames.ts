@@ -46,11 +46,13 @@ function layout(tl: Segment[], entries: LogStep[]) {
   const starts: number[] = [];
   let at = 0;
   for (const s of tl) { starts.push(at); at += s.frames; }
+  // a death the timeline slows down (a beat on the crash) is a big death; it gets a card even when it set no record
+  const big = new Set(tl.filter(s => s.kind === 'beat' && !s.cold && s.move > 0 && entries[s.move].deaths > entries[s.move - 1].deaths).map(s => (s as { move: number }).move));
   // the crash that ends each record attempt, and the attempt's number and length
   const records = attempts(entries, Number.MAX_SAFE_INTEGER).slice(0, -1)
     .map((a, i) => ({ a, n: i + 1 }))
-    .filter(x => x.a.record)
-    .map(x => ({ end: x.a.end, text: `RECORD ${x.a.reached} · attempt ${x.n}` }));
+    .filter(x => x.a.record || big.has(x.a.end))
+    .map(x => ({ end: x.a.end, text: x.a.record ? `RECORD ${x.a.reached} · attempt ${x.n}` : `DIED AT ${x.a.reached} · attempt ${x.n}` }));
   const cards: Array<{ start: number; text: string }> = [];
   for (const r of records) {
     for (let k = 0; k < tl.length; k++) {

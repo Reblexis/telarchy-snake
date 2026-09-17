@@ -171,6 +171,14 @@ here are the contract the renderer and the tests share.
   full cut stays within five minutes with the runs at the slowest ladder speed that fits.
   Outside the finale, between two beats there are always at least 90 frames of run, so
   two beats are at least 13 moves apart.
+- **Big deaths.** A death is **big** when the snake had reached at least 40 percent of the
+  grid in that attempt. Every big death is a beat on the move that kills it, so the run
+  before it eases down to 4 moves a second, the fatal decision plays in slow motion, and
+  the crash lands in red; every other death stays inside its run at speed. Big deaths come
+  before the strongest moments when beats are chosen; should they alone take more than
+  half of the story's time, the ones that reached the furthest are kept. A big death that
+  set no record shows the card `DIED AT <length> · attempt <n>` the way a record crash
+  shows its record card.
 - **The finale.** The winning attempt plays in runs split at each fifth of the grid
   filled, each run no faster than the one before (not counting a short run between two
   beats, which slows only itself), at a speed that falls as the grid
