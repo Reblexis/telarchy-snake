@@ -96,9 +96,12 @@ and the next move is where it gets posted, not rewording it. Log the real number
 - YouTube, public since 2026-09-18: https://youtu.be/qECrpk67ckQ , title as above, thumbnail
   "WHO'S DRIVING?", channel phone-verified the same day. Description links are not
   clickable until the channel passes YouTube's advanced-features verification.
-- X, from @Telarchy, 2026-09-18: https://x.com/Telarchy/status/2100881799593267422 (draft A,
-  222 characters, native 44 s clip of the opening) with the first reply
-  https://x.com/Telarchy/status/2100882316839014854 (telarchy.com/snake first, the video
-  second). Owner's priority, in his words: making Telarchy popular, not YouTube views.
+- X, from @Telarchy, 2026-09-18: https://x.com/Telarchy/status/2100886310445556137 , the
+  level 2 video as native video (2 min 9 s, the full cut without its credits), text "2,404
+  bets played a game of snake on a 6x6 grid. Nobody steered. ..." (202 characters), with the
+  first reply https://x.com/Telarchy/status/2100886674016207236 (telarchy.com/snake first,
+  the series video second). It replaced a first post with a 44 s clip of the opening,
+  deleted the same day at the owner's ask ("post the most impressive one", then level 2).
+  Owner's priority, in his words: making Telarchy popular, not YouTube views.
 - X falsifier (from the X note): one post under 100 impressions after 24 hours is noise.
   Log impressions, likes and replies here at 24 hours and at 7 days.
