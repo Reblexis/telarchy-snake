@@ -90,3 +90,15 @@ Full video, all three levels: <link to the series video>
 Written before posting: if the series video has under 200 views 14 days after it goes
 public, the title was not the bottleneck; distribution was (the channel has no audience),
 and the next move is where it gets posted, not rewording it. Log the real numbers here.
+
+## Published (2026-09-18)
+
+- YouTube, public since 2026-09-18: https://youtu.be/qECrpk67ckQ , title as above, thumbnail
+  "WHO'S DRIVING?", channel phone-verified the same day. Description links are not
+  clickable until the channel passes YouTube's advanced-features verification.
+- X, from @Telarchy, 2026-09-18: https://x.com/Telarchy/status/2100881799593267422 (draft A,
+  222 characters, native 44 s clip of the opening) with the first reply
+  https://x.com/Telarchy/status/2100882316839014854 (telarchy.com/snake first, the video
+  second). Owner's priority, in his words: making Telarchy popular, not YouTube views.
+- X falsifier (from the X note): one post under 100 impressions after 24 hours is noise.
+  Log impressions, likes and replies here at 24 hours and at 7 days.
