@@ -14,7 +14,8 @@
     "video": "tsx src/video.ts",
     "script": "tsx src/script.ts",
     "video:all": "tsx src/video-all.ts",
-    "video:series": "tsx src/video-series.ts"
+    "video:series": "tsx src/video-series.ts",
+    "thumbnail": "tsx src/thumbnail.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

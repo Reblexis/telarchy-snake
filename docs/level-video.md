@@ -140,6 +140,30 @@ the game, the screens) and carries the same music, looped.
 The sidecar `snake-series.json` is `{ title, description, levels, durationSeconds }`, the
 title `A prediction market plays snake: levels <first> to <last>`.
 
+## Thumbnails
+
+`npm run thumbnail` writes three 1280 by 720 thumbnails for the series video under
+`videos/`, one idea each, for YouTube's Test and Compare. Each is a real position of a real
+level, drawn with the game's own look, beside at most four words that never repeat the
+title, with one focal point, and with the bottom right corner (170 by 80) left empty for
+the duration badge. No logo, no credit amounts, no claim the footage does not show.
+
+- `thumbnail-driving.png`, **WHO'S DRIVING?** (control): a 6x6 position with a bent snake of
+  7 cells or more and at most half the grid, its head off the border and in the right half
+  of the board so the arrow to it is short; beside it the three options as direction
+  shapes with their recorded forecasts, the played one framed in gold with a gold arrow
+  to the head. The market's lead on the move is at least 1.
+- `thumbnail-danger.png`, **DON'T TURN.** (danger): a 4x4 position where only one of the
+  three ways would not kill the snake; the ways that would are outlined in red, the way
+  played is shown with its forecast, framed in gold, with a gold arrow to the cell it
+  leads to.
+- `thumbnail-works.png`, **THIS ACTUALLY WORKS?** (competence): an 8x8 position with at
+  least 85 percent of the grid filled; the three direction shapes, the played one framed
+  in gold, no figures.
+
+Among the positions that qualify the longest snake is used, then the clearest market.
+Every figure on a thumbnail is the recorded price of the move shown.
+
 ## The terminal (full cut)
 
 Everything around the board reads as a professional trading terminal: no boxes, one grid

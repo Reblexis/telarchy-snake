@@ -178,7 +178,7 @@ export const GAME = {
 /** An ordinary snake game inside the box: a checkerboard, a body of blocks, a head with eyes, an apple.
  *  `snake` is snakeAt's (a fractional head first while it glides); `slide` is how far the tail has
  *  slid into the segment before it, from 0 to 1. */
-function gameBoard(c: SKRSContext2D, snake: Cell[], heading: string, food: Cell | null, slide: number, N: number, box: Box) {
+export function gameBoard(c: SKRSContext2D, snake: Cell[], heading: string, food: Cell | null, slide: number, N: number, box: Box) {
   const cell = Math.floor(box.px / N);
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
     c.fillStyle = (x + y) % 2 === 0 ? GAME.boardA : GAME.boardB;
