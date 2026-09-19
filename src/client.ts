@@ -4,7 +4,8 @@ import type { LeaderRow, MarketActivity, ProposalRef, TelarchyClient, RestingLim
 import { ACTIONS, emptyQuotes, type Action, type ProposalOption, type Quotes, type Horizon } from './decide.js';
 
 /** docs/snake.md, "The workspace": what the attempt's main book opens with on every cell. */
-export const MAIN_BOOK_CREDITS = 3000;
+export const MAIN_BOOK_CREDITS = 30;
+export const OPTION_BOOK_CREDITS = 10;
 
 export interface SessionAuth {
   /** A browser account (the platform admin on the beta, which is admin-gated
@@ -209,23 +210,14 @@ export class HttpTelarchyClient implements TelarchyClient {
   }
 
   /** docs/snake.md "The workspace": the attempt's date becomes the metric's
-   *  only horizon, titled for the floor; the proposal credits the metric
-   *  already has move with it. */
+   *  only horizon, titled for the floor, at the documented depth. */
   async setHorizon(cell: string): Promise<void> {
-    const m = await this.call('GET', `/metrics/${encodeURIComponent(this.o.metricId)}`);
-    const credits: Record<string, unknown> = m?.timePreference?.horizonCredits ?? {};
-    const first = Object.values(credits)[0] as { book?: number; proposal?: number } | undefined;
-    /* The documented depth (docs/snake.md, "The workspace"): 1,000 credits an
-       option, so a five-credit trade is an opinion and a hundred-credit one
-       does not pin the book. These are the numbers `scripts/provision.sh`
-       creates the workspace with, and this fallback is the only other place
-       they are written. It had been left at 40 an option: once used, every
-       book on the floor opened forty times too shallow and two credits moved
-       a price from 2.00 to 6.58, with nothing reporting an error. */
-    /* The main book opens with 3,000 credits, always (docs/snake.md, "The
-       workspace"): every option book opens at its price, and at 25 credits
-       nobody was paid enough to correct it. */
-    const entry = { book: MAIN_BOOK_CREDITS, proposal: first?.proposal ?? 1000 };
+    /* The documented depth (docs/snake.md, "The workspace"): 30 credits for
+       the main book and 10 an option, written on every horizon write whatever
+       the metric carried before, so a change of the rule reaches the live
+       floor with the next attempt. `scripts/provision.sh` is the only other
+       place the numbers are written. */
+    const entry = { book: MAIN_BOOK_CREDITS, proposal: OPTION_BOOK_CREDITS };
     await this.call('PUT', `/metrics/${encodeURIComponent(this.o.metricId)}`, {
       timePreference: { enabled: false, customHorizons: [cell], horizonCredits: { [cell]: entry }, horizonTitles: { [cell]: ATTEMPT_TITLE } },
     });
