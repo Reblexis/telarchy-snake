@@ -120,21 +120,22 @@ Trading is open to everyone as before. The floor draws no propose
 control for a visitor.
 
 Liquidity: every option book a proposal opens is funded by the workspace
-owner through the metric's proposal credits on the attempt's date (1,000
-credits an option, so a five-credit trade is an opinion and a
-hundred-credit one does not pin the book), never by the proposer; the
+owner through the metric's proposal credits on the attempt's date (10
+credits an option: the books are shallow on purpose, a few credits move a
+price and so steer the snake, and the owner risks little on each), never by
+the proposer; the
 operator posts with no subsidy of its own. A step opens three books, one
-per option, so it puts 3,000 credits out and gets 2,000 back within the
+per option, so it puts 30 credits out and gets 20 back within the
 minute (the two options not chosen void and refund); the chosen option's
-1,000 stays out until the attempt ends, so an attempt N moves long has
-N thousand credits out by its last move, plus the open step's three. The
+10 stays out until the attempt ends, so an attempt N moves long has
+N times 10 credits out by its last move, plus the open step's thirty. The
 operator's float must stay above the longest attempt's or Telarchy refuses
 the proposal (`Insufficient balance for forecast subsidy`); what traders
 win off the chosen books is the only thing that draws it down. The attempt's main book, the one book on its date that is
-not an option (the price every option book opens from), opens with 3,000
-credits, always: the operator writes 3,000 for the book whenever it
-writes the horizon, whatever the metric carried before, so a main book that sits below
-the snake's length is worth correcting. The workspace's decision window is one minute,
+not an option (the price every option book opens from), opens with 30
+credits. The operator writes both numbers, 30 for the main book and 10 for
+an option, whenever it writes the horizon, whatever the metric carried
+before. The workspace's decision window is one minute,
 the minimum. The workspace has no charter, so a decline needs no reason.
 
 The workspace is **muted**: `notificationsMuted` is on, so nothing it does

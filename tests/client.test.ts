@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { HttpTelarchyClient, minuteCells, ATTEMPT_DATE } from '../src/client.js';
+import { readFileSync } from 'node:fs';
+import { HttpTelarchyClient, minuteCells, ATTEMPT_DATE, MAIN_BOOK_CREDITS, OPTION_BOOK_CREDITS } from '../src/client.js';
 import { proposalOptions, OPTION_LABEL } from '../src/decide.js';
 
 type Req = { url: string; method: string; headers: Record<string, string>; body: any };
@@ -206,7 +207,7 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(c)).some(n => /trade|order/i.test(n))).toBe(false);
   });
 
-  it('writes the attempt date, until-settled titled this attempt, as the metric\'s only horizon, carrying the proposal credits the metric already has', async () => {
+  it('writes the attempt date, until-settled titled this attempt, as the metric\'s only horizon', async () => {
     const { reqs, fetchImpl } = fakeFetch(r => r.method === 'GET'
       ? { json: { id: 'm1', timePreference: { enabled: false, customHorizons: ['2026-09-11T10:30'], horizonCredits: { '2026-09-11T10:30': { book: 1000, proposal: 1200 } } } } }
       : { json: { ok: true } });
@@ -214,56 +215,52 @@ describe('the Telarchy client (docs/snake.md, "The workspace" and "The step")', 
     await c.setHorizon('until-settled');
     const put = reqs.find(r => r.method === 'PUT')!;
     expect(put.url).toBe('https://telarchy.com/api/metrics/m1');
-    expect(put.body).toEqual({ timePreference: { enabled: false, customHorizons: ['until-settled'], horizonCredits: { 'until-settled': { book: 3000, proposal: 1200 } }, horizonTitles: { 'until-settled': 'this attempt' } } });
-    const bare = new HttpTelarchyClient(opts, fakeFetch(r => r.method === 'GET' ? { json: { id: 'm1', timePreference: null } } : { json: { ok: true } }).fetchImpl as any);
-    await bare.setHorizon('until-settled');
+    expect(put.body).toEqual({ timePreference: { enabled: false, customHorizons: ['until-settled'], horizonCredits: { 'until-settled': { book: 30, proposal: 10 } }, horizonTitles: { 'until-settled': 'this attempt' } } });
   });
 
   /**
-   * A METRIC WITH NO CREDITS YET STILL GETS THE DOCUMENTED DEPTH
-   * (docs/snake.md, "The workspace": 1,000 credits an option).
-   *
-   * This fallback is the only place the number is written down in code, and
-   * it had been left at 40. Once it was used, every option book on the floor
-   * opened with 40 credits instead of 1,000, so two credits moved a price
-   * from 2.00 to 6.58 and the market could not be traded seriously. Nothing
-   * reported an error: the books existed, they were just shallow.
+   * AN OPTION BOOK OPENS WITH 10 CREDITS AND THE MAIN BOOK WITH 30
+   * (docs/snake.md, "The workspace"; Viktor 2026-09-19: "decrease the
+   * funding on snake workspace to be 10 credits liquidity instead of 1k",
+   * the main book too).
    */
-  it('a metric carrying no credits gets the documented 1,000 an option, not a thin fallback', async () => {
+  it('the documented depth is 10 credits an option and 30 for the main book', () => {
+    expect(OPTION_BOOK_CREDITS).toBe(10);
+    expect(MAIN_BOOK_CREDITS).toBe(30);
+  });
+
+  it('a metric carrying no credits gets 10 an option and 30 for the main book', async () => {
     for (const tp of [null, undefined, {}, { enabled: false, customHorizons: [] }, { horizonCredits: {} }]) {
       const { reqs, fetchImpl } = fakeFetch(r =>
         r.method === 'GET' ? { json: { id: 'm1', timePreference: tp } } : { json: { ok: true } },
       );
       const c = new HttpTelarchyClient(opts, fetchImpl as any);
       await c.setHorizon('until-settled');
-      const put = reqs.find(r => r.method === 'PUT')!;
-      const entry = (put.body as any).timePreference.horizonCredits['until-settled'];
-      expect(entry.proposal).toBe(1000);
-      expect(entry.book).toBe(3000);
+      const entry = (reqs.find(r => r.method === 'PUT')!.body as any).timePreference.horizonCredits['until-settled'];
+      expect(entry).toEqual({ book: 30, proposal: 10 });
     }
   });
 
   /**
-   * THE MAIN BOOK OPENS WITH 3,000 CREDITS, ALWAYS (docs/snake.md, "The
-   * workspace"; Viktor 2026-09-13: "main book should be at 3k liquidity
-   * always").
-   *
-   * Every option book opens at the main book's price. With 25 credits the
-   * main book paid about 25 credits to whoever corrected it, while each of
-   * the option books opening from its stale price held 1,000, so nobody
-   * corrected it and the options opened far below the snake's length.
+   * The live metric carried 3,000 and 1,000 when the rule changed. A
+   * horizon write that kept what the metric had would have left the floor
+   * at the old depth forever, so the operator writes both numbers itself.
    */
-  it('the main book was 25 credits and nobody corrected its price (2026-09-13): every horizon the operator writes gives it 3,000, whatever the metric carried', async () => {
-    for (const book of [25, 0, 1000, 5000, null, undefined]) {
+  it('the operator writes 30 and 10 whenever it writes the horizon, whatever the metric carried before', async () => {
+    for (const [book, proposal] of [[3000, 1000], [25, 40], [0, 0], [5000, 1200], [null, null], [undefined, undefined], [-5, -1]]) {
       const { reqs, fetchImpl } = fakeFetch(r => r.method === 'GET'
-        ? { json: { id: 'm1', timePreference: { enabled: false, customHorizons: ['2026-09-11T10:30'], horizonCredits: { '2026-09-11T10:30': { book, proposal: 1000 } } } } }
+        ? { json: { id: 'm1', timePreference: { enabled: false, customHorizons: ['2026-09-11T10:30'], horizonCredits: { '2026-09-11T10:30': { book, proposal } } } } }
         : { json: { ok: true } });
       const c = new HttpTelarchyClient(opts, fetchImpl as any);
       await c.setHorizon('until-settled');
       const entry = (reqs.find(r => r.method === 'PUT')!.body as any).timePreference.horizonCredits['until-settled'];
-      expect(entry.book).toBe(3000);
-      expect(entry.proposal).toBe(1000);
+      expect(entry).toEqual({ book: 30, proposal: 10 });
     }
+  });
+
+  it('provisioning creates the workspace at the same depth the operator writes', () => {
+    const sh = readFileSync(new URL('../scripts/provision.sh', import.meta.url), 'utf8');
+    expect(sh).toContain('"until-settled": { "book": 30, "proposal": 10 }');
   });
 
   it('minute cell: the one cell sixty minutes after the opening minute, named YYYY-MM-DDTHH:MM', () => {
