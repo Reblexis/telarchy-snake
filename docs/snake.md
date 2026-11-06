@@ -567,7 +567,7 @@ The operator account still never trades.
 ## The stream
 
 The board rendered as a 1280 by 720 frame in-process and pushed to Twitch
-as a continuous stream, from the snake's own server. The channel is
+as a continuous stream from the snake's host; it is off while the snake is stopped. The channel is
 https://www.twitch.tv/telarchy (account agents@telarchy.com; credentials
 and the stream key in the keyring, `telarchy/twitch.env`). The stream is
 a link on the board and the floor; it is not expected to find viewers on
@@ -862,19 +862,16 @@ game are answered at once, since there a restart is the repair. Every action is 
 the Telarchy base URL, the operator API key, the workspace id, the port,
 the state file path, the liquidity per book.
 
-The snake runs on a server of its own (Hetzner `telarchy-snake`,
-167.233.147.90, 2 vCPU, 4 GB, user `telarchy`): the only other process
-there is futarchy chess (`telarchy-chess`, its `docs/chess.md`), a light
-operator with no engine and a few reads a minute, so a decision always falls
-inside its minute. Nothing heavy runs there. It shared the fleet box first
-and was starved by that box's benches (load above 100 on two cores, steps
-lapsing, the site's proxy answering 502 for the feed), which is why it
-moved. The operator and the stream are the two `systemd --user` units of
-`deploy/`, installed by `deploy/install.sh`; Caddy on the same server
-serves the board on `snake.telarchy.com` (an A record pointing at the
-server) and on the server's nip.io name, `deploy/Caddyfile.snake`. The
-site reaches the feed through the workspace's `liveFeed` url, which names
-whichever of the two hosts resolves.
+The snake does not run now: it is stopped and its server (Hetzner
+`telarchy-snake`) is retired. Its last state, `.env`, units and logs are in
+the archive `/root/archive/telarchy-snake-box-2026-11-06.tgz` in the fleet's `ops` body (agent-economy `docs/operations.md`) and the Hetzner snapshot "telarchy-snake before retiring" (image 453043097), and the workspace's `liveFeed` is cleared, so the floor draws no
+live view. Running it again takes a host where a decision always falls inside
+its minute (it once shared the fleet box and was starved by that box's benches:
+load above 100 on two cores, steps lapsing, the site's proxy answering 502 for
+the feed), Node 22, the checkout with `state/` and `.env` from the archive, the
+two `systemd --user` units of `deploy/` (`deploy/install.sh`), a public HTTPS
+name for its port (`deploy/Caddyfile.snake`), and the workspace's `liveFeed`
+set to that name. `snake.telarchy.com` stays unused until then.
 
 It ran first against the beta store for a full day, and the site's query
 times under that load are recorded in the umbrella notes, before it moved
